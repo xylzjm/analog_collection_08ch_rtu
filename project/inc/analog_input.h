@@ -80,8 +80,9 @@ typedef struct analog_input analog_input_t;
 /**
  * @brief Input configuration stored by the analog input object.
  *
- * thermocouple_type must be ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE when type is
- * not ANALOG_INPUT_TYPE_THERMOCOUPLE.
+ * thermocouple_type is meaningful only when type is
+ * ANALOG_INPUT_TYPE_THERMOCOUPLE. For other input types the implementation
+ * normalizes it to ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE.
  */
 typedef struct {
     analog_input_type_t type;
@@ -142,17 +143,19 @@ struct analog_input {
  * @brief Select the input type and type-specific sensor model.
  *
  * The object stores config only after the hardware operation succeeds.
- * Non-thermocouple input types require
- * ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE in config->thermocouple_type.
+ * For non-thermocouple input types, config->thermocouple_type is ignored and
+ * the object caches ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE instead.
  */
 static inline analog_input_status_t analog_input_configure(
     analog_input_t *self, const analog_input_config_t *config)
 {
     analog_input_status_t status;
+    analog_input_config_t normalized;
 
     if (self == NULL || config == NULL) {
         return ANALOG_INPUT_ERR_ARG;
     }
+    normalized = *config;
     switch (config->type) {
         case ANALOG_INPUT_TYPE_THERMOCOUPLE:
         case ANALOG_INPUT_TYPE_PT100:
@@ -163,8 +166,8 @@ static inline analog_input_status_t analog_input_configure(
             return ANALOG_INPUT_ERR_ARG;
     }
 
-    if (config->type == ANALOG_INPUT_TYPE_THERMOCOUPLE) {
-        switch (config->thermocouple_type) {
+    if (normalized.type == ANALOG_INPUT_TYPE_THERMOCOUPLE) {
+        switch (normalized.thermocouple_type) {
             case ANALOG_INPUT_THERMOCOUPLE_TYPE_B:
             case ANALOG_INPUT_THERMOCOUPLE_TYPE_E:
             case ANALOG_INPUT_THERMOCOUPLE_TYPE_J:
@@ -177,18 +180,17 @@ static inline analog_input_status_t analog_input_configure(
             default:
                 return ANALOG_INPUT_ERR_ARG;
         }
-    } else if (config->thermocouple_type !=
-               ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE) {
-        return ANALOG_INPUT_ERR_ARG;
+    } else {
+        normalized.thermocouple_type = ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE;
     }
 
     if (self->ops == NULL || self->ops->configure == NULL) {
         return ANALOG_INPUT_ERR_STATE;
     }
 
-    status = self->ops->configure(self, config);
+    status = self->ops->configure(self, &normalized);
     if (status == ANALOG_INPUT_OK) {
-        self->config = *config;
+        self->config = normalized;
     }
     return status;
 }
