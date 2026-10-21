@@ -6,11 +6,7 @@ packDir: .pack/ArteryTek/AT32F421_DFP.2.2.0
 srcDirs: []
 virtualFolder:
   name: <virtual_root>
-  files:
-    - path: project/src/analog_input.c
-    - path: project/inc/analog_input.h
-    - path: project/src/sig24131.c
-    - path: project/inc/sig24131.h
+  files: []
   folders:
     - name: <deps>
       files:
@@ -83,6 +79,14 @@ virtualFolder:
       files:
         - path: project/src/app/main.c
       folders: []
+    - name: board
+      files:
+        - path: project/src/board/sig24131_board.c
+      folders: []
+    - name: device
+      files:
+        - path: ../library/device/sig24131/sig24131.c
+      folders: []
 dependenceList:
   - depList:
       - name: Startup
@@ -149,6 +153,9 @@ targets:
         - .cmsis/include
         - project/inc/third_party
         - ../library/device/sig24131
+        - ../library/interface/analog_input
+        - project/inc/app
+        - project/inc/board
       libList: []
     excludeList: []
     settings:

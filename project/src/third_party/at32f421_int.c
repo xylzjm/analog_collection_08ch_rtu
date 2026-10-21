@@ -93,8 +93,7 @@ void HardFault_Handler(void)
 
     /* add user code end HardFault_IRQ 0 */
     /* go to infinite loop when hard fault exception occurs */
-    while (1)
-    {
+    while (1) {
         /* add user code begin W1_HardFault_IRQ 0 */
 
         /* add user code end W1_HardFault_IRQ 0 */
@@ -112,8 +111,7 @@ void MemManage_Handler(void)
 
     /* add user code end MemoryManagement_IRQ 0 */
     /* go to infinite loop when memory manage exception occurs */
-    while (1)
-    {
+    while (1) {
         /* add user code begin W1_MemoryManagement_IRQ 0 */
 
         /* add user code end W1_MemoryManagement_IRQ 0 */
@@ -131,8 +129,7 @@ void BusFault_Handler(void)
 
     /* add user code end BusFault_IRQ 0 */
     /* go to infinite loop when bus fault exception occurs */
-    while (1)
-    {
+    while (1) {
         /* add user code begin W1_BusFault_IRQ 0 */
 
         /* add user code end W1_BusFault_IRQ 0 */
@@ -150,8 +147,7 @@ void UsageFault_Handler(void)
 
     /* add user code end UsageFault_IRQ 0 */
     /* go to infinite loop when usage fault exception occurs */
-    while (1)
-    {
+    while (1) {
         /* add user code begin W1_UsageFault_IRQ 0 */
 
         /* add user code end W1_UsageFault_IRQ 0 */
@@ -233,8 +229,7 @@ void USART1_IRQHandler(void)
     __IO uint16_t val_rx;
     __IO uint16_t val_tx;
 
-    if (usart_interrupt_flag_get(USART1, USART_TDBE_FLAG) != RESET)
-    {
+    if (usart_interrupt_flag_get(USART1, USART_TDBE_FLAG) != RESET) {
         /* add user code begin USART1_USART_TDBE_FLAG */
         /* handle data transmit and clear flag */
         val_tx = 0xAA;
@@ -242,16 +237,14 @@ void USART1_IRQHandler(void)
         /* add user code end USART1_USART_TDBE_FLAG */
     }
 
-    if (usart_interrupt_flag_get(USART1, USART_TDC_FLAG) != RESET)
-    {
+    if (usart_interrupt_flag_get(USART1, USART_TDC_FLAG) != RESET) {
         /* add user code begin USART1_USART_TDC_FLAG */
         /* clear flag */
         usart_flag_clear(USART1, USART_TDC_FLAG);
         /* add user code end USART1_USART_TDC_FLAG */
     }
 
-    if (usart_interrupt_flag_get(USART1, USART_PERR_FLAG) != RESET)
-    {
+    if (usart_interrupt_flag_get(USART1, USART_PERR_FLAG) != RESET) {
         /* add user code begin USART1_USART_PERR_FLAG */
         /* clear flag */
         usart_flag_clear(USART1, USART_PERR_FLAG);
@@ -260,16 +253,14 @@ void USART1_IRQHandler(void)
 
     if ((usart_interrupt_flag_get(USART1, USART_NERR_FLAG) != RESET) ||
         (usart_interrupt_flag_get(USART1, USART_ROERR_FLAG) != RESET) ||
-        (usart_interrupt_flag_get(USART1, USART_FERR_FLAG) != RESET))
-    {
+        (usart_interrupt_flag_get(USART1, USART_FERR_FLAG) != RESET)) {
         /* add user code begin USART1_USART_NERR_FLAG, USART_ROERR_FLAG or USART_FERR_FLAG */
         /* clear flag */
         usart_flag_clear(USART1, USART_NERR_FLAG | USART_ROERR_FLAG | USART_FERR_FLAG);
         /* add user code end  USART1_USART_NERR_FLAG, USART_ROERR_FLAG or USART_FERR_FLAG */
     }
 
-    if (usart_interrupt_flag_get(USART1, USART_RDBF_FLAG) != RESET)
-    {
+    if (usart_interrupt_flag_get(USART1, USART_RDBF_FLAG) != RESET) {
         /* add user code begin USART1_USART_RDBF_FLAG */
         /* handle data received and clear flag */
         val_rx = usart_data_receive(USART1);
