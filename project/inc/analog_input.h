@@ -40,14 +40,14 @@ typedef enum {
 /** @brief Thermocouple model used by thermocouple conversion. */
 typedef enum {
     ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE = -1,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_B = 0,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_E = 1,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_J = 2,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_K = 3,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_N = 4,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_R = 5,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_S = 6,
-    ANALOG_INPUT_THERMOCOUPLE_TYPE_T = 7
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_B    = 0,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_E    = 1,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_J    = 2,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_K    = 3,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_N    = 4,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_R    = 5,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_S    = 6,
+    ANALOG_INPUT_THERMOCOUPLE_TYPE_T    = 7
 } analog_input_thermocouple_type_t;
 
 /** @brief Result of one wire-break check. */
@@ -100,29 +100,33 @@ typedef struct {
 typedef struct {
     /** Select the input type and any type-specific sensor model. */
     analog_input_status_t (*configure)(
-        analog_input_t *self, const analog_input_config_t *config);
+        analog_input_t* self,
+        const analog_input_config_t* config);
 
     /** Read one raw ADC sample without conversion or filtering. */
     analog_input_status_t (*read_sample)(
-        analog_input_t *self, int32_t *adc_code);
+        analog_input_t* self,
+        int32_t* adc_code);
 
     /** Convert one raw ADC code to an engineering value. */
     analog_input_status_t (*convert)(
-        analog_input_t *self, int32_t adc_code,
-        const analog_input_conversion_context_t *context,
-        float *measurement);
+        analog_input_t* self,
+        int32_t adc_code,
+        const analog_input_conversion_context_t* context,
+        float* measurement);
 
     /** Enable the wire-break detection work mode. */
     analog_input_status_t (*enable_break_detection)(
-        analog_input_t *self);
+        analog_input_t* self);
 
     /** Disable the wire-break detection work mode. */
     analog_input_status_t (*disable_break_detection)(
-        analog_input_t *self);
+        analog_input_t* self);
 
     /** Run one wire-break check and return its result immediately. */
     analog_input_status_t (*check_wire_break)(
-        analog_input_t *self, analog_input_wire_status_t *wire_status);
+        analog_input_t* self,
+        analog_input_wire_status_t* wire_status);
 } analog_input_ops_t;
 
 /**
@@ -133,7 +137,7 @@ typedef struct {
  * operation succeeds.
  */
 struct analog_input {
-    const analog_input_ops_t *ops;
+    const analog_input_ops_t* ops;
     analog_input_config_t config;
 };
 
@@ -147,7 +151,8 @@ struct analog_input {
  * the object caches ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE instead.
  */
 static inline analog_input_status_t analog_input_configure(
-    analog_input_t *self, const analog_input_config_t *config)
+    analog_input_t* self,
+    const analog_input_config_t* config)
 {
     analog_input_status_t status;
     analog_input_config_t normalized;
@@ -197,7 +202,8 @@ static inline analog_input_status_t analog_input_configure(
 
 /** Read one raw ADC sample without conversion or filtering. */
 static inline analog_input_status_t analog_input_read_sample(
-    analog_input_t *self, int32_t *adc_code)
+    analog_input_t* self,
+    int32_t* adc_code)
 {
     if (self == NULL || adc_code == NULL) {
         return ANALOG_INPUT_ERR_ARG;
@@ -215,9 +221,10 @@ static inline analog_input_status_t analog_input_read_sample(
  * NULL for input types that do not require additional conversion values.
  */
 static inline analog_input_status_t analog_input_convert(
-    analog_input_t *self, int32_t adc_code,
-    const analog_input_conversion_context_t *context,
-    float *measurement)
+    analog_input_t* self,
+    int32_t adc_code,
+    const analog_input_conversion_context_t* context,
+    float* measurement)
 {
     if (self == NULL || measurement == NULL) {
         return ANALOG_INPUT_ERR_ARG;
@@ -230,7 +237,7 @@ static inline analog_input_status_t analog_input_convert(
 
 /** Enable the wire-break detection work mode. */
 static inline analog_input_status_t analog_input_enable_break_detection(
-    analog_input_t *self)
+    analog_input_t* self)
 {
     if (self == NULL) {
         return ANALOG_INPUT_ERR_ARG;
@@ -243,7 +250,7 @@ static inline analog_input_status_t analog_input_enable_break_detection(
 
 /** Disable the wire-break detection work mode. */
 static inline analog_input_status_t analog_input_disable_break_detection(
-    analog_input_t *self)
+    analog_input_t* self)
 {
     if (self == NULL) {
         return ANALOG_INPUT_ERR_ARG;
@@ -256,8 +263,8 @@ static inline analog_input_status_t analog_input_disable_break_detection(
 
 /** Run one wire-break check and return its result immediately. */
 static inline analog_input_status_t analog_input_check_wire_break(
-    analog_input_t *self,
-    analog_input_wire_status_t *wire_status)
+    analog_input_t* self,
+    analog_input_wire_status_t* wire_status)
 {
     if (self == NULL || wire_status == NULL) {
         return ANALOG_INPUT_ERR_ARG;

@@ -1,24 +1,25 @@
 #include "../inc/sig24131.h"
 
 /* Internal commands and timing ------------------------------------------- */
-#define SIG24131_CMD_RESET       0x02U
-#define SIG24131_CMD_SYNC        0x04U
-#define SIG24131_CMD_SLEEP       0x0AU
-#define SIG24131_CMD_WAKEUP      0x0CU
-#define SIG24131_CMD_SYSOCAL     0x10U
-#define SIG24131_CMD_SYSGCAL     0x11U
-#define SIG24131_CMD_SELFOCAL    0x12U
-#define SIG24131_CMD_READ_REG    0x40U
-#define SIG24131_CMD_WRITE_REG   0x20U
-#define SIG24131_CMD_READ_DATA   0x60U
+#define SIG24131_CMD_RESET 0x02U
+#define SIG24131_CMD_SYNC 0x04U
+#define SIG24131_CMD_SLEEP 0x0AU
+#define SIG24131_CMD_WAKEUP 0x0CU
+#define SIG24131_CMD_SYSOCAL 0x10U
+#define SIG24131_CMD_SYSGCAL 0x11U
+#define SIG24131_CMD_SELFOCAL 0x12U
+#define SIG24131_CMD_READ_REG 0x40U
+#define SIG24131_CMD_WRITE_REG 0x20U
+#define SIG24131_CMD_READ_DATA 0x60U
 
-#define SIG24131_POR_DELAY_US   43000U
+#define SIG24131_POR_DELAY_US 43000U
 
 /* SPI transaction and platform-operation helpers ------------------------- */
 static sig24131_status_t transfer(sig24131_t *dev, const uint8_t *tx,
                                   uint8_t *rx, size_t len)
 {
-    if (dev == NULL || dev->port.spi_transfer == NULL || tx == NULL || rx == NULL) {
+    if (dev == NULL || dev->port.spi_transfer == NULL || tx == NULL || rx == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     return dev->port.spi_transfer(dev->port.ctx, tx, rx, len);
@@ -26,7 +27,8 @@ static sig24131_status_t transfer(sig24131_t *dev, const uint8_t *tx,
 
 static sig24131_status_t begin_frame(sig24131_t *dev)
 {
-    if (dev == NULL) {
+    if (dev == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     return (dev->port.cs_assert != NULL) ? dev->port.cs_assert(dev->port.ctx)
@@ -35,7 +37,8 @@ static sig24131_status_t begin_frame(sig24131_t *dev)
 
 static sig24131_status_t end_frame(sig24131_t *dev)
 {
-    if (dev == NULL) {
+    if (dev == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     return (dev->port.cs_release != NULL) ? dev->port.cs_release(dev->port.ctx)
@@ -50,14 +53,16 @@ static sig24131_status_t delay(sig24131_t *dev, uint32_t us)
 
 static sig24131_status_t command_only(sig24131_t *dev, uint8_t command)
 {
-    uint8_t tx[1] = { command };
-    uint8_t rx[1] = { 0U };
+    uint8_t tx[1] = {command};
+    uint8_t rx[1] = {0U};
     sig24131_status_t status = begin_frame(dev);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = transfer(dev, tx, rx, 1U);
-    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK) {
+    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK)
+    {
         status = SIG24131_ERR_IO;
     }
     return status;
@@ -80,7 +85,8 @@ static void u24_to_bytes(uint32_t value, uint8_t *data)
 /* Default configuration and device initialization ------------------------ */
 void sig24131_default_config(sig24131_config_t *config)
 {
-    if (config == NULL) {
+    if (config == NULL)
+    {
         return;
     }
     config->gain = SIG24131_GAIN_1;
@@ -107,7 +113,8 @@ void sig24131_default_config(sig24131_config_t *config)
 
 sig24131_status_t sig24131_init(sig24131_t *dev, const sig24131_port_t *port)
 {
-    if (dev == NULL || port == NULL || port->spi_transfer == NULL) {
+    if (dev == NULL || port == NULL || port->spi_transfer == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     dev->port = *port;
@@ -119,15 +126,18 @@ sig24131_status_t sig24131_init(sig24131_t *dev, const sig24131_port_t *port)
 sig24131_status_t sig24131_reset(sig24131_t *dev)
 {
     sig24131_status_t status;
-    if (dev == NULL) {
+    if (dev == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     status = command_only(dev, SIG24131_CMD_RESET);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = delay(dev, SIG24131_POR_DELAY_US);
-    if (status == SIG24131_OK) {
+    if (status == SIG24131_OK)
+    {
         sig24131_default_config(&dev->config);
     }
     return status;
@@ -152,7 +162,8 @@ sig24131_status_t sig24131_calibrate(sig24131_t *dev,
                                      sig24131_calibration_t calibration)
 {
     uint8_t command;
-    switch (calibration) {
+    switch (calibration)
+    {
     case SIG24131_CAL_SELF_OFFSET:
         command = SIG24131_CMD_SELFOCAL;
         break;
@@ -170,46 +181,53 @@ sig24131_status_t sig24131_calibrate(sig24131_t *dev,
 
 /* Register read/write access --------------------------------------------- */
 sig24131_status_t sig24131_write_register(sig24131_t *dev, uint8_t address,
-                                           uint32_t value)
+                                          uint32_t value)
 {
     uint8_t tx[4];
     uint8_t rx[4];
     sig24131_status_t status;
-    if (dev == NULL || address > 0x1FU || value > 0xFFFFFFU) {
+    if (dev == NULL || address > 0x1FU || value > 0xFFFFFFU)
+    {
         return SIG24131_ERR_ARG;
     }
     tx[0] = (uint8_t)(SIG24131_CMD_WRITE_REG | address);
     u24_to_bytes(value, &tx[1]);
     status = begin_frame(dev);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = transfer(dev, tx, rx, sizeof(tx));
-    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK) {
+    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK)
+    {
         status = SIG24131_ERR_IO;
     }
     return status;
 }
 
 sig24131_status_t sig24131_read_register(sig24131_t *dev, uint8_t address,
-                                          uint32_t *value)
+                                         uint32_t *value)
 {
-    uint8_t tx[4] = { 0U, 0U, 0U, 0U };
-    uint8_t rx[4] = { 0U, 0U, 0U, 0U };
+    uint8_t tx[4] = {0U, 0U, 0U, 0U};
+    uint8_t rx[4] = {0U, 0U, 0U, 0U};
     sig24131_status_t status;
-    if (dev == NULL || value == NULL || address > 0x1FU) {
+    if (dev == NULL || value == NULL || address > 0x1FU)
+    {
         return SIG24131_ERR_ARG;
     }
     tx[0] = (uint8_t)(SIG24131_CMD_READ_REG | address);
     status = begin_frame(dev);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = transfer(dev, tx, rx, sizeof(tx));
-    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK) {
+    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK)
+    {
         status = SIG24131_ERR_IO;
     }
-    if (status == SIG24131_OK) {
+    if (status == SIG24131_OK)
+    {
         *value = u24_from_bytes(&rx[1]);
     }
     return status;
@@ -249,38 +267,44 @@ static uint32_t config_conf1(const sig24131_config_t *config)
 }
 
 sig24131_status_t sig24131_write_config(sig24131_t *dev,
-                                         const sig24131_config_t *config)
+                                        const sig24131_config_t *config)
 {
     sig24131_status_t status;
-    if (dev == NULL || config == NULL) {
+    if (dev == NULL || config == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     status = sig24131_write_register(dev, SIG24131_REG_CONF0, config_conf0(config));
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = sig24131_write_register(dev, SIG24131_REG_CONF1, config_conf1(config));
-    if (status == SIG24131_OK) {
+    if (status == SIG24131_OK)
+    {
         dev->config = *config;
     }
     return status;
 }
 
 sig24131_status_t sig24131_read_config(sig24131_t *dev,
-                                        sig24131_config_t *config)
+                                       sig24131_config_t *config)
 {
     uint32_t conf0;
     uint32_t conf1;
     sig24131_status_t status;
-    if (dev == NULL || config == NULL) {
+    if (dev == NULL || config == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     status = sig24131_read_register(dev, SIG24131_REG_CONF0, &conf0);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = sig24131_read_register(dev, SIG24131_REG_CONF1, &conf1);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     sig24131_default_config(config);
@@ -311,21 +335,25 @@ sig24131_status_t sig24131_read_config(sig24131_t *dev,
 /* ADC conversion data readout and code conversion ------------------------- */
 sig24131_status_t sig24131_read_data(sig24131_t *dev, sig24131_sample_t *sample)
 {
-    uint8_t tx[4] = { SIG24131_CMD_READ_DATA, 0U, 0U, 0U };
-    uint8_t rx[4] = { 0U, 0U, 0U, 0U };
+    uint8_t tx[4] = {SIG24131_CMD_READ_DATA, 0U, 0U, 0U};
+    uint8_t rx[4] = {0U, 0U, 0U, 0U};
     sig24131_status_t status;
-    if (dev == NULL || sample == NULL) {
+    if (dev == NULL || sample == NULL)
+    {
         return SIG24131_ERR_ARG;
     }
     status = begin_frame(dev);
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     status = transfer(dev, tx, rx, sizeof(tx));
-    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK) {
+    if (end_frame(dev) != SIG24131_OK && status == SIG24131_OK)
+    {
         status = SIG24131_ERR_IO;
     }
-    if (status != SIG24131_OK) {
+    if (status != SIG24131_OK)
+    {
         return status;
     }
     sample->data[0] = rx[1];
@@ -337,11 +365,13 @@ sig24131_status_t sig24131_read_data(sig24131_t *dev, sig24131_sample_t *sample)
 int32_t sig24131_code_to_int32(const sig24131_sample_t *sample)
 {
     int32_t value;
-    if (sample == NULL) {
+    if (sample == NULL)
+    {
         return 0;
     }
     value = (int32_t)u24_from_bytes(sample->data);
-    if ((value & 0x00800000) != 0) {
+    if ((value & 0x00800000) != 0)
+    {
         value |= (int32_t)0xFF000000;
     }
     return value;
