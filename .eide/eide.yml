@@ -1,0 +1,248 @@
+version: "4.1"
+name: analog_collection_08ch_rtu
+type: ARM
+deviceName: -AT32F421C8T7
+packDir: .pack/ArteryTek/AT32F421_DFP.2.2.0
+srcDirs: []
+virtualFolder:
+  name: <virtual_root>
+  files:
+    - path: project/src/analog_input.c
+    - path: project/inc/analog_input.h
+    - path: project/src/sig24131.c
+    - path: project/inc/sig24131.h
+  folders:
+    - name: <deps>
+      files:
+        - path: RTE_Components.h
+      folders:
+        - name: AT32F421_DFP
+          files: []
+          folders:
+            - name: at32f421_firmware_library.crm
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_crm.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_crm.c
+              folders: []
+            - name: at32f421_firmware_library.debug
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_debug.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_debug.c
+              folders: []
+            - name: at32f421_firmware_library.flash
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_flash.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_flash.c
+              folders: []
+            - name: at32f421_firmware_library.gpio
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_gpio.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_gpio.c
+              folders: []
+            - name: at32f421_firmware_library.misc
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_misc.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_misc.c
+              folders: []
+            - name: at32f421_firmware_library.pwc
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_pwc.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_pwc.c
+              folders: []
+            - name: at32f421_firmware_library.spi
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_spi.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_spi.c
+              folders: []
+            - name: at32f421_firmware_library.tmr
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_tmr.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_tmr.c
+              folders: []
+            - name: at32f421_firmware_library.usart
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc/at32f421_usart.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/src/at32f421_usart.c
+              folders: []
+            - name: Startup
+              files:
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Include/at32f421.h
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Source/ARM/startup_at32f421.s
+                - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Source/system_at32f421.c
+              folders: []
+    - name: third_party
+      files:
+        - path: project/src/third_party/at32f421_int.c
+        - path: project/src/third_party/at32f421_wk_config.c
+        - path: project/src/third_party/wk_gpio.c
+        - path: project/src/third_party/wk_spi.c
+        - path: project/src/third_party/wk_system.c
+        - path: project/src/third_party/wk_usart.c
+      folders: []
+    - name: app
+      files:
+        - path: project/src/app/main.c
+      folders: []
+dependenceList:
+  - depList:
+      - name: Startup
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Include
+        libList: []
+      - name: at32f421_firmware_library.misc
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.crm
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.debug
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.flash
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.gpio
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.pwc
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.spi
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.tmr
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+      - name: at32f421_firmware_library.usart
+        defineList: []
+        incList:
+          - .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Firmware/Peripherals/inc
+        libList: []
+    groupName: AT32F421_DFP
+outDir: build
+miscInfo:
+  uid: 2b2c107904df4cdb1e97e57d6947db29
+targets:
+  Debug:
+    cppPreprocessAttrs:
+      defineList:
+        - AT32F421C8T7
+      incList:
+        - .
+        - .cmsis/include
+        - project/inc/third_party
+        - ../library/device/sig24131
+      libList: []
+    excludeList: []
+    settings:
+      debugger: cortex-debug
+    toolchain: AC6
+    toolchainConfigMap:
+      AC6:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: none
+        options:
+          version: 3
+          afterBuildTasks: []
+          asm-compiler:
+            $use: asm-auto
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            language-c: c99
+            language-cpp: c++98
+            one-elf-section-per-function: true
+            optimization: level-0
+            warnings: ac5-like-warnings
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            misc-controls: --diag_suppress=L6329
+            output-format: elf
+        scatterFilePath: <YOUR_SCATTER_FILE>.sct
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x5000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x10000"
+                startAddr: "0x08000000"
+              tag: IROM
+        useCustomScatterFile: false
+      GCC:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: none
+        options:
+          version: 5
+          afterBuildTasks: []
+          asm-compiler:
+            ASM_FLAGS: ""
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: ""
+            C_FLAGS: ""
+            language-c: c11
+            language-cpp: c++11
+            one-elf-section-per-data: true
+            one-elf-section-per-function: true
+            optimization: level-debug
+            warnings: all-warnings
+          global:
+            $float-abi-type: hard
+            misc-control: ""
+            not-use-syscalls: true
+            output-debug-info: enable
+            use-newlib-nano: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            LD_FLAGS: ""
+            LIB_FLAGS: -lm
+            output-format: elf
+            remove-unused-input-sections: true
+        scatterFilePath: <YOUR_LINKER_SCRIPT>.lds
+        storageLayout:
+          RAM: []
+          ROM: []
+        useCustomScatterFile: true
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: AT32F421C8T7
+          vendor: ArteryTek
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+    uploader: JLink

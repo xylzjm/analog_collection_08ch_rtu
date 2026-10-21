@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model version="7.0.3" links="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.state-machine.com/qm/qm7.xsd">
+ <framework name="qpc"/>
+ <package name="App" stereotype="0x00">
+  <class name="app_sensor" superclass="qpc::QActive">
+   <attribute name="analogDev" type="" visibility="0x00" properties="0x00"/>
+   <attribute name="broken" type="bool" visibility="0x02" properties="0x00"/>
+   <statechart properties="0x00">
+    <state name="tcState">
+     <entry>delay = if_analog_input_setType(me-&gt;analogDev, MODE_TC, TC_TYPE_x, rate);
+QTimeEvt_armX(&amp;me-&gt;timer_sw, delay, 0);</entry>
+     <tran trig="tick_convert">
+      <action>if_analog_input_read(me-&gt;analogDev);</action>
+      <tran_glyph conn="14,25,3,-1,11">
+       <action box="0,-2,11,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="tick_switch">
+      <action>QTimeEvt_armX(&amp;me-&gt;timer_cvt, 1/rate, 1/rate);
+QTimeEvt_armX(&amp;me-&gt;timer_det, 1000*3, 0);
+// if_analog_input_read(me-&gt;analogDev);</action>
+      <tran_glyph conn="14,21,3,-1,11">
+       <action box="0,-2,10,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="tick_detect" target="../../1">
+      <action>QTimeEvt_disarm(&amp;me-&gt;timer_cvt);</action>
+      <tran_glyph conn="14,30,3,0,11,12">
+       <action box="0,-2,10,2"/>
+      </tran_glyph>
+     </tran>
+     <state_glyph node="14,12,23,22">
+      <entry box="0,3,6,2"/>
+     </state_glyph>
+    </state>
+    <state name="tc_detState">
+     <entry>delay = if_analog_input_setDet(me-&gt;analogDev, MODE_TC);
+QTimeEvt_armX(&amp;me-&gt;timer_sw, delay, 0);</entry>
+     <tran trig="tick_switch">
+      <action>ret = if_analog_input_tcDetect(me-&gt;analogDev);</action>
+      <choice>
+       <guard>else</guard>
+       <action>QTimeEvt_armX(&amp;me-&gt;timer_sw, 1000, 0);
+
+if ( me-&gt;broken == false ) {
+    me-&gt;broken = true;
+    evt_sensor* pe = Q_NEW(evt_sensor, SENSOR_TC_BROKEN_SIG);
+    QAVTIVE_POST(app_modbus, &amp;pe-&gt;super, NULL);
+}</action>
+       <choice_glyph conn="29,50,5,-1,9">
+        <action box="1,-2,10,2"/>
+       </choice_glyph>
+      </choice>
+      <choice target="../../../0">
+       <guard brief="OK">ret == ANALOG_INPUT_OK</guard>
+       <action>me-&gt;broken = false;</action>
+       <choice_glyph conn="29,50,4,2,-16">
+        <action box="0,-11,6,2"/>
+       </choice_glyph>
+      </choice>
+      <tran_glyph conn="19,50,3,-1,10">
+       <action box="0,-2,10,2"/>
+      </tran_glyph>
+     </tran>
+     <state_glyph node="19,42,24,14">
+      <entry box="0,3,6,2"/>
+     </state_glyph>
+    </state>
+    <state name="rtdState">
+     <entry>delay = if_analog_input_setType(me-&gt;analogDev, MODE_RTD, RTD_TYPE_PT100, rate);
+QTimeEvt_armX(&amp;me-&gt;timer_sw, delay, 0);</entry>
+     <tran trig="tick_switch">
+      <action>QTimeEvt_armX(&amp;me-&gt;timer_cvt, 1/rate, 1/rate);
+QTimeEvt_armX(&amp;me-&gt;timer_det, 1000*3, 0);
+// if_analog_input_read(me-&gt;analogDev);</action>
+      <tran_glyph conn="47,20,3,-1,10">
+       <action box="0,-2,10,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="tick_convert">
+      <action>if_analog_input_read(me-&gt;analogDev);</action>
+      <tran_glyph conn="47,25,3,-1,10">
+       <action box="0,-2,11,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="tick_detect" target="../../3">
+      <action>QTimeEvt_disarm(&amp;me-&gt;timer_cvt);</action>
+      <tran_glyph conn="47,30,3,0,10,12">
+       <action box="0,-2,10,2"/>
+      </tran_glyph>
+     </tran>
+     <state_glyph node="47,12,18,22">
+      <entry box="0,3,6,2"/>
+     </state_glyph>
+    </state>
+    <state name="rtd_detState">
+     <entry>delay = if_analog_input_setDet(me-&gt;analogDev, MODE_RTD);
+QTimeEvt_armX(&amp;me-&gt;timer_sw, delay, 0);</entry>
+     <tran trig="tick_switch">
+      <action>ret = if_analog_input_rtdDetect(me-&gt;analogDev);</action>
+      <choice target="../../../2">
+       <guard brief="OK">ret == ANALOG_INPUT_OK</guard>
+       <action>me-&gt;broken = false;</action>
+       <choice_glyph conn="64,50,4,2,-16">
+        <action box="0,-11,6,2"/>
+       </choice_glyph>
+      </choice>
+      <choice>
+       <guard>else</guard>
+       <action>QTimeEvt_armX(&amp;me-&gt;timer_sw, 1000, 0);
+
+if ( me-&gt;broken == false ) {
+    me-&gt;broken = true;
+
+    evt_sensor* pe;
+    if ( ret == ANALOG_INPUT_C_WIRE_BROKEN ) {
+        pe = Q_NEW(evt_sensor, SENSOR_RTD_C_WIRE_BROKEN_SIG);
+    } else if ( ret == ANALOG_INPUT_AB_WIRE_BROKEN ) {
+        pe = Q_NEW(evt_sensor, SENSOR_RTD_AB_WIRE_BROKEN_SIG);
+    }
+    QAVTIVE_POST(app_modbus, &amp;pe-&gt;super, NULL);
+}</action>
+       <choice_glyph conn="64,50,5,-1,9">
+        <action box="1,-2,6,2"/>
+       </choice_glyph>
+      </choice>
+      <tran_glyph conn="53,50,3,-1,11">
+       <action box="0,-2,10,2"/>
+      </tran_glyph>
+     </tran>
+     <state_glyph node="53,42,23,14">
+      <entry box="0,3,6,2"/>
+     </state_glyph>
+    </state>
+    <state name="currentState">
+     <state_glyph node="75,12,22,22"/>
+    </state>
+    <state_diagram size="120,83"/>
+   </statechart>
+  </class>
+ </package>
+</model>
