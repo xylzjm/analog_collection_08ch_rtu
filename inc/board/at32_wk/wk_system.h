@@ -31,6 +31,9 @@ extern "C" {
 
 #include "at32f421.h"
 
+void wk_tick_increase(void);
+uint32_t wk_tick_get(void);
+
 void wk_timebase_init(void);
 void wk_delay_us(uint32_t delay);
 void wk_delay_ms(uint32_t delay);

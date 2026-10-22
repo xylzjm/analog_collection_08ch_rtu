@@ -66,27 +66,55 @@ virtualFolder:
                 - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Source/ARM/startup_at32f421.s
                 - path: .pack/ArteryTek/AT32F421_DFP.2.2.0/Device/Source/system_at32f421.c
               folders: []
-    - name: third_party
-      files:
-        - path: project/src/third_party/at32f421_int.c
-        - path: project/src/third_party/at32f421_wk_config.c
-        - path: project/src/third_party/wk_gpio.c
-        - path: project/src/third_party/wk_spi.c
-        - path: project/src/third_party/wk_system.c
-        - path: project/src/third_party/wk_usart.c
-      folders: []
-    - name: app
-      files:
-        - path: project/src/app/main.c
-      folders: []
-    - name: board
-      files:
-        - path: project/src/board/sig24131_board.c
-      folders: []
     - name: device
       files:
         - path: ../library/device/sig24131/sig24131.c
       folders: []
+    - name: third_party
+      files: []
+      folders:
+        - name: qp
+          files:
+            - path: ../middleware/qp/qpc/src/qv/qv.c
+            - path: ../middleware/qp/qpc/src/qs/qstamp.c
+            - path: ../middleware/qp/qpc/src/qf/qep_hsm.c
+            - path: ../middleware/qp/qpc/src/qf/qep_msm.c
+            - path: ../middleware/qp/qpc/src/qf/qf_act.c
+            - path: ../middleware/qp/qpc/src/qf/qf_actq.c
+            - path: ../middleware/qp/qpc/src/qf/qf_defer.c
+            - path: ../middleware/qp/qpc/src/qf/qf_dyn.c
+            - path: ../middleware/qp/qpc/src/qf/qf_mem.c
+            - path: ../middleware/qp/qpc/src/qf/qf_ps.c
+            - path: ../middleware/qp/qpc/src/qf/qf_qact.c
+            - path: ../middleware/qp/qpc/src/qf/qf_qeq.c
+            - path: ../middleware/qp/qpc/src/qf/qf_qmact.c
+            - path: ../middleware/qp/qpc/src/qf/qf_time.c
+          folders: []
+    - name: app
+      files:
+        - path: src/app/main.c
+      folders: []
+    - name: board
+      files:
+        - path: src/board/sig24131_board.c
+      folders:
+        - name: at32_wk
+          files:
+            - path: src/board/at32_wk/at32f421_int.c
+            - path: src/board/at32_wk/at32f421_wk_config.c
+            - path: src/board/at32_wk/main.c
+            - path: src/board/at32_wk/wk_gpio.c
+            - path: src/board/at32_wk/wk_spi.c
+            - path: src/board/at32_wk/wk_system.c
+            - path: src/board/at32_wk/wk_usart.c
+          folders: []
+        - name: ports
+          files: []
+          folders:
+            - name: qp
+              files:
+                - path: src/board/ports/qp/qv_port.c
+              folders: []
 dependenceList:
   - depList:
       - name: Startup
@@ -151,13 +179,24 @@ targets:
       incList:
         - .
         - .cmsis/include
-        - project/inc/third_party
         - ../library/device/sig24131
         - ../library/interface/analog_input
-        - project/inc/app
-        - project/inc/board
+        - inc/app
+        - inc/board
+        - ../middleware/qp/qpc/include
+        - inc/board/ports/qp
+        - inc/board/at32_wk
       libList: []
-    excludeList: []
+    excludeList:
+      - <virtual_root>/third_party/at32f421_int.c
+      - <virtual_root>/third_party/at32f421_wk_config.c
+      - <virtual_root>/third_party/wk_gpio.c
+      - <virtual_root>/third_party/wk_spi.c
+      - <virtual_root>/third_party/wk_system.c
+      - <virtual_root>/third_party/wk_usart.c
+      - third_party/src/main.c
+      - <virtual_root>/third_party/at32_wk/main.c
+      - <virtual_root>/board/at32_wk/main.c
     settings:
       debugger: cortex-debug
     toolchain: AC6

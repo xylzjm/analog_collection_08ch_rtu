@@ -28,7 +28,7 @@
 #include "at32f421_int.h"
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
-
+#include "wk_system.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -207,7 +207,7 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
     /* add user code begin SysTick_IRQ 0 */
-
+    wk_tick_increase();
     /* add user code end SysTick_IRQ 0 */
 
     /* add user code begin SysTick_IRQ 1 */

@@ -26,12 +26,38 @@
 
 #include "wk_system.h"
 
+#include "qp_port.h"
+
 #define STEP_DELAY_MS    (uint32_t)(50)
 #define TICK_COUNT_MAX   (uint32_t)(0xFFFF)
 #define TICK_COUNT_VALUE (TMR6->cval)
 
 /* global variable */
 volatile uint32_t ticks_count_us;
+volatile uint32_t systick_ctr;
+
+/**
+ * @brief  implement by myself.
+ */
+void wk_tick_increase(void)
+{
+    ++systick_ctr;
+}
+
+/**
+ * @brief  implement by myself.
+ */
+uint32_t wk_tick_get(void)
+{
+    uint32_t ctr;
+
+    QF_CRIT_STAT;
+    QF_CRIT_ENTRY();
+    ctr = systick_ctr;
+    QF_CRIT_EXIT();
+
+    return ctr;
+}
 
 /**
  * @brief  this function provides minimum delay (in microsecond).
