@@ -2,7 +2,6 @@
 
 #include "wk_system.h"
 
-#define SIG24131_BOARD_TICK_PERIOD_US      1000U
 #define SIG24131_BOARD_SPI_TRANSFER_TIMEOUT_TICKS 10U
 
 typedef struct {
@@ -106,21 +105,10 @@ static sig24131_status_t sig24131_board_cs_release(void* ctx)
 static sig24131_status_t sig24131_board_delay_us(void* ctx,
                                                  uint32_t us)
 {
-    uint32_t delay_ticks;
-    uint32_t start_tick;
-
     if (ctx == NULL) {
         return SIG24131_ERR_ARG;
     }
-
-    delay_ticks = us / SIG24131_BOARD_TICK_PERIOD_US;
-    if ((us % SIG24131_BOARD_TICK_PERIOD_US) != 0U) {
-        ++delay_ticks;
-    }
-
-    start_tick = wk_tick_get();
-    while ((uint32_t)(wk_tick_get() - start_tick) < delay_ticks) {
-    }
+    wk_delay_us(us);
     return SIG24131_OK;
 }
 
