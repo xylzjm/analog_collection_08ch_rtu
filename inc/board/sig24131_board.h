@@ -51,7 +51,7 @@ sig24131_status_t sig24131_board_reset(void);
 uint8_t sig24131_board_count(void);
 
 /** @brief Get the driver object for one channel. Channel numbers are one-based. */
-sig24131_t *sig24131_board_get_device(uint8_t channel);
+sig24131_t* sig24131_board_get_device(uint8_t channel);
 
 #ifdef __cplusplus
 }
