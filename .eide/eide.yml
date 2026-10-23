@@ -97,6 +97,7 @@ virtualFolder:
     - name: board
       files:
         - path: src/board/sig24131_board.c
+        - path: src/board/board.c
       folders:
         - name: at32_wk
           files:
@@ -115,6 +116,10 @@ virtualFolder:
               files:
                 - path: src/board/ports/qp/qv_port.c
               folders: []
+    - name: interface
+      files:
+        - path: ../library/interface/analog_input/analog_input_math.c
+      folders: []
 dependenceList:
   - depList:
       - name: Startup

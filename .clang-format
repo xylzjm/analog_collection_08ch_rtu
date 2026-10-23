@@ -34,3 +34,7 @@ IndentCaseLabels: true
 SortIncludes: false
 AlignConsecutiveMacros: AcrossEmptyLines
 AlignConsecutiveAssignments: Consecutive
+BreakBeforeBinaryOperators: NonAssignment
+SpacesInParens: Custom
+SpacesInParensOptions:
+    InConditionalStatements: true

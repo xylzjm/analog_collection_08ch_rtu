@@ -1,0 +1,695 @@
+#include "analog_input_board.h"
+
+#include "wk_system.h"
+
+/* Constants -------------------------------------------------------------- */
+
+/** Full-scale code of a 24-bit signed conversion result (2^23). */
+#define ANALOG_INPUT_BOARD_FULL_SCALE_CODE 8388608.0f
+
+/* Internal helpers -------------------------------------------------------- */
+
+static analog_input_status_t analog_input_board_map_status(sig24131_status_t status)
+{
+    switch (status) {
+        case SIG24131_OK:
+            return ANALOG_INPUT_OK;
+        case SIG24131_ERR_ARG:
+            return ANALOG_INPUT_ERR_ARG;
+        default:
+            return ANALOG_INPUT_ERR_IO;
+    }
+}
+
+/* State derived from the interface and the device ------------------------- */
+
+/**
+ * @brief Report whether configure() has ever succeeded on this instance.
+ *
+ * There is no dedicated flag: analog_input_board_init() leaves the object in
+ * the thermocouple/none combination that no successful configure() produces.
+ */
+static uint8_t analog_input_board_is_configured(const analog_input_board_t* instance)
+{
+    if (instance->base.config.type != ANALOG_INPUT_TYPE_THERMOCOUPLE) {
+        return 1U;
+    }
+    if (instance->base.config.thermocouple_type !=
+        ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE) {
+        return 1U;
+    }
+    return 0U;
+}
+
+/**
+ * @brief Report whether the wire-break work mode is armed.
+ *
+ * For a thermocouple the burnout current source itself is the state, so it is
+ * read back from the SIG24131 configuration. A PT100 needs no extra hardware
+ * mode: its excitation current is already part of the measurement, so the
+ * saturation check can run whenever the input is configured.
+ */
+static uint8_t analog_input_board_break_armed(const analog_input_board_t* instance)
+{
+    switch (instance->base.config.type) {
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            return (instance->device->config.burnout_enable != 0U) ? 1U : 0U;
+        case ANALOG_INPUT_TYPE_PT100:
+            return 1U;
+        default:
+            return 0U;
+    }
+}
+
+/* Front-end switches ------------------------------------------------------ */
+
+typedef struct {
+    gpio_type* cv_gpio_port; /**< Burden resistor switch of a 4-20 mA input. */
+    uint16_t cv_pin;
+    gpio_type* com_gpio_port; /**< Common lead switch of a three-wire PT100. */
+    uint16_t com_pin;
+} analog_input_board_switch_t;
+
+/* One entry per populated SIG24131 channel. */
+static const analog_input_board_switch_t
+    analog_input_board_switches[SIG24131_BOARD_INSTANCE_COUNT] = {
+        {CTRL_CV_1_GPIO_PORT, CTRL_CV_1_PIN, CTRL_COM_1_GPIO_PORT, CTRL_COM_1_PIN},
+        {CTRL_CV_2_GPIO_PORT, CTRL_CV_2_PIN, CTRL_COM_2_GPIO_PORT, CTRL_COM_2_PIN},
+        {CTRL_CV_3_GPIO_PORT, CTRL_CV_3_PIN, CTRL_COM_3_GPIO_PORT, CTRL_COM_3_PIN},
+        {CTRL_CV_4_GPIO_PORT, CTRL_CV_4_PIN, CTRL_COM_4_GPIO_PORT, CTRL_COM_4_PIN},
+#if SIG24131_BOARD_INSTANCE_COUNT >= 5U
+        {CTRL_CV_5_GPIO_PORT, CTRL_CV_5_PIN, CTRL_COM_5_GPIO_PORT, CTRL_COM_5_PIN},
+#endif
+#if SIG24131_BOARD_INSTANCE_COUNT >= 6U
+        {CTRL_CV_6_GPIO_PORT, CTRL_CV_6_PIN, CTRL_COM_6_GPIO_PORT, CTRL_COM_6_PIN},
+#endif
+#if SIG24131_BOARD_INSTANCE_COUNT >= 7U
+        {CTRL_CV_7_GPIO_PORT, CTRL_CV_7_PIN, CTRL_COM_7_GPIO_PORT, CTRL_COM_7_PIN},
+#endif
+#if SIG24131_BOARD_INSTANCE_COUNT >= 8U
+        {CTRL_CV_8_GPIO_PORT, CTRL_CV_8_PIN, CTRL_COM_8_GPIO_PORT, CTRL_COM_8_PIN},
+#endif
+};
+
+static void analog_input_board_switch_write(gpio_type* port,
+                                            uint16_t pin,
+                                            uint8_t engaged)
+{
+    if (port == NULL) {
+        return;
+    }
+#if ANALOG_INPUT_BOARD_SWITCH_ENGAGED_LEVEL
+    if (engaged != 0U) {
+        gpio_bits_set(port, pin);
+    } else {
+        gpio_bits_reset(port, pin);
+    }
+#else
+    if (engaged != 0U) {
+        gpio_bits_reset(port, pin);
+    } else {
+        gpio_bits_set(port, pin);
+    }
+#endif
+}
+
+/**
+ * @brief Put the front-end switches into the state required by an input type.
+ *
+ * CV is engaged for 4-20 mA (burden resistor in the loop), COM is engaged for
+ * a three-wire PT100 (common lead connected). All other types leave both
+ * switches released.
+ */
+static void analog_input_board_set_front_end(analog_input_board_t* instance,
+                                             analog_input_type_t type)
+{
+    const analog_input_board_switch_t* switches;
+    uint8_t cv;
+    uint8_t com;
+
+    if (instance == NULL || instance->channel == 0U) {
+        return;
+    }
+    switches = &analog_input_board_switches[instance->channel - 1U];
+    cv       = (type == ANALOG_INPUT_TYPE_4_20MA) ? 1U : 0U;
+    com      = (type == ANALOG_INPUT_TYPE_PT100) ? 1U : 0U;
+
+    analog_input_board_switch_write(switches->cv_gpio_port, switches->cv_pin, cv);
+    analog_input_board_switch_write(switches->com_gpio_port, switches->com_pin, com);
+}
+
+/** Release both front-end switches of one channel. */
+static void analog_input_board_release_switches(analog_input_board_t* instance)
+{
+    const analog_input_board_switch_t* switches;
+
+    if (instance == NULL || instance->channel == 0U) {
+        return;
+    }
+    switches = &analog_input_board_switches[instance->channel - 1U];
+
+    analog_input_board_switch_write(switches->cv_gpio_port, switches->cv_pin, 0U);
+    analog_input_board_switch_write(switches->com_gpio_port, switches->com_pin, 0U);
+}
+
+/* Sample-rate handling ---------------------------------------------------- */
+
+typedef struct {
+    uint32_t millihz;
+    sig24131_data_rate_t data_rate;
+} analog_input_board_rate_t;
+
+/* Rates supported by the SIG24131 driver, in millihertz. */
+static const analog_input_board_rate_t analog_input_board_rates[] = {
+    {2500U, SIG24131_RATE_2_5},     {5000U, SIG24131_RATE_5},
+    {10000U, SIG24131_RATE_10},     {12500U, SIG24131_RATE_12_5},
+    {15000U, SIG24131_RATE_15},     {20000U, SIG24131_RATE_20},
+    {25000U, SIG24131_RATE_25},     {30000U, SIG24131_RATE_30},
+    {40000U, SIG24131_RATE_40},     {50000U, SIG24131_RATE_50},
+    {60000U, SIG24131_RATE_60},     {80000U, SIG24131_RATE_80},
+    {100000U, SIG24131_RATE_100},   {120000U, SIG24131_RATE_120},
+    {160000U, SIG24131_RATE_160},   {200000U, SIG24131_RATE_200},
+    {240000U, SIG24131_RATE_240},   {250000U, SIG24131_RATE_250},
+    {300000U, SIG24131_RATE_300},   {400000U, SIG24131_RATE_400},
+    {480000U, SIG24131_RATE_480},   {500000U, SIG24131_RATE_500},
+    {600000U, SIG24131_RATE_600},   {800000U, SIG24131_RATE_800},
+    {1000000U, SIG24131_RATE_1000}, {1200000U, SIG24131_RATE_1200},
+    {2000000U, SIG24131_RATE_2000}, {2400000U, SIG24131_RATE_2400},
+    {4000000U, SIG24131_RATE_4000}, {4800000U, SIG24131_RATE_4800},
+    {8000000U, SIG24131_RATE_8000}, {9600000U, SIG24131_RATE_9600},
+};
+
+/**
+ * @brief Translate a requested rate into a SIG24131 data-rate code.
+ * @return Non-zero when the rate is supported, zero otherwise.
+ */
+static uint8_t analog_input_board_lookup_rate(uint32_t millihz,
+                                              sig24131_data_rate_t* data_rate)
+{
+    uint8_t index;
+    uint8_t count;
+
+    if (data_rate == NULL) {
+        return 0U;
+    }
+    count = (uint8_t)(sizeof(analog_input_board_rates) / sizeof(analog_input_board_rates[0]));
+    for (index = 0U; index < count; ++index) {
+        if (analog_input_board_rates[index].millihz == millihz) {
+            *data_rate = analog_input_board_rates[index].data_rate;
+            return 1U;
+        }
+    }
+    return 0U;
+}
+
+/**
+ * @brief Time until the first usable conversion, in whole milliseconds.
+ *
+ * The digital filter needs ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS conversions
+ * after the configuration registers change before its output is valid.
+ */
+static uint32_t analog_input_board_settle_ms(uint32_t rate_millihz)
+{
+    uint32_t period_ms;
+
+    if (rate_millihz == 0U) {
+        return 0U;
+    }
+    period_ms = (1000000U + rate_millihz - 1U) / rate_millihz;
+    return (uint32_t)ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS * period_ms;
+}
+
+/* Raw code to electrical value -------------------------------------------- */
+
+/** Gain programmed in the cached SIG24131 configuration. */
+static float analog_input_board_gain(const analog_input_board_t* instance)
+{
+    uint32_t exponent;
+
+    exponent = (uint32_t)instance->device->config.gain;
+    if (exponent > 8U) {
+        exponent = 8U;
+    }
+    return (float)(1UL << exponent);
+}
+
+/**
+ * @brief Differential input voltage of one raw code.
+ *
+ * Valid for the internally referenced modes (thermocouple, 4-20 mA, 0-10 V):
+ *
+ *     V_in = code * V_ref / (2^23 * gain)
+ *
+ * The ratiometric PT100 mode must use the resistance helper instead, because
+ * its reference is the voltage across ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS.
+ */
+static float analog_input_board_adc_volts(const analog_input_board_t* instance,
+                                          int32_t code)
+{
+    float gain;
+
+    gain = analog_input_board_gain(instance);
+    return ((float)code * ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS) /
+           (ANALOG_INPUT_BOARD_FULL_SCALE_CODE * gain);
+}
+
+/**
+ * @brief PT100 resistance of one raw code in the ratiometric front-end.
+ *
+ * The excitation current develops both the reference voltage and the sensor
+ * voltage, so it cancels and only the reference resistor is needed:
+ *
+ *     R_pt100 = R_reference * code / (2^23 * gain)
+ */
+static float analog_input_board_rtd_ohms(const analog_input_board_t* instance,
+                                         int32_t code)
+{
+    float gain;
+
+    gain = analog_input_board_gain(instance);
+    return (ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS * (float)code) /
+           (ANALOG_INPUT_BOARD_FULL_SCALE_CODE * gain);
+}
+
+/* Sensor linearisation ---------------------------------------------------- */
+
+/* The PT100 and thermocouple characteristics are fixed sensor physics, so they
+ * live in the analog_input interface:
+ *   analog_input_pt100_resistance_to_temperature()
+ *   analog_input_thermocouple_temperature_to_mv()
+ *   analog_input_thermocouple_mv_to_temperature()
+ */
+
+/* Analog input operations ------------------------------------------------- */
+
+static analog_input_status_t analog_input_board_configure(
+    analog_input_t* self,
+    const analog_input_config_t* config,
+    uint32_t* first_conversion_delay_ms)
+{
+    analog_input_board_t* instance;
+    sig24131_config_t adc;
+    uint32_t rate_millihz;
+    analog_input_status_t status;
+
+    instance = (analog_input_board_t*)self;
+    if (instance == NULL || instance->device == NULL || config == NULL ||
+        first_conversion_delay_ms == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    rate_millihz = (config->sample_rate_millihz == 0U)
+                       ? (uint32_t)ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ
+                       : config->sample_rate_millihz;
+
+    /* Start from the reset defaults, then apply the common settings. */
+    sig24131_default_config(&adc);
+    adc.filter      = SIG24131_FILTER_SINC1;
+    adc.conv_delay  = SIG24131_DELAY_0_US;
+    adc.single_shot = 0U;
+    adc.latency     = 0U;
+
+    if (analog_input_board_lookup_rate(rate_millihz, &adc.data_rate) == 0U) {
+        return ANALOG_INPUT_ERR_UNSUPPORTED;
+    }
+
+    switch (config->type) {
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            /* Direct millivolt input, buffered because of the high source
+             * impedance of a thermocouple. The burnout current source stays
+             * off until the wire-break work mode is enabled. */
+            adc.gain                      = ANALOG_INPUT_BOARD_THERMOCOUPLE_GAIN;
+            adc.reference                 = SIG24131_REF_INTERNAL_2V5;
+            adc.internal_reference_enable = 1U;
+            adc.input_buffer_enable       = 1U;
+            adc.mux_p                     = ANALOG_INPUT_BOARD_ADC_AIN0;
+            adc.mux_n                     = ANALOG_INPUT_BOARD_ADC_AIN1;
+            adc.burnout_enable            = 0U;
+            break;
+
+        case ANALOG_INPUT_TYPE_PT100:
+            /* Ratiometric measurement: the excitation current flows through
+             * the common (third) lead into the sensor and develops the
+             * reference voltage across ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS. */
+            adc.gain                   = ANALOG_INPUT_BOARD_RTD_GAIN;
+            adc.reference              = SIG24131_REF_EXTERNAL;
+            adc.input_buffer_enable    = 1U;
+            adc.idac_current           = ANALOG_INPUT_BOARD_RTD_IDAC_CURRENT;
+            adc.idac1_mux              = ANALOG_INPUT_BOARD_RTD_IDAC_MUX;
+            adc.idac2_mux              = 0U;
+            adc.idac_pair_enable       = 0U;
+            adc.idac_external_reference = 0U;
+            adc.mux_p                  = ANALOG_INPUT_BOARD_ADC_AIN0;
+            adc.mux_n                  = ANALOG_INPUT_BOARD_ADC_AIN1;
+            break;
+
+        case ANALOG_INPUT_TYPE_4_20MA:
+            /* Burden resistor converts the loop current into a voltage. The
+             * input buffer stays off: the low side sits at 0 V, which is
+             * outside the buffer headroom. */
+            adc.gain                      = ANALOG_INPUT_BOARD_CURRENT_GAIN;
+            adc.reference                 = SIG24131_REF_INTERNAL_2V5;
+            adc.internal_reference_enable = 1U;
+            adc.input_buffer_enable       = 0U;
+            adc.mux_p                     = ANALOG_INPUT_BOARD_ADC_AIN0;
+            adc.mux_n                     = ANALOG_INPUT_BOARD_ADC_AIN1;
+            break;
+
+        case ANALOG_INPUT_TYPE_0_10V:
+            /* Resistive divider scales 0-10 V into the ADC range. */
+            adc.gain                      = ANALOG_INPUT_BOARD_VOLTAGE_GAIN;
+            adc.reference                 = SIG24131_REF_INTERNAL_2V5;
+            adc.internal_reference_enable = 1U;
+            adc.input_buffer_enable       = 0U;
+            adc.mux_p                     = ANALOG_INPUT_BOARD_ADC_AIN0;
+            adc.mux_n                     = ANALOG_INPUT_BOARD_ADC_AIN1;
+            break;
+
+        default:
+            return ANALOG_INPUT_ERR_ARG;
+    }
+
+    /* The switches must be in place before the ADC starts converting. */
+    analog_input_board_set_front_end(instance, config->type);
+
+    status = analog_input_board_map_status(
+        sig24131_write_config(instance->device, &adc));
+    if (status != ANALOG_INPUT_OK) {
+        /* Restore the front-end of the last accepted configuration. The ADC
+         * itself may hold a partially written register pair; a retry of
+         * configure() reprograms it completely. */
+        analog_input_board_set_front_end(instance, instance->base.config.type);
+        return status;
+    }
+
+    *first_conversion_delay_ms = analog_input_board_settle_ms(rate_millihz);
+    return ANALOG_INPUT_OK;
+}
+
+static analog_input_status_t analog_input_board_read_sample(analog_input_t* self,
+                                                            int32_t* adc_code)
+{
+    analog_input_board_t* instance;
+    sig24131_sample_t sample;
+
+    instance = (analog_input_board_t*)self;
+    if (instance == NULL || instance->device == NULL || adc_code == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if (analog_input_board_is_configured(instance) == 0U) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+    if (sig24131_read_data(instance->device, &sample) != SIG24131_OK) {
+        return ANALOG_INPUT_ERR_IO;
+    }
+    *adc_code = sig24131_code_to_int32(&sample);
+    return ANALOG_INPUT_OK;
+}
+
+static analog_input_status_t analog_input_board_convert(
+    analog_input_t* self,
+    int32_t adc_code,
+    const analog_input_conversion_context_t* context,
+    float* measurement)
+{
+    analog_input_board_t* instance;
+    float volts;
+    float fraction;
+    float span;
+
+    instance = (analog_input_board_t*)self;
+    if (instance == NULL || instance->device == NULL || measurement == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if (analog_input_board_is_configured(instance) == 0U) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    switch (instance->base.config.type) {
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE: {
+            analog_input_thermocouple_type_t thermocouple_type;
+            analog_input_status_t status;
+            float emf_mv;
+            float emf_cold_junction_mv;
+            float temperature;
+
+            if (context == NULL) {
+                return ANALOG_INPUT_ERR_ARG;
+            }
+            thermocouple_type = instance->base.config.thermocouple_type;
+            if (thermocouple_type == ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE) {
+                return ANALOG_INPUT_ERR_STATE;
+            }
+            /* Cold junction compensation: the measured voltage is the
+             * difference between hot and cold junction, so add the cold
+             * junction EMF before inverting the reference function. */
+            volts  = analog_input_board_adc_volts(instance, adc_code);
+            emf_mv = volts * 1000.0f;
+
+            status = analog_input_thermocouple_temperature_to_mv(
+                thermocouple_type, context->cold_junction, &emf_cold_junction_mv);
+            if (status != ANALOG_INPUT_OK) {
+                return status;
+            }
+            status = analog_input_thermocouple_mv_to_temperature(
+                thermocouple_type, emf_mv + emf_cold_junction_mv, &temperature);
+            if (status != ANALOG_INPUT_OK) {
+                return status;
+            }
+            *measurement = temperature;
+            return ANALOG_INPUT_OK;
+        }
+
+        case ANALOG_INPUT_TYPE_PT100: {
+            analog_input_status_t status;
+            float ohms;
+            float temperature;
+
+            ohms = analog_input_board_rtd_ohms(instance, adc_code);
+            if (ohms <= 0.0f) {
+                return ANALOG_INPUT_ERR_CONVERSION;
+            }
+            status = analog_input_pt100_resistance_to_temperature(ohms, &temperature);
+            if (status != ANALOG_INPUT_OK) {
+                return status;
+            }
+            *measurement = temperature;
+            return ANALOG_INPUT_OK;
+        }
+
+        case ANALOG_INPUT_TYPE_4_20MA: {
+            float current_ma;
+
+            if (context == NULL) {
+                return ANALOG_INPUT_ERR_ARG;
+            }
+            volts      = analog_input_board_adc_volts(instance, adc_code);
+            current_ma = (volts / ANALOG_INPUT_BOARD_SHUNT_OHMS) * 1000.0f;
+            fraction   = (current_ma - 4.0f) / 16.0f;
+            break;
+        }
+
+        case ANALOG_INPUT_TYPE_0_10V: {
+            float input_volts;
+
+            if (context == NULL) {
+                return ANALOG_INPUT_ERR_ARG;
+            }
+            volts       = analog_input_board_adc_volts(instance, adc_code);
+            input_volts = volts * ANALOG_INPUT_BOARD_DIVIDER_RATIO;
+            fraction    = input_volts / 10.0f;
+            break;
+        }
+
+        default:
+            return ANALOG_INPUT_ERR_STATE;
+    }
+
+    /* Linear inputs: linear_min/linear_max is the engineering range at the
+     * low and high input limits (4 mA / 20 mA, 0 V / 10 V). */
+    span = context->linear_max - context->linear_min;
+    *measurement = context->linear_min + (fraction * span);
+    return ANALOG_INPUT_OK;
+}
+
+static analog_input_status_t analog_input_board_enable_break_detection(
+    analog_input_t* self)
+{
+    analog_input_board_t* instance;
+    sig24131_config_t adc;
+    analog_input_status_t status;
+
+    instance = (analog_input_board_t*)self;
+    if (instance == NULL || instance->device == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if (analog_input_board_is_configured(instance) == 0U) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    switch (instance->base.config.type) {
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            /* The burnout current source pulls an open thermocouple to the
+             * rail; a connected sensor keeps the input near zero. */
+            adc                   = instance->device->config;
+            adc.burnout_enable    = 1U;
+            status = analog_input_board_map_status(
+                sig24131_write_config(instance->device, &adc));
+            if (status != ANALOG_INPUT_OK) {
+                return status;
+            }
+            /* The burnout current needs time to charge the input capacitance.
+             * Waiting once here keeps every check_wire_break() immediate. */
+            wk_delay_ms((uint32_t)ANALOG_INPUT_BOARD_BREAK_SETTLE_MS);
+            break;
+
+        case ANALOG_INPUT_TYPE_PT100:
+            /* The excitation current is already part of the measurement mode,
+             * only the saturation check in check_wire_break() is needed. */
+            break;
+
+        default:
+            return ANALOG_INPUT_ERR_UNSUPPORTED;
+    }
+
+    return ANALOG_INPUT_OK;
+}
+
+static analog_input_status_t analog_input_board_disable_break_detection(
+    analog_input_t* self)
+{
+    analog_input_board_t* instance;
+    sig24131_config_t adc;
+    analog_input_status_t status;
+
+    instance = (analog_input_board_t*)self;
+    if (instance == NULL || instance->device == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if (analog_input_board_is_configured(instance) == 0U) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    switch (instance->base.config.type) {
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            adc                = instance->device->config;
+            adc.burnout_enable = 0U;
+            status = analog_input_board_map_status(
+                sig24131_write_config(instance->device, &adc));
+            if (status != ANALOG_INPUT_OK) {
+                return status;
+            }
+            break;
+
+        case ANALOG_INPUT_TYPE_PT100:
+            break;
+
+        default:
+            return ANALOG_INPUT_ERR_UNSUPPORTED;
+    }
+
+    return ANALOG_INPUT_OK;
+}
+
+static analog_input_status_t analog_input_board_check_wire_break(
+    analog_input_t* self,
+    analog_input_wire_status_t* wire_status)
+{
+    analog_input_board_t* instance;
+    analog_input_status_t status;
+    int32_t code;
+
+    instance = (analog_input_board_t*)self;
+    if (instance == NULL || instance->device == NULL || wire_status == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if (analog_input_board_is_configured(instance) == 0U) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+    if (analog_input_board_break_armed(instance) == 0U) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    status = analog_input_board_read_sample(self, &code);
+    if (status != ANALOG_INPUT_OK) {
+        return status;
+    }
+
+    if ((code > (int32_t)ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD) ||
+        (code < -(int32_t)ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD)) {
+        *wire_status = ANALOG_INPUT_WIRE_BROKEN;
+    } else {
+        *wire_status = ANALOG_INPUT_WIRE_NORMAL;
+    }
+    return ANALOG_INPUT_OK;
+}
+
+static const analog_input_ops_t analog_input_board_ops = {
+    .configure                = analog_input_board_configure,
+    .read_sample              = analog_input_board_read_sample,
+    .convert                  = analog_input_board_convert,
+    .enable_break_detection   = analog_input_board_enable_break_detection,
+    .disable_break_detection  = analog_input_board_disable_break_detection,
+    .check_wire_break         = analog_input_board_check_wire_break,
+};
+
+/* Board objects ----------------------------------------------------------- */
+
+static analog_input_board_t analog_input_board_instances[SIG24131_BOARD_INSTANCE_COUNT];
+
+analog_input_status_t analog_input_board_init(analog_input_board_t* self,
+                                              sig24131_t* device,
+                                              uint8_t channel)
+{
+    if (self == NULL || device == NULL) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if (channel > SIG24131_BOARD_INSTANCE_COUNT) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    self->base.ops                        = &analog_input_board_ops;
+    self->base.config.type                = ANALOG_INPUT_TYPE_THERMOCOUPLE;
+    self->base.config.thermocouple_type   = ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE;
+    self->base.config.sample_rate_millihz = 0U;
+    self->device                          = device;
+    self->channel                         = channel;
+
+    /* Leave the front-end switches released until a type is configured. */
+    analog_input_board_release_switches(self);
+    return ANALOG_INPUT_OK;
+}
+
+analog_input_status_t analog_input_board_init_all(void)
+{
+    uint8_t index;
+    analog_input_status_t status;
+
+    status = analog_input_board_map_status(sig24131_board_init());
+    if (status != ANALOG_INPUT_OK) {
+        return status;
+    }
+
+    for (index = 0U; index < (uint8_t)SIG24131_BOARD_INSTANCE_COUNT; ++index) {
+        status = analog_input_board_init(&analog_input_board_instances[index],
+                                         sig24131_board_get_device((uint8_t)(index + 1U)),
+                                         (uint8_t)(index + 1U));
+        if (status != ANALOG_INPUT_OK) {
+            return status;
+        }
+    }
+    return ANALOG_INPUT_OK;
+}
+
+uint8_t analog_input_board_count(void)
+{
+    return (uint8_t)SIG24131_BOARD_INSTANCE_COUNT;
+}
+
+analog_input_t* analog_input_board_get(uint8_t channel)
+{
+    if (channel == 0U || channel > (uint8_t)SIG24131_BOARD_INSTANCE_COUNT) {
+        return NULL;
+    }
+    return &analog_input_board_instances[channel - 1U].base;
+}

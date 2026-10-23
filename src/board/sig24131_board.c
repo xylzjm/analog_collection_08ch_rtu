@@ -125,7 +125,7 @@ sig24131_status_t sig24131_board_init(void)
         port.cs_release   = sig24131_board_cs_release;
         port.delay_us     = sig24131_board_delay_us;
 
-        status = sig24131_init(&sig24131_board_devices[index], &port);
+        status = sig24131_ctor(&sig24131_board_devices[index], &port);
         if (status != SIG24131_OK) {
             return status;
         }
