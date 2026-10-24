@@ -2,16 +2,16 @@
 
 #include "wk_system.h"
 
-#define SIG24131_BOARD_SPI_TRANSFER_TIMEOUT_TICKS 10U
+#define SPI_TRANSFER_TIMEOUT_TICKS 10U
 
 typedef struct {
     gpio_type* cs_gpio_port;
     uint16_t cs_pin;
-} sig24131_board_cs_t;
+} cs_binding_t;
 
 /* Optional channels are compiled out so a four-device board only needs to
  * define the CTRL_nCS_1..4 pin macros. */
-static const sig24131_board_cs_t sig24131_board_cs_bindings[SIG24131_BOARD_INSTANCE_COUNT] = {
+static const cs_binding_t cs_bindings[SIG24131_BOARD_INSTANCE_COUNT] = {
     {CTRL_nCS_1_GPIO_PORT, CTRL_nCS_1_PIN},
     {CTRL_nCS_2_GPIO_PORT, CTRL_nCS_2_PIN},
     {CTRL_nCS_3_GPIO_PORT, CTRL_nCS_3_PIN},
@@ -30,45 +30,45 @@ static const sig24131_board_cs_t sig24131_board_cs_bindings[SIG24131_BOARD_INSTA
 #endif
 };
 
-static sig24131_t sig24131_board_devices[SIG24131_BOARD_INSTANCE_COUNT];
+static sig24131_t devices[SIG24131_BOARD_INSTANCE_COUNT];
 
-static sig24131_status_t sig24131_board_wait_flag(uint32_t flag)
+static sig24131_status_t wait_flag(uint32_t flag)
 {
     uint32_t start_tick;
 
     start_tick = wk_tick_get();
-    while (spi_i2s_flag_get(SPI1, flag) == RESET) {
-        if ((uint32_t)(wk_tick_get() - start_tick) >=
-            SIG24131_BOARD_SPI_TRANSFER_TIMEOUT_TICKS) {
+    while ( spi_i2s_flag_get(SPI1, flag) == RESET ) {
+        if ( (uint32_t)(wk_tick_get() - start_tick)
+             >= SPI_TRANSFER_TIMEOUT_TICKS ) {
             return SIG24131_ERR_IO;
         }
     }
     return SIG24131_OK;
 }
 
-static sig24131_status_t sig24131_board_spi_transfer(void* ctx,
-                                                     const uint8_t* tx,
-                                                     uint8_t* rx,
-                                                     size_t len)
+static sig24131_status_t spi_transfer(void* ctx,
+                                      const uint8_t* tx,
+                                      uint8_t* rx,
+                                      size_t len)
 {
     size_t index;
     sig24131_status_t status;
 
     (void)ctx;
-    if ((tx == NULL || rx == NULL) && len != 0U) {
+    if ( (tx == NULL || rx == NULL) && len != 0U ) {
         return SIG24131_ERR_ARG;
     }
 
-    for (index = 0U; index < len; ++index) {
-        status = sig24131_board_wait_flag(SPI_I2S_TDBE_FLAG);
-        if (status != SIG24131_OK) {
+    for ( index = 0U; index < len; ++index ) {
+        status = wait_flag(SPI_I2S_TDBE_FLAG);
+        if ( status != SIG24131_OK ) {
             return status;
         }
 
         spi_i2s_data_transmit(SPI1, tx[index]);
 
-        status = sig24131_board_wait_flag(SPI_I2S_RDBF_FLAG);
-        if (status != SIG24131_OK) {
+        status = wait_flag(SPI_I2S_RDBF_FLAG);
+        if ( status != SIG24131_OK ) {
             return status;
         }
 
@@ -78,60 +78,49 @@ static sig24131_status_t sig24131_board_spi_transfer(void* ctx,
     return SIG24131_OK;
 }
 
-static sig24131_status_t sig24131_board_cs_assert(void* ctx)
+static sig24131_status_t cs_assert(void* ctx)
 {
-    const sig24131_board_cs_t* cs;
+    const cs_binding_t* cs;
 
-    cs = (const sig24131_board_cs_t*)ctx;
-    if (cs == NULL || cs->cs_gpio_port == NULL) {
+    cs = (const cs_binding_t*)ctx;
+    if ( cs == NULL || cs->cs_gpio_port == NULL ) {
         return SIG24131_ERR_ARG;
     }
     gpio_bits_reset(cs->cs_gpio_port, cs->cs_pin);
     return SIG24131_OK;
 }
 
-static sig24131_status_t sig24131_board_cs_release(void* ctx)
+static sig24131_status_t cs_release(void* ctx)
 {
-    const sig24131_board_cs_t* cs;
+    const cs_binding_t* cs;
 
-    cs = (const sig24131_board_cs_t*)ctx;
-    if (cs == NULL || cs->cs_gpio_port == NULL) {
+    cs = (const cs_binding_t*)ctx;
+    if ( cs == NULL || cs->cs_gpio_port == NULL ) {
         return SIG24131_ERR_ARG;
     }
     gpio_bits_set(cs->cs_gpio_port, cs->cs_pin);
     return SIG24131_OK;
 }
 
-static sig24131_status_t sig24131_board_delay_us(void* ctx,
-                                                 uint32_t us)
-{
-    if (ctx == NULL) {
-        return SIG24131_ERR_ARG;
-    }
-    wk_delay_us(us);
-    return SIG24131_OK;
-}
-
-sig24131_status_t sig24131_board_init(void)
+sig24131_status_t sig24131_board_ctor(void)
 {
     uint8_t index;
     sig24131_status_t status;
     sig24131_port_t port;
 
-    for (index = 0U; index < SIG24131_BOARD_INSTANCE_COUNT; ++index) {
-        port.ctx          = (void*)&sig24131_board_cs_bindings[index];
-        port.spi_transfer = sig24131_board_spi_transfer;
-        port.cs_assert    = sig24131_board_cs_assert;
-        port.cs_release   = sig24131_board_cs_release;
-        port.delay_us     = sig24131_board_delay_us;
+    for ( index = 0U; index < SIG24131_BOARD_INSTANCE_COUNT; ++index ) {
+        port.ctx          = (void*)&cs_bindings[index];
+        port.spi_transfer = spi_transfer;
+        port.cs_assert    = cs_assert;
+        port.cs_release   = cs_release;
 
-        status = sig24131_ctor(&sig24131_board_devices[index], &port);
-        if (status != SIG24131_OK) {
+        status = sig24131_ctor(&devices[index], &port);
+        if ( status != SIG24131_OK ) {
             return status;
         }
 
-        status = sig24131_board_cs_release(port.ctx);
-        if (status != SIG24131_OK) {
+        status = cs_release(port.ctx);
+        if ( status != SIG24131_OK ) {
             return status;
         }
     }
@@ -143,14 +132,20 @@ sig24131_status_t sig24131_board_reset(void)
 {
     uint8_t index;
     sig24131_status_t status;
+    sig24131_status_t result = SIG24131_OK;
 
-    for (index = 0U; index < SIG24131_BOARD_INSTANCE_COUNT; ++index) {
-        status = sig24131_reset(&sig24131_board_devices[index]);
-        if (status != SIG24131_OK) {
-            return status;
+    for ( index = 0U; index < SIG24131_BOARD_INSTANCE_COUNT; ++index ) {
+        status = sig24131_reset(&devices[index]);
+        if ( status != SIG24131_OK && result == SIG24131_OK ) {
+            result = status;
         }
     }
-    return SIG24131_OK;
+
+    /* The commands above are only microseconds apart, so one wait after the last
+     * one covers every device.  It runs even when a command failed, because the
+     * devices that did accept theirs still need it. */
+    wk_delay_ms(SIG24131_RESET_DELAY_MS);
+    return result;
 }
 
 uint8_t sig24131_board_count(void)
@@ -160,8 +155,8 @@ uint8_t sig24131_board_count(void)
 
 sig24131_t* sig24131_board_get_device(uint8_t channel)
 {
-    if (channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT) {
+    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
         return NULL;
     }
-    return &sig24131_board_devices[channel - 1U];
+    return &devices[channel - 1U];
 }

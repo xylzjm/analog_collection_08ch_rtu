@@ -36,6 +36,12 @@ AlignConsecutiveMacros: AcrossEmptyLines
 AlignConsecutiveAssignments: Consecutive
 BreakBeforeBinaryOperators: NonAssignment
 AllowShortCaseLabelsOnASingleLine: true
+AlignEscapedNewlines: Right
+AlignConsecutiveShortCaseStatements:
+    Enabled: true
+    AcrossEmptyLines: false    # 空行是否仍参与对齐
+    AcrossComments: false      # 注释行是否仍参与对齐
+    AlignCaseColons: false     # 关键：对齐冒号后面的语句，而不是对齐冒号本身
 SpacesInParens: Custom
 SpacesInParensOptions:
     InConditionalStatements: true

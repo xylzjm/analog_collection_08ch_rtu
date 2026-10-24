@@ -30,21 +30,29 @@ extern "C" {
 #endif
 #endif
 
-#if (SIG24131_BOARD_INSTANCE_COUNT < 1U) || \
-    (SIG24131_BOARD_INSTANCE_COUNT > SIG24131_BOARD_MAX_INSTANCES)
+#if ( SIG24131_BOARD_INSTANCE_COUNT < 1U ) \
+    || (SIG24131_BOARD_INSTANCE_COUNT > SIG24131_BOARD_MAX_INSTANCES)
 #error "SIG24131_BOARD_INSTANCE_COUNT must be between 1 and 8"
 #endif
 
 /**
- * @brief Initialize all board instances on SPI1.
+ * @brief Construct every SIG24131 driver instance on SPI1.
  *
  * The SPI1 peripheral and GPIO outputs must be initialized by the workbench
- * before calling this function.  The function binds each driver instance and
- * leaves all active-low chip selects deasserted.
+ * before calling this function.  It binds each driver instance to its chip
+ * select and leaves all active-low chip selects deasserted.  The devices are not
+ * touched, so sig24131_board_reset() has to follow before the first register
+ * access.
  */
-sig24131_status_t sig24131_board_init(void);
+sig24131_status_t sig24131_board_ctor(void);
 
-/** @brief Reset every populated SIG24131 device. */
+/**
+ * @brief Reset every populated SIG24131 device and wait for them to settle.
+ *
+ * The reset commands go out back to back and one shared SIG24131_RESET_DELAY_MS
+ * wait follows, so the cost is one settling time instead of one per device.
+ * Returns the first error but still resets as many devices as it can.
+ */
 sig24131_status_t sig24131_board_reset(void);
 
 /** @brief Return the number of populated instances for this build. */
