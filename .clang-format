@@ -12,7 +12,7 @@ FixNamespaceComments: false
 BreakBeforeBraces: Custom
 BraceWrapping:
     AfterClass: false
-    AfterControlStatement: false
+    AfterControlStatement: MultiLine
     AfterEnum: false
     AfterFunction: true
     AfterNamespace: false
@@ -27,14 +27,15 @@ PointerAlignment: Left
 DerivePointerAlignment: false
 BinPackParameters: AlwaysOnePerLine
 AllowAllParametersOfDeclarationOnNextLine: false
-AllowShortIfStatementsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: true
-AllowShortBlocksOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
 IndentCaseLabels: true
-SortIncludes: false
+# SortIncludes: false
 AlignConsecutiveMacros: AcrossEmptyLines
 AlignConsecutiveAssignments: Consecutive
 BreakBeforeBinaryOperators: NonAssignment
+AllowShortCaseLabelsOnASingleLine: true
 SpacesInParens: Custom
 SpacesInParensOptions:
     InConditionalStatements: true

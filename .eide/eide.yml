@@ -92,29 +92,30 @@ virtualFolder:
           folders: []
     - name: app
       files:
-        - path: src/app/main.c
+        - path: app/main.c
       folders: []
     - name: board
       files:
-        - path: src/board/sig24131_board.c
-        - path: src/board/board.c
+        - path: board/src/analog_input_board.c
+        - path: board/src/board.c
+        - path: board/src/sig24131_board.c
       folders:
         - name: at32_wk
           files:
-            - path: src/board/at32_wk/at32f421_int.c
-            - path: src/board/at32_wk/at32f421_wk_config.c
-            - path: src/board/at32_wk/main.c
-            - path: src/board/at32_wk/wk_gpio.c
-            - path: src/board/at32_wk/wk_spi.c
-            - path: src/board/at32_wk/wk_system.c
-            - path: src/board/at32_wk/wk_usart.c
+            - path: board/src/at32_wk/at32f421_int.c
+            - path: board/src/at32_wk/at32f421_wk_config.c
+            - path: board/src/at32_wk/main.c
+            - path: board/src/at32_wk/wk_gpio.c
+            - path: board/src/at32_wk/wk_spi.c
+            - path: board/src/at32_wk/wk_system.c
+            - path: board/src/at32_wk/wk_usart.c
           folders: []
         - name: ports
           files: []
           folders:
             - name: qp
               files:
-                - path: src/board/ports/qp/qv_port.c
+                - path: board/ports/src/qp/qv_port.c
               folders: []
     - name: interface
       files:
@@ -186,11 +187,10 @@ targets:
         - .cmsis/include
         - ../library/device/sig24131
         - ../library/interface/analog_input
-        - inc/app
-        - inc/board
         - ../middleware/qp/qpc/include
-        - inc/board/ports/qp
-        - inc/board/at32_wk
+        - board/inc
+        - board/inc/at32_wk
+        - board/ports/inc/qp
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c
