@@ -10,7 +10,8 @@
  * multiplexer and the two excitation currents are routed. The implementation
  * that uses these values lives in analog_input_board.c.
  *
- * Every macro can still be overridden from the build configuration.
+ * These are fixed values rather than build-time options: a board variant with a
+ * different shunt, divider or routing changes them in this file.
  */
 
 #include <stdint.h>
@@ -25,9 +26,7 @@ extern "C" {
 /* Signal chain scaling ---------------------------------------------------- */
 
 /** Burden resistor that converts the 4-20 mA loop current into a voltage. */
-#ifndef ANALOG_INPUT_BOARD_SHUNT_OHMS
 #define ANALOG_INPUT_BOARD_SHUNT_OHMS 200.0f
-#endif
 
 /**
  * Attenuation between the input terminals and the ADC, as input volts per ADC
@@ -38,18 +37,14 @@ extern "C" {
  *
  * The ADC therefore sees V_adc = V_in / 5.
  */
-#ifndef ANALOG_INPUT_BOARD_ATTENUATION_RATIO
 #define ANALOG_INPUT_BOARD_ATTENUATION_RATIO 5.0f
-#endif
 
 /**
  * SIG24131 internal reference in volts, used by the thermocouple, 4-20 mA and
  * 0-10 V modes. The PT100 front end is ratiometric and takes its reference from
  * the voltage across the reference resistor instead.
  */
-#ifndef ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS
 #define ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS 2.5f
-#endif
 
 /**
  * Reference resistor of the ratiometric PT100 front end.
@@ -65,11 +60,9 @@ extern "C" {
  *     R_pt100 = code / 2^23 * (2 * R_reference) / gain
  *
  * With 1.65 kohm and 500 uA the reference is 1.65 V, which keeps the IDAC
- * output in regulation over the whole -200..+850 degC range.
+ * output in regulation over the whole -200..+600 degC range.
  */
-#ifndef ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS
 #define ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS 1650.0f
-#endif
 
 /* ADC gain per input type -------------------------------------------------- */
 
@@ -77,32 +70,31 @@ extern "C" {
  * Thermocouple: 2.5 V / 32 = +-78.1 mV full scale. Type E reaches 76.4 mV at
  * 1000 degC, the largest of the eight models.
  */
-#ifndef ANALOG_INPUT_BOARD_THERMOCOUPLE_GAIN
 #define ANALOG_INPUT_BOARD_THERMOCOUPLE_GAIN SIG24131_GAIN_32
-#endif
 
 /**
  * 4-20 mA: 0.8 V at the ADC for 20 mA. Gain 2 maps that to 1.6 V, 64% of the
  * +-2.5 V range, and still measures up to 31.25 mA before clipping.
  */
-#ifndef ANALOG_INPUT_BOARD_CURRENT_GAIN
 #define ANALOG_INPUT_BOARD_CURRENT_GAIN SIG24131_GAIN_2
-#endif
 
 /** 0-10 V: 2.0 V at the ADC, 80% of the +-2.5 V range. */
-#ifndef ANALOG_INPUT_BOARD_VOLTAGE_GAIN
 #define ANALOG_INPUT_BOARD_VOLTAGE_GAIN SIG24131_GAIN_1
-#endif
 
 /**
  * PT100: the specified range ends at 600 degC, where the sensor drops 156.9 mV,
  * so gain 8 gives 1.26 V against the 1.65 V reference, 76% of full scale. Gain
- * 16 would clip above 284 degC, and gain 8 still covers the full 850 degC of the
- * sensor at 94.7%, so 8 is the only setting that spans both.
+ * 16 would clip above 284 degC, so 8 is the only setting that covers the range.
  */
-#ifndef ANALOG_INPUT_BOARD_RTD_GAIN
 #define ANALOG_INPUT_BOARD_RTD_GAIN SIG24131_GAIN_8
-#endif
+
+/**
+ * Temperature range the PT100 input accepts. Outside it the reading is out of
+ * specification, so convert() reports ANALOG_INPUT_ERR_CONVERSION instead of
+ * handing out a value that looks valid.
+ */
+#define ANALOG_INPUT_BOARD_RTD_MIN_TEMPERATURE_C -200.0f
+#define ANALOG_INPUT_BOARD_RTD_MAX_TEMPERATURE_C 600.0f
 
 /* Analog input routing ----------------------------------------------------- */
 
@@ -111,21 +103,13 @@ extern "C" {
  * 0-10 V inputs are single ended on AIN0 and are measured against AVSS.
  */
 
-#ifndef ANALOG_INPUT_BOARD_SENSOR_MUX_P
 #define ANALOG_INPUT_BOARD_SENSOR_MUX_P SIG24131_MUX_AIN5
-#endif
 
-#ifndef ANALOG_INPUT_BOARD_SENSOR_MUX_N
 #define ANALOG_INPUT_BOARD_SENSOR_MUX_N SIG24131_MUX_AIN4
-#endif
 
-#ifndef ANALOG_INPUT_BOARD_LINEAR_MUX_P
 #define ANALOG_INPUT_BOARD_LINEAR_MUX_P SIG24131_MUX_AIN0
-#endif
 
-#ifndef ANALOG_INPUT_BOARD_LINEAR_MUX_N
 #define ANALOG_INPUT_BOARD_LINEAR_MUX_N SIG24131_MUX_AVSS
-#endif
 
 /* Front-end switches ------------------------------------------------------- */
 
@@ -153,18 +137,12 @@ extern "C" {
  * lead resistances cancel and the converter measures only I_idac * R_pt100.
  */
 
-#ifndef ANALOG_INPUT_BOARD_RTD_IDAC1_MUX
 #define ANALOG_INPUT_BOARD_RTD_IDAC1_MUX SIG24131_IDAC_MUX_AIN3
-#endif
 
-#ifndef ANALOG_INPUT_BOARD_RTD_IDAC2_MUX
 #define ANALOG_INPUT_BOARD_RTD_IDAC2_MUX SIG24131_IDAC_MUX_AIN1
-#endif
 
 /** Excitation current of the ratiometric PT100 measurement. */
-#ifndef ANALOG_INPUT_BOARD_RTD_IDAC_CURRENT
 #define ANALOG_INPUT_BOARD_RTD_IDAC_CURRENT SIG24131_IDAC_500_UA
-#endif
 
 /* Supported sample rates --------------------------------------------------- */
 
@@ -214,24 +192,16 @@ extern "C" {
 /* Timing and detection ----------------------------------------------------- */
 
 /** Sample rate selected when analog_input_config_t::sample_rate_millihz is 0. */
-#ifndef ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ
 #define ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ ANALOG_INPUT_BOARD_RATE_10_HZ
-#endif
 
 /** Conversions needed after a configuration change before data is valid. */
-#ifndef ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS
 #define ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS 2U
-#endif
 
 /** Absolute code above which the input is considered open (burnout detection). */
-#ifndef ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD
 #define ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD 0x600000L
-#endif
 
 /** Time the burnout current needs to charge the input before a check. */
-#ifndef ANALOG_INPUT_BOARD_BREAK_SETTLE_MS
 #define ANALOG_INPUT_BOARD_BREAK_SETTLE_MS 200U
-#endif
 
 /* Concrete analog input object -------------------------------------------- */
 

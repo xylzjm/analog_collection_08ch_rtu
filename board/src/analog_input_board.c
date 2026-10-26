@@ -27,30 +27,7 @@ static analog_input_status_t map_status(sig24131_status_t status)
     return ANALOG_INPUT_ERR_IO;
 }
 
-/* Sample rate ------------------------------------------------------------- */
-
-/** Widest code the data-rate field of CONF1 can carry. */
-#define RATE_CODE_MAX 0x3FU
-
-/**
- * @brief Translate a requested rate into a SIG24131 data-rate code.
- *
- * The driver owns the code-to-rate table, so the board scans it instead of
- * duplicating the 32 entries. Returns non-zero when the rate is supported.
- */
-static uint8_t lookup_rate(uint32_t millihz,
-                           sig24131_data_rate_t* data_rate)
-{
-    uint32_t code;
-
-    for ( code = 0U; code <= RATE_CODE_MAX; code++ ) {
-        if ( sig24131_data_rate_millihz((sig24131_data_rate_t)code) == millihz ) {
-            *data_rate = (sig24131_data_rate_t)code;
-            return 1U;
-        }
-    }
-    return 0U;
-}
+/* Settle delay ------------------------------------------------------------ */
 
 /**
  * @brief Time from the configuration write to the first usable conversion.
@@ -63,7 +40,8 @@ static uint8_t lookup_rate(uint32_t millihz,
  */
 static uint32_t settle_delay_ms(uint32_t rate_millihz)
 {
-    return ((uint32_t)ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS * 1000000U + rate_millihz - 1U)
+    return ((uint32_t)ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS * 1000000U
+            + rate_millihz - 1U)
            / rate_millihz;
 }
 
@@ -202,7 +180,8 @@ static uint8_t is_configured(const analog_input_board_t* instance)
     if ( instance->base.config.type != ANALOG_INPUT_TYPE_THERMOCOUPLE ) {
         return 1U;
     }
-    return (instance->base.config.thermocouple_type != ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE)
+    return (instance->base.config.thermocouple_type
+            != ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE)
                ? 1U
                : 0U;
 }
@@ -215,12 +194,164 @@ static void mark_unconfigured(analog_input_t* self)
     self->config.sample_rate_millihz = 0U;
 }
 
+/* Conversion -------------------------------------------------------------- */
+
+/** Full-scale code of the signed 24-bit conversion result. */
+#define FULL_SCALE_CODE 8388608.0f
+
+/** Electrical span of the two linear input types. */
+#define CURRENT_SPAN_LOW_MA  4.0f
+#define CURRENT_SPAN_HIGH_MA 20.0f
+#define VOLTAGE_SPAN_LOW_V   0.0f
+#define VOLTAGE_SPAN_HIGH_V  10.0f
+
+/**
+ * @brief Voltage at the ADC input of one raw code.
+ *
+ *     V_adc = code / 2^23 * V_ref / gain
+ *
+ * Valid for the internally referenced modes. The ratiometric PT100 front end
+ * takes its reference from the reference resistor instead.
+ */
+static float adc_volts(int32_t sample_code,
+                       float gain)
+{
+    return (float)sample_code
+           * ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS
+           / (FULL_SCALE_CODE * gain);
+}
+
+/**
+ * @brief Convert a raw code of one of the two linear input types.
+ *
+ * The code becomes the voltage at the input terminals first, which the shunt or
+ * the divider turns into milliamperes or volts. That value is then mapped onto
+ * the engineering range of the caller. Values outside the span extrapolate
+ * instead of clamping, so an over-range loop current stays visible.
+ */
+static analog_input_status_t convert_linear(analog_input_t* self,
+                                            int32_t sample_code,
+                                            const analog_input_conversion_context_t* context,
+                                            float* measurement)
+{
+    float gain;
+    float span_low;
+    float span_high;
+    float value;
+
+    if ( context == NULL ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    if ( self->config.type == ANALOG_INPUT_TYPE_4_20MA ) {
+        gain      = (float)(1UL << ANALOG_INPUT_BOARD_CURRENT_GAIN);
+        value     = adc_volts(sample_code, gain)
+                    * ANALOG_INPUT_BOARD_ATTENUATION_RATIO
+                    / ANALOG_INPUT_BOARD_SHUNT_OHMS * 1000.0f;
+        span_low  = CURRENT_SPAN_LOW_MA;
+        span_high = CURRENT_SPAN_HIGH_MA;
+    } else {
+        gain      = (float)(1UL << ANALOG_INPUT_BOARD_VOLTAGE_GAIN);
+        value     = adc_volts(sample_code, gain)
+                    * ANALOG_INPUT_BOARD_ATTENUATION_RATIO;
+        span_low  = VOLTAGE_SPAN_LOW_V;
+        span_high = VOLTAGE_SPAN_HIGH_V;
+    }
+
+    *measurement = context->linear_min
+                   + (value - span_low)
+                         * (context->linear_max - context->linear_min)
+                         / (span_high - span_low);
+    return ANALOG_INPUT_OK;
+}
+
+/**
+ * @brief Convert a raw code of the ratiometric PT100 front end.
+ *
+ * The excitation current cancels, so the code depends only on the resistance
+ * ratio and on the gain:
+ *
+ *     R_pt100 = code / 2^23 * (2 * R_reference) / gain
+ *
+ * The interface helper rejects resistances outside the -200 .. +850 degC sensor
+ * range instead of extrapolating; this front end is specified from -200 to
+ * 600 degC, so anything outside that is rejected here as well.
+ */
+static analog_input_status_t convert_pt100(int32_t sample_code,
+                                           float* measurement)
+{
+    analog_input_status_t status;
+    float gain;
+    float resistance;
+    float temperature;
+
+    if ( measurement == NULL ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    gain       = (float)(1UL << ANALOG_INPUT_BOARD_RTD_GAIN);
+    resistance = (float)sample_code / FULL_SCALE_CODE
+                 * (2.0f * ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS) / gain;
+
+    if ( resistance <= 0.0f ) {
+        return ANALOG_INPUT_ERR_CONVERSION;
+    }
+
+    status = analog_input_pt100_resistance_to_temperature(resistance, &temperature);
+    if ( status != ANALOG_INPUT_OK ) {
+        return status;
+    }
+    if ( temperature < ANALOG_INPUT_BOARD_RTD_MIN_TEMPERATURE_C
+         || temperature > ANALOG_INPUT_BOARD_RTD_MAX_TEMPERATURE_C ) {
+        return ANALOG_INPUT_ERR_CONVERSION;
+    }
+    *measurement = temperature;
+    return ANALOG_INPUT_OK;
+}
+
+/**
+ * @brief Convert a raw code of a thermocouple input.
+ *
+ * The code becomes the thermoelectric voltage between the two terminals. Adding
+ * the voltage the cold junction itself produces at the measured ambient
+ * temperature turns it into the voltage the hot junction would produce against
+ * 0 degC, which the inverse sensor polynomial expects.
+ */
+static analog_input_status_t convert_thermocouple(analog_input_t* self,
+                                                  int32_t sample_code,
+                                                  const analog_input_conversion_context_t* context,
+                                                  float* measurement)
+{
+    analog_input_status_t status;
+    float cold_junction_mv;
+    float gain;
+    float emf_mv;
+
+    if ( context == NULL ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    gain   = (float)(1UL << ANALOG_INPUT_BOARD_THERMOCOUPLE_GAIN);
+    emf_mv = adc_volts(sample_code, gain) * 1000.0f;
+
+    status = analog_input_thermocouple_temperature_to_mv(self->config.thermocouple_type,
+                                                         context->cold_junction,
+                                                         &cold_junction_mv);
+    if ( status != ANALOG_INPUT_OK ) {
+        return status;
+    }
+
+    return analog_input_thermocouple_mv_to_temperature(self->config.thermocouple_type,
+                                                       emf_mv + cold_junction_mv,
+                                                       measurement);
+}
+
 /* Operations -------------------------------------------------------------- */
 
 /*
- * convert() and the wire-break work mode follow in the next steps. Until they
- * exist they report that the object is not ready, so a half-built layer cannot
- * be mistaken for a working one.
+ * The wire-break work mode follows in the next step; until then it reports that
+ * the object is not ready, so a half-built layer cannot be mistaken for a
+ * working one.
  */
 
 static analog_input_status_t configure(analog_input_t* self,
@@ -241,7 +372,8 @@ static analog_input_status_t configure(analog_input_t* self,
 
     /* Nothing is allowed to change before the request is known to be
      * supported. */
-    if ( lookup_rate(rate_millihz, &data_rate) == 0U ) {
+    if ( sig24131_data_rate_from_millihz(rate_millihz, &data_rate)
+         != SIG24131_OK ) {
         return ANALOG_INPUT_ERR_UNSUPPORTED;
     }
 
@@ -294,10 +426,22 @@ static analog_input_status_t convert(analog_input_t* self,
                                      const analog_input_conversion_context_t* context,
                                      float* measurement)
 {
-    (void)self;
-    (void)sample_code;
-    (void)context;
-    (void)measurement;
+    analog_input_board_t* instance;
+
+    instance = (analog_input_board_t*)self;
+    if ( is_configured(instance) == 0U ) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    switch ( self->config.type ) {
+        case ANALOG_INPUT_TYPE_4_20MA:
+        case ANALOG_INPUT_TYPE_0_10V:
+            return convert_linear(self, sample_code, context, measurement);
+        case ANALOG_INPUT_TYPE_PT100:
+            return convert_pt100(sample_code, measurement);
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            return convert_thermocouple(self, sample_code, context, measurement);
+    }
     return ANALOG_INPUT_ERR_STATE;
 }
 
@@ -332,10 +476,9 @@ static const analog_input_ops_t ops = {
 
 /* Object ------------------------------------------------------------------ */
 
-analog_input_status_t analog_input_board_ctor(
-    analog_input_board_t* self,
-    sig24131_t* device,
-    uint8_t channel)
+analog_input_status_t analog_input_board_ctor(analog_input_board_t* self,
+                                              sig24131_t* device,
+                                              uint8_t channel)
 {
     analog_input_status_t status;
 
