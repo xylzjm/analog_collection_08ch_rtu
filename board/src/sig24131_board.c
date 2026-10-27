@@ -102,24 +102,35 @@ static sig24131_status_t cs_release(void* ctx)
     return SIG24131_OK;
 }
 
-sig24131_status_t sig24131_board_ctor(void)
+sig24131_status_t sig24131_board_ctor(uint8_t channel)
 {
-    uint8_t index;
-    sig24131_status_t status;
     sig24131_port_t port;
+    sig24131_status_t status;
 
-    for ( index = 0U; index < SIG24131_BOARD_INSTANCE_COUNT; ++index ) {
-        port.ctx          = (void*)&cs_bindings[index];
-        port.spi_transfer = spi_transfer;
-        port.cs_assert    = cs_assert;
-        port.cs_release   = cs_release;
+    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+        return SIG24131_ERR_ARG;
+    }
 
-        status = sig24131_ctor(&devices[index], &port);
-        if ( status != SIG24131_OK ) {
-            return status;
-        }
+    port.ctx          = (void*)&cs_bindings[channel - 1U];
+    port.spi_transfer = spi_transfer;
+    port.cs_assert    = cs_assert;
+    port.cs_release   = cs_release;
 
-        status = cs_release(port.ctx);
+    status = sig24131_ctor(&devices[channel - 1U], &port);
+    if ( status != SIG24131_OK ) {
+        return status;
+    }
+
+    return cs_release(port.ctx);
+}
+
+sig24131_status_t sig24131_board_ctor_all(void)
+{
+    sig24131_status_t status;
+    uint8_t channel;
+
+    for ( channel = 1U; channel <= SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+        status = sig24131_board_ctor(channel);
         if ( status != SIG24131_OK ) {
             return status;
         }
@@ -128,14 +139,23 @@ sig24131_status_t sig24131_board_ctor(void)
     return SIG24131_OK;
 }
 
-sig24131_status_t sig24131_board_reset(void)
+sig24131_status_t sig24131_board_reset(uint8_t channel)
 {
-    uint8_t index;
+    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+        return SIG24131_ERR_ARG;
+    }
+
+    return sig24131_reset(&devices[channel - 1U]);
+}
+
+sig24131_status_t sig24131_board_reset_all(void)
+{
     sig24131_status_t status;
     sig24131_status_t result = SIG24131_OK;
+    uint8_t channel;
 
-    for ( index = 0U; index < SIG24131_BOARD_INSTANCE_COUNT; ++index ) {
-        status = sig24131_reset(&devices[index]);
+    for ( channel = 1U; channel <= SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+        status = sig24131_board_reset(channel);
         if ( status != SIG24131_OK && result == SIG24131_OK ) {
             result = status;
         }

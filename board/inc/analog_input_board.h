@@ -258,25 +258,46 @@ typedef struct {
     uint8_t channel;     /**< One-based board channel. */
 } analog_input_board_t;
 
+/* Channel objects --------------------------------------------------------- */
+
 /**
  * @brief Construct the analog input object of one board channel.
  *
  * Installs the operation table through analog_input_ctor() and binds the object
- * to its ADC driver instance and to the channel that owns the front-end
- * switches. Nothing is written to the hardware and no configuration is loaded,
- * so analog_input_configure() has to succeed before the object produces values.
+ * to the SIG24131 instance of the same channel and to the channel that owns the
+ * front-end switches. Nothing is written to the hardware and no configuration is
+ * loaded, so analog_input_configure() has to succeed before the object produces
+ * values. The driver instances have to be constructed first, by
+ * sig24131_board_ctor_all().
  *
- * @param self    Storage owned by the caller.
- * @param device  Driver instance, already set up by sig24131_board_ctor().
- * @param channel One-based board channel, 1..SIG24131_BOARD_INSTANCE_COUNT.
+ * @param channel One-based board channel, 1..analog_input_board_count().
  *
- * @return ANALOG_INPUT_OK, or ANALOG_INPUT_ERR_ARG when an argument is NULL or
- *         the channel is outside the populated range.
+ * @return ANALOG_INPUT_OK, or ANALOG_INPUT_ERR_ARG when the channel is outside
+ *         the populated range.
  */
-analog_input_status_t analog_input_board_ctor(
-    analog_input_board_t* self,
-    sig24131_t* device,
-    uint8_t channel);
+analog_input_status_t analog_input_board_ctor(uint8_t channel);
+
+/**
+ * @brief Construct the object of every populated channel.
+ *
+ * Only RAM is written: no channel is configured and no channel produces values
+ * until analog_input_configure() has succeeded on it.
+ *
+ * @return ANALOG_INPUT_OK, or the first failure of a channel constructor.
+ */
+analog_input_status_t analog_input_board_ctor_all(void);
+
+/** Number of channel objects the module owns. */
+uint8_t analog_input_board_count(void);
+
+/**
+ * @brief Look up one channel.
+ *
+ * @param channel One-based channel number, 1..analog_input_board_count().
+ * @return The analog_input_t base of that channel, so the caller only needs the
+ *         interface, or NULL when channel is outside the populated range.
+ */
+analog_input_t* analog_input_board_get(uint8_t channel);
 
 #ifdef __cplusplus
 }

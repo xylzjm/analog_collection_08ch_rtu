@@ -36,15 +36,35 @@ extern "C" {
 #endif
 
 /**
- * @brief Construct every SIG24131 driver instance on SPI1.
+ * @brief Construct the driver instance of one channel.
  *
- * The SPI1 peripheral and GPIO outputs must be initialized by the workbench
- * before calling this function.  It binds each driver instance to its chip
- * select and leaves all active-low chip selects deasserted.  The devices are not
- * touched, so sig24131_board_reset() has to follow before the first register
- * access.
+ * Binds the instance to the chip select of that channel and leaves the
+ * active-low chip select deasserted.  The SPI1 peripheral and the GPIO outputs
+ * must be initialized by the workbench first.  The device is not touched, so
+ * sig24131_board_reset_all() has to follow before the first register access.
+ *
+ * @param channel One-based channel number, 1..sig24131_board_count().
+ * @return SIG24131_OK, or SIG24131_ERR_ARG when the channel is outside the
+ *         populated range.
  */
-sig24131_status_t sig24131_board_ctor(void);
+sig24131_status_t sig24131_board_ctor(uint8_t channel);
+
+/** @brief Construct the driver instance of every populated channel. */
+sig24131_status_t sig24131_board_ctor_all(void);
+
+/**
+ * @brief Reset one device.
+ *
+ * The device needs SIG24131_RESET_DELAY_MS before it may be accessed again, and
+ * this function does not wait.  A caller that resets several channels inserts
+ * the wait once after the last one; sig24131_board_reset_all() does exactly
+ * that.
+ *
+ * @param channel One-based channel number, 1..sig24131_board_count().
+ * @return SIG24131_OK, or SIG24131_ERR_ARG when the channel is outside the
+ *         populated range.
+ */
+sig24131_status_t sig24131_board_reset(uint8_t channel);
 
 /**
  * @brief Reset every populated SIG24131 device and wait for them to settle.
@@ -53,7 +73,7 @@ sig24131_status_t sig24131_board_ctor(void);
  * wait follows, so the cost is one settling time instead of one per device.
  * Returns the first error but still resets as many devices as it can.
  */
-sig24131_status_t sig24131_board_reset(void);
+sig24131_status_t sig24131_board_reset_all(void);
 
 /** @brief Return the number of populated instances for this build. */
 uint8_t sig24131_board_count(void);

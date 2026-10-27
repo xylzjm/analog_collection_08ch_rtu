@@ -677,25 +677,58 @@ static const analog_input_ops_t ops = {
     .check_wire_break        = check_wire_break,
 };
 
-/* Object ------------------------------------------------------------------ */
+/* Channel objects --------------------------------------------------------- */
 
-analog_input_status_t analog_input_board_ctor(analog_input_board_t* self,
-                                              sig24131_t* device,
-                                              uint8_t channel)
+/*
+ * One object per populated channel. The driver instances they point at belong to
+ * sig24131_board.c, so what lives here is only the interface state of each
+ * channel.
+ */
+
+static analog_input_board_t instances[SIG24131_BOARD_INSTANCE_COUNT];
+
+analog_input_status_t analog_input_board_ctor(uint8_t channel)
 {
+    analog_input_board_t* instance;
     analog_input_status_t status;
 
-    if ( self == NULL || device == NULL
-         || channel == 0U
-         || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
         return ANALOG_INPUT_ERR_ARG;
     }
+    instance = &instances[channel - 1U];
 
-    status = analog_input_ctor(&self->base, &ops);
+    status = analog_input_ctor(&instance->base, &ops);
     if ( status != ANALOG_INPUT_OK ) {
         return status;
     }
-    self->device  = device;
-    self->channel = channel;
+    instance->device  = sig24131_board_get_device(channel);
+    instance->channel = channel;
     return ANALOG_INPUT_OK;
+}
+
+analog_input_status_t analog_input_board_ctor_all(void)
+{
+    analog_input_status_t status;
+    uint8_t channel;
+
+    for ( channel = 1U; channel <= SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+        status = analog_input_board_ctor(channel);
+        if ( status != ANALOG_INPUT_OK ) {
+            return status;
+        }
+    }
+    return ANALOG_INPUT_OK;
+}
+
+uint8_t analog_input_board_count(void)
+{
+    return (uint8_t)SIG24131_BOARD_INSTANCE_COUNT;
+}
+
+analog_input_t* analog_input_board_get(uint8_t channel)
+{
+    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+        return NULL;
+    }
+    return &instances[channel - 1U].base;
 }
