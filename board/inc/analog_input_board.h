@@ -197,11 +197,52 @@ extern "C" {
 /** Conversions needed after a configuration change before data is valid. */
 #define ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS 2U
 
-/** Absolute code above which the input is considered open (burnout detection). */
+/* Wire-break detection ----------------------------------------------------- */
+
+/*
+ * Both sensor inputs are checked by changing what the converter looks at, so a
+ * check cannot run at the same time as a measurement. The two linear inputs
+ * have no check at all: a missing loop or a missing voltage looks exactly like a
+ * valid low reading to them.
+ *
+ * Thermocouple: the burnout current sources in CONF0 source into one terminal
+ * and sink from the other. A connected sensor closes that path through its own
+ * loop resistance, while an open one lets the two terminals drift to the supply
+ * rails, which saturates the converter at positive full scale.
+ *
+ * PT100: the excitation currents are already in circuit, so the voltage across
+ * the reference resistor carries the diagnosis. All three leads intact puts
+ * both currents through it, 1 mA across 1.65 kohm. One open sensor lead leaves
+ * one current source without a path through the sensor and halves the voltage,
+ * an open return path clears it.
+ *
+ * A check is configured like a measurement, so it needs the same filter
+ * settling: ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS conversions of the configured
+ * data rate.
+ */
+
+/** Burnout check: code magnitude above which the thermocouple input is open. */
 #define ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD 0x600000L
 
-/** Time the burnout current needs to charge the input before a check. */
-#define ANALOG_INPUT_BOARD_BREAK_SETTLE_MS 200U
+/** Reference resistor voltage while all three PT100 leads carry current. */
+#define ANALOG_INPUT_BOARD_RTD_REFERENCE_VOLTS 1.65f
+
+/**
+ * Fraction of ANALOG_INPUT_BOARD_RTD_REFERENCE_VOLTS below which a PT100 lead
+ * counts as open. The two faults read half and zero, the intact sensor reads
+ * one, so the threshold sits above half and leaves room for the tolerance of
+ * the excitation currents and of the resistor.
+ */
+#define ANALOG_INPUT_BOARD_RTD_BREAK_RATIO 0.75f
+
+/**
+ * Fraction of ANALOG_INPUT_BOARD_RTD_REFERENCE_VOLTS below which the open lead
+ * is the shared return one rather than an excitation lead. An open excitation
+ * lead still leaves the other current flowing through the resistor, so half
+ * remains; only a broken return path clears the resistor completely. The
+ * threshold sits below that half with the same margin as the one above.
+ */
+#define ANALOG_INPUT_BOARD_RTD_BREAK_RETURN_RATIO 0.25f
 
 /* Concrete analog input object -------------------------------------------- */
 

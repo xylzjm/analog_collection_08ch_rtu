@@ -166,6 +166,59 @@ static void fill_config(sig24131_config_t* adc,
     }
 }
 
+/**
+ * @brief Build the SIG24131 configuration of a wire-break check.
+ *
+ * A check keeps the front end of the measurement: the sensor stays connected to
+ * the same pins and only what the converter looks at changes.
+ *
+ * Both checks run at gain 1, which is the widest range the converter has: the
+ * largest thermocouple reaches 3% of it and the intact reference voltage 66%,
+ * so neither comes close to the full scale that a fault produces. Both also
+ * enable the input buffer, because each one measures a node that must not be
+ * loaded, the burnout-driven thermocouple terminals and the reference resistor
+ * across REFP/REFN.
+ *
+ * A thermocouple check adds the burnout current sources, so an open sensor
+ * drives its two terminals to opposite rails while a connected one carries the
+ * current through its own loop.
+ *
+ * The PT100 check keeps the excitation currents, because they create the
+ * voltage that carries the diagnosis, and measures that voltage at REFP/REFN
+ * instead of the sensor. Measuring it needs a reference that is not the
+ * measured voltage itself, so the internal 2.5 V reference is selected. REF_EN
+ * stays 0: it feeds the internal reference out to REFP and would replace the
+ * voltage at the pin with a constant.
+ */
+static void fill_break_config(sig24131_config_t* adc,
+                              analog_input_type_t type)
+{
+    fill_config(adc, type);
+
+    switch ( type ) {
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            adc->gain                = SIG24131_GAIN_1;
+            adc->input_buffer_enable = 1U;
+            adc->burnout_enable      = 1U;
+            break;
+
+        case ANALOG_INPUT_TYPE_PT100:
+            adc->reference                 = SIG24131_REF_INTERNAL_2V5;
+            adc->internal_reference_enable = 0U;
+            adc->gain                      = SIG24131_GAIN_1;
+            adc->input_buffer_enable       = 1U;
+            adc->mux_p                     = SIG24131_MUX_REF;
+            adc->mux_n                     = SIG24131_MUX_REF;
+            break;
+
+        case ANALOG_INPUT_TYPE_4_20MA:
+        case ANALOG_INPUT_TYPE_0_10V:
+            /* Nothing to detect; the caller rejects these types before it gets
+             * here. */
+            break;
+    }
+}
+
 /* Object state ------------------------------------------------------------ */
 
 /**
@@ -346,13 +399,65 @@ static analog_input_status_t convert_thermocouple(analog_input_t* self,
                                                        measurement);
 }
 
-/* Operations -------------------------------------------------------------- */
+/* Detection criteria ------------------------------------------------------ */
 
-/*
- * The wire-break work mode follows in the next step; until then it reports that
- * the object is not ready, so a half-built layer cannot be mistaken for a
- * working one.
+/** Whether the input type has a wire-break check at all. */
+static uint8_t has_break_detection(analog_input_type_t type)
+{
+    return (type == ANALOG_INPUT_TYPE_THERMOCOUPLE
+            || type == ANALOG_INPUT_TYPE_PT100)
+               ? 1U
+               : 0U;
+}
+
+/**
+ * @brief Classify a code taken in thermocouple detection mode.
+ *
+ * The burnout sources pull an open pair to opposite rails, so the result leaves
+ * the range a connected thermocouple can produce. Both signs count: which rail
+ * the pair ends up at depends on how the sensor is wired. A two-terminal sensor
+ * has no second fault this check could tell apart.
  */
+static analog_input_wire_status_t thermocouple_wire_status(int32_t sample_code)
+{
+    if ( sample_code > ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD
+         || sample_code < -ANALOG_INPUT_BOARD_BREAK_CODE_THRESHOLD ) {
+        return ANALOG_INPUT_WIRE_BROKEN;
+    }
+    return ANALOG_INPUT_WIRE_NORMAL;
+}
+
+/**
+ * @brief Classify a code taken in PT100 detection mode.
+ *
+ * The check measures the reference resistor voltage at gain 1 against the
+ * internal 2.5 V reference, which is what adc_volts() decodes. An intact
+ * three-wire sensor leaves the full voltage there, an open excitation lead
+ * removes one of the two currents and halves it, and an open return lead leaves
+ * the resistor without any current and clears it.
+ */
+static analog_input_wire_status_t rtd_wire_status(int32_t sample_code)
+{
+    float gain;
+    float volts;
+
+    gain  = (float)(1UL << SIG24131_GAIN_1);
+    volts = adc_volts(sample_code, gain);
+
+    if ( volts
+         < ANALOG_INPUT_BOARD_RTD_REFERENCE_VOLTS
+               * ANALOG_INPUT_BOARD_RTD_BREAK_RETURN_RATIO ) {
+        return ANALOG_INPUT_WIRE_BROKEN_RETURN;
+    }
+    if ( volts
+         < ANALOG_INPUT_BOARD_RTD_REFERENCE_VOLTS
+               * ANALOG_INPUT_BOARD_RTD_BREAK_RATIO ) {
+        return ANALOG_INPUT_WIRE_BROKEN_LEAD;
+    }
+    return ANALOG_INPUT_WIRE_NORMAL;
+}
+
+/* Operations -------------------------------------------------------------- */
 
 static analog_input_status_t configure(analog_input_t* self,
                                        const analog_input_config_t* config,
@@ -445,24 +550,122 @@ static analog_input_status_t convert(analog_input_t* self,
     return ANALOG_INPUT_ERR_STATE;
 }
 
-static analog_input_status_t enable_break_detection(analog_input_t* self)
+/**
+ * @brief Switch the channel from measuring to checking its wiring.
+ *
+ * The input type is checked before anything is written, so an unsupported type
+ * leaves the hardware in its measurement configuration. The front-end switches
+ * keep their measurement levels: the sensor stays connected to the same pins,
+ * only the converter's own view of them changes.
+ */
+static analog_input_status_t enable_break_detection(analog_input_t* self,
+                                                    uint32_t* first_check_delay_ms)
 {
-    (void)self;
-    return ANALOG_INPUT_ERR_STATE;
+    analog_input_board_t* instance;
+    sig24131_config_t adc;
+    sig24131_data_rate_t data_rate;
+    analog_input_status_t status;
+
+    instance = (analog_input_board_t*)self;
+    if ( is_configured(instance) == 0U ) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+    if ( has_break_detection(self->config.type) == 0U ) {
+        return ANALOG_INPUT_ERR_UNSUPPORTED;
+    }
+
+    /* The stored rate was resolved by configure(), so this lookup cannot fail
+     * unless the object was tampered with. */
+    if ( sig24131_data_rate_from_millihz(self->config.sample_rate_millihz,
+                                         &data_rate)
+         != SIG24131_OK ) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    fill_break_config(&adc, self->config.type);
+    adc.data_rate = data_rate;
+
+    status = map_status(sig24131_write_config(instance->device, &adc));
+    if ( status != ANALOG_INPUT_OK ) {
+        /* The device may hold the detection configuration in part, so the
+         * object cannot keep claiming a measurement configuration. */
+        mark_unconfigured(self);
+        return status;
+    }
+
+    *first_check_delay_ms = settle_delay_ms(self->config.sample_rate_millihz);
+    return ANALOG_INPUT_OK;
 }
 
-static analog_input_status_t disable_break_detection(analog_input_t* self)
+/**
+ * @brief Return the channel to the measurement mode it was configured for.
+ *
+ * The configuration is rebuilt from the object, so the channel comes back
+ * exactly as configure() left it, including the rate a zero request resolved
+ * to. The front-end switches never left their measurement levels and are not
+ * touched.
+ */
+static analog_input_status_t disable_break_detection(analog_input_t* self,
+                                                     uint32_t* first_conversion_delay_ms)
 {
-    (void)self;
-    return ANALOG_INPUT_ERR_STATE;
+    analog_input_board_t* instance;
+    sig24131_config_t adc;
+    sig24131_data_rate_t data_rate;
+    analog_input_status_t status;
+
+    instance = (analog_input_board_t*)self;
+    if ( is_configured(instance) == 0U ) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+    if ( sig24131_data_rate_from_millihz(self->config.sample_rate_millihz,
+                                         &data_rate)
+         != SIG24131_OK ) {
+        return ANALOG_INPUT_ERR_STATE;
+    }
+
+    fill_config(&adc, self->config.type);
+    adc.data_rate = data_rate;
+
+    status = map_status(sig24131_write_config(instance->device, &adc));
+    if ( status != ANALOG_INPUT_OK ) {
+        mark_unconfigured(self);
+        return status;
+    }
+
+    *first_conversion_delay_ms = settle_delay_ms(
+        self->config.sample_rate_millihz);
+    return ANALOG_INPUT_OK;
 }
 
+/**
+ * @brief Read one code of the detection mode and classify it.
+ *
+ * The code comes from the same register a measurement reads, so the check is
+ * one SPI read and the classification depends on the mode the device is in:
+ * outside the detection mode the same thresholds describe data the converter
+ * took while it was measuring.
+ */
 static analog_input_status_t check_wire_break(analog_input_t* self,
                                               analog_input_wire_status_t* wire_status)
 {
-    (void)self;
-    (void)wire_status;
-    return ANALOG_INPUT_ERR_STATE;
+    int32_t sample_code;
+    analog_input_status_t status;
+
+    if ( has_break_detection(self->config.type) == 0U ) {
+        return ANALOG_INPUT_ERR_UNSUPPORTED;
+    }
+
+    status = read_sample(self, &sample_code);
+    if ( status != ANALOG_INPUT_OK ) {
+        return status;
+    }
+
+    if ( self->config.type == ANALOG_INPUT_TYPE_PT100 ) {
+        *wire_status = rtd_wire_status(sample_code);
+    } else {
+        *wire_status = thermocouple_wire_status(sample_code);
+    }
+    return ANALOG_INPUT_OK;
 }
 
 static const analog_input_ops_t ops = {
