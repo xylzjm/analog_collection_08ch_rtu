@@ -100,27 +100,41 @@ virtualFolder:
         - path: board/src/board.c
         - path: board/src/sig24131_board.c
       folders:
-        - name: at32_wk
+        - name: vendor_wk
           files:
-            - path: board/src/at32_wk/at32f421_int.c
-            - path: board/src/at32_wk/at32f421_wk_config.c
-            - path: board/src/at32_wk/main.c
-            - path: board/src/at32_wk/wk_gpio.c
-            - path: board/src/at32_wk/wk_spi.c
-            - path: board/src/at32_wk/wk_system.c
-            - path: board/src/at32_wk/wk_usart.c
+            - path: board/vendor_wk/project/src/at32f421_int.c
+            - path: board/vendor_wk/project/src/at32f421_wk_config.c
+            - path: board/vendor_wk/project/src/main.c
+            - path: board/vendor_wk/project/src/wk_gpio.c
+            - path: board/vendor_wk/project/src/wk_spi.c
+            - path: board/vendor_wk/project/src/wk_system.c
+            - path: board/vendor_wk/project/src/wk_usart.c
           folders: []
         - name: ports
           files: []
           folders:
             - name: qp
               files:
-                - path: board/ports/src/qp/qv_port.c
+                - path: board/ports/qp/src/qv_port.c
               folders: []
     - name: interface
       files:
         - path: ../library/interface/analog_input/analog_input_math.c
       folders: []
+    - name: protocol
+      files: []
+      folders:
+        - name: modbus_rtu_slave
+          files:
+            - path: ../library/protocol/modbus_slave/src/modbus_slave.c
+            - path: ../library/protocol/modbus_slave/src/modbus_slave_pdu.c
+            - path: ../library/protocol/modbus_slave/src/modbus_slave_rtu.c
+          folders:
+            - name: qp_backend
+              files:
+                - path: ../library/protocol/modbus_slave/backend/qp/modbus_slave_qp.c
+                - path: ../library/protocol/modbus_slave/src/modbus_slave_crc.c
+              folders: []
 dependenceList:
   - depList:
       - name: Startup
@@ -189,8 +203,10 @@ targets:
         - ../library/interface/analog_input
         - ../middleware/qp/qpc/include
         - board/inc
-        - board/inc/at32_wk
-        - board/ports/inc/qp
+        - ../library/protocol/modbus_slave/inc
+        - ../library/protocol/modbus_slave/backend/qp
+        - board/vendor_wk/project/inc
+        - board/ports/qp/inc
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c
@@ -202,6 +218,8 @@ targets:
       - third_party/src/main.c
       - <virtual_root>/third_party/at32_wk/main.c
       - <virtual_root>/board/at32_wk/main.c
+      - <virtual_root>/board/vendor_wk/main.c
+      - <virtual_root>/board/vendor_wk/at32f421_int.c
     settings:
       debugger: cortex-debug
     toolchain: AC6

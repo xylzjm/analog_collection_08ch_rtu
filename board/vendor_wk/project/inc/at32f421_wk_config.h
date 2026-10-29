@@ -80,76 +80,76 @@ extern "C" {
 /* add user code end dma define */
 
 /* Private defines -------------------------------------------------------------*/
-#define SW_ADDR1_PIN         GPIO_PINS_13
-#define SW_ADDR1_GPIO_PORT   GPIOC
-#define CTRL_CV_4_PIN        GPIO_PINS_14
-#define CTRL_CV_4_GPIO_PORT  GPIOC
-#define CTRL_COM_4_PIN       GPIO_PINS_15
-#define CTRL_COM_4_GPIO_PORT GPIOC
-#define CTRL_nCS_8_PIN       GPIO_PINS_0
-#define CTRL_nCS_8_GPIO_PORT GPIOF
-#define CTRL_COM_8_PIN       GPIO_PINS_1
-#define CTRL_COM_8_GPIO_PORT GPIOF
-#define CTRL_COM_5_PIN       GPIO_PINS_0
-#define CTRL_COM_5_GPIO_PORT GPIOA
-#define I2C_SDA_PIN          GPIO_PINS_1
+#define SW_ADDR1_PIN    GPIO_PINS_13
+#define SW_ADDR1_GPIO_PORT    GPIOC
+#define CTRL_CV_4_PIN    GPIO_PINS_14
+#define CTRL_CV_4_GPIO_PORT    GPIOC
+#define CTRL_COM_4_PIN    GPIO_PINS_15
+#define CTRL_COM_4_GPIO_PORT    GPIOC
+#define CTRL_nCS_8_PIN    GPIO_PINS_0
+#define CTRL_nCS_8_GPIO_PORT    GPIOF
+#define CTRL_COM_8_PIN    GPIO_PINS_1
+#define CTRL_COM_8_GPIO_PORT    GPIOF
+#define CTRL_COM_5_PIN    GPIO_PINS_0
+#define CTRL_COM_5_GPIO_PORT    GPIOA
+#define I2C_SDA_PIN    GPIO_PINS_1
 #define I2C_SDA_GPIO_PORT    GPIOA
-#define I2C_SCL_PIN          GPIO_PINS_2
+#define I2C_SCL_PIN    GPIO_PINS_2
 #define I2C_SCL_GPIO_PORT    GPIOA
-#define CTRL_CV_5_PIN        GPIO_PINS_3
-#define CTRL_CV_5_GPIO_PORT  GPIOA
-#define CTRL_COM_1_PIN       GPIO_PINS_4
-#define CTRL_COM_1_GPIO_PORT GPIOA
-#define CTRL_nCS_5_PIN       GPIO_PINS_0
-#define CTRL_nCS_5_GPIO_PORT GPIOB
-#define CTRL_CV_1_PIN        GPIO_PINS_1
-#define CTRL_CV_1_GPIO_PORT  GPIOB
-#define CTRL_nCS_4_PIN       GPIO_PINS_2
-#define CTRL_nCS_4_GPIO_PORT GPIOB
-#define CTRL_nCS_1_PIN       GPIO_PINS_10
-#define CTRL_nCS_1_GPIO_PORT GPIOB
-#define CTRL_CV_8_PIN        GPIO_PINS_11
-#define CTRL_CV_8_GPIO_PORT  GPIOB
-#define CTRL_COM_2_PIN       GPIO_PINS_12
-#define CTRL_COM_2_GPIO_PORT GPIOB
-#define CTRL_nCS_7_PIN       GPIO_PINS_13
-#define CTRL_nCS_7_GPIO_PORT GPIOB
-#define CTRL_CV_2_PIN        GPIO_PINS_14
-#define CTRL_CV_2_GPIO_PORT  GPIOB
-#define CTRL_COM_6_PIN       GPIO_PINS_15
-#define CTRL_COM_6_GPIO_PORT GPIOB
-#define CTRL_nCS_2_PIN       GPIO_PINS_8
-#define CTRL_nCS_2_GPIO_PORT GPIOA
-#define USART_DE_PIN         GPIO_PINS_11
-#define USART_DE_GPIO_PORT   GPIOA
-#define CTRL_CV_6_PIN        GPIO_PINS_12
-#define CTRL_CV_6_GPIO_PORT  GPIOA
-#define CTRL_COM_3_PIN       GPIO_PINS_6
-#define CTRL_COM_3_GPIO_PORT GPIOF
-#define CTRL_nCS_6_PIN       GPIO_PINS_7
-#define CTRL_nCS_6_GPIO_PORT GPIOF
-#define CTRL_CV_3_PIN        GPIO_PINS_4
-#define CTRL_CV_3_GPIO_PORT  GPIOB
-#define CTRL_CV_7_PIN        GPIO_PINS_5
-#define CTRL_CV_7_GPIO_PORT  GPIOB
-#define CTRL_COM_7_PIN       GPIO_PINS_6
-#define CTRL_COM_7_GPIO_PORT GPIOB
-#define SW_ADDR3_PIN         GPIO_PINS_7
-#define SW_ADDR3_GPIO_PORT   GPIOB
-#define SW_ADDR2_PIN         GPIO_PINS_8
-#define SW_ADDR2_GPIO_PORT   GPIOB
-#define CTRL_nCS_3_PIN       GPIO_PINS_9
-#define CTRL_nCS_3_GPIO_PORT GPIOB
+#define CTRL_CV_5_PIN    GPIO_PINS_3
+#define CTRL_CV_5_GPIO_PORT    GPIOA
+#define CTRL_COM_1_PIN    GPIO_PINS_4
+#define CTRL_COM_1_GPIO_PORT    GPIOA
+#define CTRL_nCS_5_PIN    GPIO_PINS_0
+#define CTRL_nCS_5_GPIO_PORT    GPIOB
+#define CTRL_CV_1_PIN    GPIO_PINS_1
+#define CTRL_CV_1_GPIO_PORT    GPIOB
+#define CTRL_nCS_4_PIN    GPIO_PINS_2
+#define CTRL_nCS_4_GPIO_PORT    GPIOB
+#define CTRL_nCS_1_PIN    GPIO_PINS_10
+#define CTRL_nCS_1_GPIO_PORT    GPIOB
+#define CTRL_CV_8_PIN    GPIO_PINS_11
+#define CTRL_CV_8_GPIO_PORT    GPIOB
+#define CTRL_COM_2_PIN    GPIO_PINS_12
+#define CTRL_COM_2_GPIO_PORT    GPIOB
+#define CTRL_nCS_7_PIN    GPIO_PINS_13
+#define CTRL_nCS_7_GPIO_PORT    GPIOB
+#define CTRL_CV_2_PIN    GPIO_PINS_14
+#define CTRL_CV_2_GPIO_PORT    GPIOB
+#define CTRL_COM_6_PIN    GPIO_PINS_15
+#define CTRL_COM_6_GPIO_PORT    GPIOB
+#define CTRL_nCS_2_PIN    GPIO_PINS_8
+#define CTRL_nCS_2_GPIO_PORT    GPIOA
+#define USART_DE_PIN    GPIO_PINS_11
+#define USART_DE_GPIO_PORT    GPIOA
+#define CTRL_CV_6_PIN    GPIO_PINS_12
+#define CTRL_CV_6_GPIO_PORT    GPIOA
+#define CTRL_COM_3_PIN    GPIO_PINS_6
+#define CTRL_COM_3_GPIO_PORT    GPIOF
+#define CTRL_nCS_6_PIN    GPIO_PINS_7
+#define CTRL_nCS_6_GPIO_PORT    GPIOF
+#define CTRL_CV_3_PIN    GPIO_PINS_4
+#define CTRL_CV_3_GPIO_PORT    GPIOB
+#define CTRL_CV_7_PIN    GPIO_PINS_5
+#define CTRL_CV_7_GPIO_PORT    GPIOB
+#define CTRL_COM_7_PIN    GPIO_PINS_6
+#define CTRL_COM_7_GPIO_PORT    GPIOB
+#define SW_ADDR3_PIN    GPIO_PINS_7
+#define SW_ADDR3_GPIO_PORT    GPIOB
+#define SW_ADDR2_PIN    GPIO_PINS_8
+#define SW_ADDR2_GPIO_PORT    GPIOB
+#define CTRL_nCS_3_PIN    GPIO_PINS_9
+#define CTRL_nCS_3_GPIO_PORT    GPIOB
 
 /* exported functions ------------------------------------------------------- */
-/* system clock config. */
-void wk_system_clock_config(void);
+  /* system clock config. */
+  void wk_system_clock_config(void);
 
-/* config periph clock. */
-void wk_periph_clock_config(void);
+  /* config periph clock. */
+  void wk_periph_clock_config(void);
 
-/* nvic config. */
-void wk_nvic_config(void);
+  /* nvic config. */
+  void wk_nvic_config(void);
 
 /* add user code begin exported functions */
 

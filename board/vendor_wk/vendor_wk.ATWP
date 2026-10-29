@@ -49,12 +49,19 @@
     </USART1>
     <NVIC>
         <ShowType>0</ShowType>
-        <PendSV_Handler>1;15;0;0;0;1</PendSV_Handler>
-        <SysTick_Handler>1;15;0;0;0;1</SysTick_Handler>
+        <NMI_Handler>1;0;0;0;0;0</NMI_Handler>
+        <HardFault_Handler>1;0;0;0;0;0</HardFault_Handler>
+        <MemManage_Handler>1;0;0;0;0;0</MemManage_Handler>
+        <BusFault_Handler>1;0;0;0;0;0</BusFault_Handler>
+        <UsageFault_Handler>1;0;0;0;0;0</UsageFault_Handler>
+        <SVC_Handler>1;0;0;0;0;0</SVC_Handler>
+        <DebugMon_Handler>1;0;0;0;0;0</DebugMon_Handler>
+        <PendSV_Handler>1;15;0;0;0;0</PendSV_Handler>
+        <SysTick_Handler>1;15;0;0;0;0</SysTick_Handler>
         <FLASH_IRQHandler>0;0;0;0;0;0</FLASH_IRQHandler>
         <CRM_IRQHandler>0;0;0;0;0;0</CRM_IRQHandler>
         <SPI1_IRQHandler>0;0;0;0;0;0</SPI1_IRQHandler>
-        <USART1_IRQHandler>1;5;0;0;0;1</USART1_IRQHandler>
+        <USART1_IRQHandler>1;5;0;0;0;0</USART1_IRQHandler>
     </NVIC>
     <GPIO>
         <ShowType>1</ShowType>
@@ -213,8 +220,8 @@
         <PinSub pinname="PB9" signalname="GPIO_Output" signaltype="3"/>
     </PINInfo>
     <ProjectInfomation>
-        <ProjectName>.</ProjectName>
-        <ProjectLocation>D:/Project Data/Work Space/analog_collection_08ch_rtu</ProjectLocation>
+        <ProjectName>vendor_wk</ProjectName>
+        <ProjectLocation>D:/Project Data/Work Space/analog_collection_08ch_rtu/board</ProjectLocation>
         <ToolchainIDE>MDK_V5</ToolchainIDE>
         <ARMCompiler>0</ARMCompiler>
         <BackupCode>false</BackupCode>

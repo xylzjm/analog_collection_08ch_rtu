@@ -1,6 +1,7 @@
 #include "sig24131_board.h"
 
 #include "wk_system.h"
+#include "board.h"
 
 #define SPI_TRANSFER_TIMEOUT_TICKS 10U
 
@@ -36,9 +37,9 @@ static sig24131_status_t wait_flag(uint32_t flag)
 {
     uint32_t start_tick;
 
-    start_tick = wk_tick_get();
+    start_tick = board_tick_get();
     while ( spi_i2s_flag_get(SPI1, flag) == RESET ) {
-        if ( (uint32_t)(wk_tick_get() - start_tick)
+        if ( (uint32_t)(board_tick_get() - start_tick)
              >= SPI_TRANSFER_TIMEOUT_TICKS ) {
             return SIG24131_ERR_IO;
         }
