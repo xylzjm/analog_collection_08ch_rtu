@@ -132,6 +132,12 @@
         <Signal SignalName="GPIO_Output" PinName="PA8">
             <Parameters name="Label" value="CTRL_nCS_2"/>
         </Signal>
+        <Signal SignalName="USART1_TX" PinName="PA9">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
+        <Signal SignalName="USART1_RX" PinName="PA10">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
         <Signal SignalName="GPIO_Output" PinName="PA11">
             <Parameters name="Label" value="USART_DE"/>
         </Signal>
