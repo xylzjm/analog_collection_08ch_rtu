@@ -3,6 +3,7 @@
 /.settings
 /.eide/log
 /.eide.usr.ctx.json
+/.openchamber
 
 # project out
 /build
