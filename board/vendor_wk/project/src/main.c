@@ -27,6 +27,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "at32f421_wk_config.h"
 #include "wk_spi.h"
+#include "wk_tmr.h"
 #include "wk_usart.h"
 #include "wk_gpio.h"
 #include "wk_system.h"
@@ -105,6 +106,9 @@ int main(void)
 
   /* init spi1 function. */
   wk_spi1_init();
+
+  /* init tmr14 function. */
+  wk_tmr14_init();
 
   /* add user code begin 2 */
 

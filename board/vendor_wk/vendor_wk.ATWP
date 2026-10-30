@@ -32,6 +32,16 @@
             <ModeSub name="SysTick_Interrupt" value="TRUE"/>
         </Mode>
     </SYSTEM>
+    <TMR14>
+        <Mode>
+            <ModeSub name="Activated" value="TRUE"/>
+            <ModeSub name="Enable One cycle mode" value="TRUE"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="DividerValue" value="1199"/>
+            <ParametersSub name="Overflow_Event" value="From_C"/>
+        </Parameters>
+    </TMR14>
     <USART1>
         <Mode>
             <ModeSub name="Mode" value="Asynchronous"/>
@@ -40,11 +50,7 @@
             <ParametersSub name="RealBaudRate" value="115163"/>
         </Parameters>
         <Interrupts>
-            <InterruptsSub name="Interrupt_RDBF" value="TRUE"/>
-            <InterruptsSub name="Interrupt_TDBE" value="TRUE"/>
-            <InterruptsSub name="Interrupt_TDC" value="TRUE"/>
             <InterruptsSub name="Interrupt_ERR" value="TRUE"/>
-            <InterruptsSub name="Interrupt_PERR" value="TRUE"/>
         </Interrupts>
     </USART1>
     <NVIC>
@@ -60,6 +66,7 @@
         <SysTick_Handler>1;15;0;0;0;0</SysTick_Handler>
         <FLASH_IRQHandler>0;0;0;0;0;0</FLASH_IRQHandler>
         <CRM_IRQHandler>0;0;0;0;0;0</CRM_IRQHandler>
+        <TMR14_GLOBAL_IRQHandler>1;5;0;0;0;0</TMR14_GLOBAL_IRQHandler>
         <SPI1_IRQHandler>0;0;0;0;0;0</SPI1_IRQHandler>
         <USART1_IRQHandler>1;5;0;0;0;0</USART1_IRQHandler>
     </NVIC>
@@ -244,5 +251,6 @@
         <RankSub RankNum="9" FixPosFlag="TRUE" FuncName="wk_gpio_config" InstanceName="GPIO" CodeSection="gpio function" MainDoNotCallFlag="FALSE"/>
         <RankSub RankNum="16" FixPosFlag="FALSE" FuncName="wk_usart1_init" InstanceName="USART1" CodeSection="usart1 function" MainDoNotCallFlag="FALSE"/>
         <RankSub RankNum="18" FixPosFlag="FALSE" FuncName="wk_spi1_init" InstanceName="SPI1" CodeSection="spi1 function" MainDoNotCallFlag="FALSE"/>
+        <RankSub RankNum="33" FixPosFlag="FALSE" FuncName="wk_tmr14_init" InstanceName="TMR14" CodeSection="tmr14 function" MainDoNotCallFlag="FALSE"/>
     </FunctionRankInfo>
 </Root>

@@ -109,6 +109,7 @@ virtualFolder:
             - path: board/vendor_wk/project/src/wk_spi.c
             - path: board/vendor_wk/project/src/wk_system.c
             - path: board/vendor_wk/project/src/wk_usart.c
+            - path: board/vendor_wk/project/src/wk_tmr.c
           folders: []
         - name: ports
           files: []
