@@ -95,6 +95,11 @@ virtualFolder:
             - path: ../middleware/SEGGER_RTT_V850/RTT/SEGGER_RTT.c
             - path: ../middleware/SEGGER_RTT_V850/RTT/SEGGER_RTT_printf.c
           folders: []
+        - name: easylogger
+          files:
+            - path: ../middleware/EasyLogger/easylogger/src/elog.c
+            - path: ../middleware/EasyLogger/easylogger/src/elog_utils.c
+          folders: []
     - name: app
       files:
         - path: app/main.c
@@ -127,6 +132,10 @@ virtualFolder:
             - name: segger_rtt
               files:
                 - path: board/ports/segger_rtt/segger_rtt_port.c
+              folders: []
+            - name: easylogger
+              files:
+                - path: board/ports/easylogger/elog_port.c
               folders: []
     - name: interface
       files:
@@ -214,7 +223,9 @@ targets:
         - ../library/protocol/modbus_slave/inc
         - board/vendor_wk/project/inc
         - board/ports/qp
+        - board/ports/easylogger
         - board/ports/segger_rtt
+        - ../middleware/EasyLogger/easylogger/inc
         - ../middleware/SEGGER_RTT_V850/RTT
         - ../middleware/SEGGER_RTT_V850/Config
       libList: []
