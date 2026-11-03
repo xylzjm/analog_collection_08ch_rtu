@@ -284,7 +284,7 @@ targets:
               isChecked: true
               isStartup: true
               mem:
-                size: "0x10000"
+                size: "0xF000"
                 startAddr: "0x08000000"
               tag: IROM
         useCustomScatterFile: false
