@@ -11,6 +11,10 @@ extern "C" {
  * QF_USE_BASEPRI threshold, is what qv_port.c/QF_crit_entry_() use. */
 #include "qp_config.h"
 
+/* Incomplete on purpose: board_init() owns the parameter KVDB instance and
+ * hands it out by pointer; users include flashdb.h for the full type. */
+struct fdb_kvdb;
+
 /*----------------------------------------------------------------------------
  * Nestable critical section
  *
@@ -33,6 +37,20 @@ extern "C" {
 
 /** @brief Milliseconds since boot, from the SysTick counter. */
 uint32_t board_tick_get(void);
+
+/**
+ * @brief Bring up the whole platform once at power-up.
+ *
+ * WorkBench peripherals first, then SEGGER RTT, EasyLogger, FAL and the
+ * parameter KVDB, and finally the board component objects (see board.c for
+ * the exact order and its reasons).  It returns no status: a failing step is
+ * logged and the remaining steps still run, and BOARD_SELFTEST reports what
+ * ended up working.
+ */
+void board_init(void);
+
+/** @brief The parameter KVDB instance that board_init() brings up. */
+struct fdb_kvdb* board_kvdb_get(void);
 
 /** @brief Report a critical-section contract violation; never returns. */
 #ifdef __cplusplus
