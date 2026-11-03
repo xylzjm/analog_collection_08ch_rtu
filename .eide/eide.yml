@@ -129,14 +129,11 @@ virtualFolder:
         - name: modbus_rtu_slave
           files:
             - path: ../library/protocol/modbus_slave/src/modbus_slave.c
-            - path: ../library/protocol/modbus_slave/src/modbus_slave_pdu.c
+            - path: ../library/protocol/modbus_slave/src/modbus_slave_adu.c
+            - path: ../library/protocol/modbus_slave/src/modbus_slave_crc.c
+            - path: ../library/protocol/modbus_slave/src/modbus_slave_function_code.c
             - path: ../library/protocol/modbus_slave/src/modbus_slave_rtu.c
-          folders:
-            - name: qp_backend
-              files:
-                - path: ../library/protocol/modbus_slave/backend/qp/modbus_slave_qp.c
-                - path: ../library/protocol/modbus_slave/src/modbus_slave_crc.c
-              folders: []
+          folders: []
 dependenceList:
   - depList:
       - name: Startup
@@ -206,7 +203,6 @@ targets:
         - ../middleware/qp/qpc/include
         - board/inc
         - ../library/protocol/modbus_slave/inc
-        - ../library/protocol/modbus_slave/backend/qp
         - board/vendor_wk/project/inc
         - board/ports/qp/inc
       libList: []

@@ -2,40 +2,51 @@
 
 #include "at32f421_wk_config.h"
 
+#include "board.h"
+
 /* TMR14 is configured by wk_tmr14_init(): PSC 1199 gives 10 us per tick at
- * APB1 = 120 MHz, one-cycle mode is on and the counter is left stopped. The
- * 16-bit counter spans 655.36 ms — enough for T3.5 (1.75..4.011 ms) and the
- * TX watchdog (9600 baud, 256 B: ~303 ms). This module only reloads the
- * period on each arm. */
+ * APB1 = 120 MHz, one-cycle mode is on and the counter is left stopped.  The
+ * 16-bit counter spans 655.35 ms, enough for T3.5 (1.75..4.011 ms over the
+ * supported 9600..115200 baud) and for the TX watchdog at 9600 baud with a
+ * 256-byte reply (~303 ms).  This module only reloads the period on each arm. */
 #define MB_TMR_TICK_US   10U
 #define MB_TMR_MAX_TICKS 65535U
 
 #define MB_BUFFER_SIZE   256U
 
+/* One context per hardware capability, as the core's three port structs ask. */
 typedef struct {
     usart_type* uart;
     gpio_type* de_port;
     uint16_t de_pin;
+} line_ctx_t;
+
+typedef struct {
     tmr_type* timer;
-    uint8_t rx_buffer[MB_BUFFER_SIZE];
-    uint8_t tx_buffer[MB_BUFFER_SIZE];
-} board_ctx_t;
+} timer_ctx_t;
 
 /* The single RS485 channel of this product: USART1, DE on PA11, TMR14 as the
  * T3.5 / TX-watchdog timer. */
-static board_ctx_t context = {
-    USART1, USART_DE_GPIO_PORT, USART_DE_PIN, TMR14, {0}, {0}
+static const line_ctx_t line_ctx = {
+    USART1, USART_DE_GPIO_PORT, USART_DE_PIN
 };
+
+static const timer_ctx_t timer_ctx = {
+    TMR14
+};
+
+static uint8_t rx_buffer[MB_BUFFER_SIZE];
+static uint8_t tx_buffer[MB_BUFFER_SIZE];
 
 static modbus_slave_t slave;
 
-/* Hardware port (modbus_slave_port_t) ------------------------------ */
+/* RS485 line (modbus_slave_port_line_t) ------------------------------- */
 
-static modbus_slave_status_t board_serial_enable(void* ctx,
-                                                 uint8_t rx,
-                                                 uint8_t tx)
+static modbus_slave_status_t line_direction(void* ctx,
+                                            uint8_t rx,
+                                            uint8_t tx)
 {
-    board_ctx_t* b = (board_ctx_t*)ctx;
+    const line_ctx_t* b = (const line_ctx_t*)ctx;
 
     /* The port contract only asks for (1,0), (0,1) or (0,0). Both at once
      * would make the DE and interrupt ordering ambiguous. */
@@ -77,17 +88,17 @@ static modbus_slave_status_t board_serial_enable(void* ctx,
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t board_put_byte(void* ctx, uint8_t byte)
+static modbus_slave_status_t line_put_byte(void* ctx, uint8_t byte)
 {
-    board_ctx_t* b = (board_ctx_t*)ctx;
+    const line_ctx_t* b = (const line_ctx_t*)ctx;
 
     usart_data_transmit(b->uart, (uint16_t)byte);
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t board_tx_done(void* ctx)
+static modbus_slave_status_t line_tx_done(void* ctx)
 {
-    board_ctx_t* b = (board_ctx_t*)ctx;
+    const line_ctx_t* b = (const line_ctx_t*)ctx;
 
     /* The core has loaded the last byte: stop requesting TXE and let TC
      * close the frame (DE is released from the TC path only). */
@@ -95,13 +106,16 @@ static modbus_slave_status_t board_tx_done(void* ctx)
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t board_timer_enable(void* ctx, uint32_t timeout_us)
+/* One-shot timer (modbus_slave_port_timer_t) -------------------------- */
+
+static modbus_slave_status_t timer_arm(void* ctx, uint32_t timeout_us)
 {
-    board_ctx_t* b = (board_ctx_t*)ctx;
+    const timer_ctx_t* t = (const timer_ctx_t*)ctx;
     uint32_t ticks;
 
     /* Round the microsecond timeout up to whole 10 us ticks and clamp it
-     * into the 16-bit range (the core's timeouts fit: max ~303 ms). */
+     * into the 16-bit range (the core's timeouts fit: max ~303 ms at
+     * 9600 baud with a 256-byte reply). */
     ticks = (timeout_us + MB_TMR_TICK_US - 1U) / MB_TMR_TICK_US;
     if ( ticks == 0U ) {
         ticks = 1U;
@@ -111,50 +125,56 @@ static modbus_slave_status_t board_timer_enable(void* ctx, uint32_t timeout_us)
     }
 
     /* wk_tmr14_init() already set direction, DIV1, PSC, period buffering,
-     * one-cycle mode and the OVF source, and left the counter stopped. Only
-     * the period changes per arm: stop the counter, load the new period,
-     * restart from zero, clear the stale OVF and arm the interrupt. */
-    tmr_counter_enable(b->timer, FALSE);
-    tmr_period_value_set(b->timer, ticks - 1U);
-    tmr_counter_value_set(b->timer, 0U);
-    tmr_flag_clear(b->timer, TMR_OVF_FLAG);
-    tmr_interrupt_enable(b->timer, TMR_OVF_INT, TRUE);
-    tmr_counter_enable(b->timer, TRUE);
+     * one-cycle mode and the OVF source, and left the counter stopped.  Only
+     * the period changes per arm: mask the IRQ, stop the counter, load the
+     * new period, restart from zero, clear the stale OVF and re-arm. */
+    tmr_interrupt_enable(t->timer, TMR_OVF_INT, FALSE);
+    tmr_counter_enable(t->timer, FALSE);
+    tmr_period_value_set(t->timer, ticks - 1U);
+    tmr_counter_value_set(t->timer, 0U);
+    tmr_flag_clear(t->timer, TMR_OVF_FLAG);
+    tmr_interrupt_enable(t->timer, TMR_OVF_INT, TRUE);
+    tmr_counter_enable(t->timer, TRUE);
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t board_timer_disable(void* ctx)
+static modbus_slave_status_t timer_cancel(void* ctx)
 {
-    board_ctx_t* b = (board_ctx_t*)ctx;
+    const timer_ctx_t* t = (const timer_ctx_t*)ctx;
 
-    tmr_counter_enable(b->timer, FALSE);
-    tmr_interrupt_enable(b->timer, TMR_OVF_INT, FALSE);
-    tmr_flag_clear(b->timer, TMR_OVF_FLAG);
+    tmr_counter_enable(t->timer, FALSE);
+    tmr_interrupt_enable(t->timer, TMR_OVF_INT, FALSE);
+    tmr_flag_clear(t->timer, TMR_OVF_FLAG);
     return MODBUS_SLAVE_OK;
 }
 
-/* QV runs on PRIMASK, and QF_USE_BASEPRI is off, so the nestable token is
- * the PRIMASK value itself (the library contract forbids the non-saving
- * QF_CRIT_ENTRY/EXIT pair). */
-static uint32_t board_critical_enter(void* ctx)
-{
-    uint32_t primask = __get_PRIMASK();
+/* Critical section (modbus_slave_port_critical_t) --------------------- */
 
+/* The core's critical capability is a nesting interrupt mask: enter() raises
+ * a count, exit() decrements it and re-enables interrupts at zero, and the
+ * count belongs to the board.  The board keeps exactly one such count
+ * (board_crit_nest) behind board.h's board_critical_enter()/
+ * board_critical_exit() macros, and the QP critical section expands the very
+ * same macros, so the core's mask is the mask of the framework's.  Sharing
+ * the count is what makes the two nest together: a core call made from inside
+ * a QP critical section (or the other way round) leaves the interrupts masked
+ * until the outermost exit, and the framework's rule that the outermost entry
+ * finds the interrupts enabled still holds. */
+static void critical_enter(void* ctx)
+{
     (void)ctx;
-    __disable_irq();
-    return primask;
+    board_critical_enter();
 }
 
-static void board_critical_exit(void* ctx, uint32_t state)
+static void critical_exit(void* ctx)
 {
     (void)ctx;
-    __set_PRIMASK(state);
+    board_critical_exit();
 }
 
-/* Construction / access ------------------------------------------------- */
+/* Construction / access ----------------------------------------------- */
 
 modbus_slave_status_t modbus_slave_board_ctor(
-    uint8_t address,
     uint32_t baudrate,
     const modbus_slave_callbacks_t* callbacks,
     const modbus_slave_identity_t* identity)
@@ -165,22 +185,23 @@ modbus_slave_status_t modbus_slave_board_ctor(
         return MODBUS_SLAVE_ERR_ARG;
     }
 
-    config.address            = address;
-    config.baudrate           = baudrate;
-    config.rx_buffer          = context.rx_buffer;
-    config.rx_capacity        = (uint16_t)MB_BUFFER_SIZE;
-    config.tx_buffer          = context.tx_buffer;
-    config.tx_capacity        = (uint16_t)MB_BUFFER_SIZE;
-    config.port.ctx           = (void*)&context;
-    config.port.serial_enable = board_serial_enable;
-    config.port.put_byte      = board_put_byte;
-    config.port.tx_done       = board_tx_done;
-    config.port.timer_enable  = board_timer_enable;
-    config.port.timer_disable = board_timer_disable;
-    config.port.critical_enter = board_critical_enter;
-    config.port.critical_exit  = board_critical_exit;
-    config.callbacks          = *callbacks;
-    config.identity           = *identity;
+    config.baudrate            = baudrate;
+    config.rx_buffer           = rx_buffer;
+    config.rx_capacity         = (uint16_t)MB_BUFFER_SIZE;
+    config.tx_buffer           = tx_buffer;
+    config.tx_capacity         = (uint16_t)MB_BUFFER_SIZE;
+    config.line.ctx            = (void*)&line_ctx;
+    config.line.direction      = line_direction;
+    config.line.put_byte       = line_put_byte;
+    config.line.tx_done        = line_tx_done;
+    config.timer.ctx           = (void*)&timer_ctx;
+    config.timer.arm           = timer_arm;
+    config.timer.cancel        = timer_cancel;
+    config.critical.ctx        = NULL;
+    config.critical.enter      = critical_enter;
+    config.critical.exit       = critical_exit;
+    config.callbacks           = *callbacks;
+    config.identity            = *identity;
 
     return modbus_slave_ctor(&slave, &config);
 }
@@ -195,7 +216,7 @@ modbus_slave_t* modbus_slave_board_get(void)
     return &slave;
 }
 
-/* Interrupt handlers ---------------------------------------------------- */
+/* Interrupt handlers --------------------------------------------------- */
 
 /* The WorkBench NVIC leaves the handler names to the user (last digit 0 in
  * the ATWP), and at32f421_int.c carries only the template stubs, so this
