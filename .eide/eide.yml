@@ -90,6 +90,11 @@ virtualFolder:
             - path: ../middleware/qp/qpc/src/qf/qf_qmact.c
             - path: ../middleware/qp/qpc/src/qf/qf_time.c
           folders: []
+        - name: segger_rtt
+          files:
+            - path: ../middleware/SEGGER_RTT_V850/RTT/SEGGER_RTT.c
+            - path: ../middleware/SEGGER_RTT_V850/RTT/SEGGER_RTT_printf.c
+          folders: []
     - name: app
       files:
         - path: app/main.c
@@ -205,6 +210,8 @@ targets:
         - ../library/protocol/modbus_slave/inc
         - board/vendor_wk/project/inc
         - board/ports/qp
+        - ../middleware/SEGGER_RTT_V850/RTT
+        - ../middleware/SEGGER_RTT_V850/Config
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c
