@@ -117,7 +117,7 @@ virtualFolder:
           folders:
             - name: qp
               files:
-                - path: board/ports/qp/src/qv_port.c
+                - path: board/ports/qp/qv_port.c
               folders: []
     - name: interface
       files:
@@ -204,7 +204,7 @@ targets:
         - board/inc
         - ../library/protocol/modbus_slave/inc
         - board/vendor_wk/project/inc
-        - board/ports/qp/inc
+        - board/ports/qp
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c
