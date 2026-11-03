@@ -117,6 +117,7 @@ virtualFolder:
       files:
         - path: board/src/analog_input_board.c
         - path: board/src/board.c
+        - path: board/src/board_selftest.c
         - path: board/src/modbus_slave_board.c
         - path: board/src/sig24131_board.c
       folders:
@@ -226,6 +227,7 @@ targets:
     cppPreprocessAttrs:
       defineList:
         - AT32F421C8T7
+        - BOARD_SELFTEST
       incList:
         - .
         - .cmsis/include
