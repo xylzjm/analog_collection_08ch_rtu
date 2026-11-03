@@ -100,6 +100,15 @@ virtualFolder:
             - path: ../middleware/EasyLogger/easylogger/src/elog.c
             - path: ../middleware/EasyLogger/easylogger/src/elog_utils.c
           folders: []
+        - name: flashdb
+          files:
+            - path: ../middleware/flashDB/src/fdb.c
+            - path: ../middleware/flashDB/src/fdb_utils.c
+            - path: ../middleware/flashDB/src/fdb_kvdb.c
+            - path: ../middleware/flashDB/port/fal/src/fal.c
+            - path: ../middleware/flashDB/port/fal/src/fal_flash.c
+            - path: ../middleware/flashDB/port/fal/src/fal_partition.c
+          folders: []
     - name: app
       files:
         - path: app/main.c
@@ -136,6 +145,10 @@ virtualFolder:
             - name: easylogger
               files:
                 - path: board/ports/easylogger/elog_port.c
+              folders: []
+            - name: flashdb
+              files:
+                - path: board/ports/flashdb/fal_flash_at32f421_port.c
               folders: []
     - name: interface
       files:
@@ -224,10 +237,13 @@ targets:
         - board/vendor_wk/project/inc
         - board/ports/qp
         - board/ports/easylogger
+        - board/ports/flashdb
         - board/ports/segger_rtt
         - ../middleware/EasyLogger/easylogger/inc
         - ../middleware/SEGGER_RTT_V850/RTT
         - ../middleware/SEGGER_RTT_V850/Config
+        - ../middleware/flashDB/inc
+        - ../middleware/flashDB/port/fal/inc
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c
