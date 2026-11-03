@@ -252,7 +252,7 @@ targets:
             - id: 1
               isChecked: true
               mem:
-                size: "0x5000"
+                size: "0x4000"
                 startAddr: "0x20000000"
               noInit: false
               tag: IRAM
