@@ -187,6 +187,10 @@ void board_init(void)
 
 void HardFault_Handler(void)
 {
+    /* A fault is never recoverable here: hand it to Q_onError() (board.c),
+     * which never returns, instead of returning into the faulting code again.
+     */
+    Q_onError("HardFault", 0);
 }
 
 void SysTick_Handler(void)

@@ -150,6 +150,7 @@ virtualFolder:
             - name: flashdb
               files:
                 - path: board/ports/flashdb/fal_flash_at32f421_port.c
+                - path: board/ports/flashdb/fdb_port.c
               folders: []
     - name: interface
       files:

@@ -13,6 +13,11 @@
  * "selftest = 0xXXXXXXXX" summary line.  A failing item never stops the run
  * and never raises Q_onError -- the point is to see all of the results.
  *
+ * The verdicts leave on the RTT up buffer in SEGGER_RTT_MODE_NO_BLOCK_SKIP:
+ * keep a host (RTT Viewer) attached and reading while the run executes.
+ * Without a host the 1 KB up buffer fills up and whole lines -- the summary
+ * line included -- are dropped, so a run without a host proves nothing.
+ *
  * The failure bitmap, one bit per item:
  *
  * | bit | item        | checks                                              |
