@@ -3,15 +3,16 @@
 #include "wk_system.h"
 #include "board.h"
 
+/** @brief SPI flag timeout in board-tick milliseconds. */
 #define SPI_TRANSFER_TIMEOUT_TICKS 10U
 
+/** @brief Chip-select binding of one SIG24131 device. */
 typedef struct {
     gpio_type* cs_gpio_port;
     uint16_t cs_pin;
 } cs_binding_t;
 
-/* Optional channels are compiled out so a four-device board only needs to
- * define the CTRL_nCS_1..4 pin macros. */
+/* Optional channels compile out with SIG24131_BOARD_INSTANCE_COUNT. */
 static const cs_binding_t cs_bindings[SIG24131_BOARD_INSTANCE_COUNT] = {
     {CTRL_nCS_1_GPIO_PORT, CTRL_nCS_1_PIN},
     {CTRL_nCS_2_GPIO_PORT, CTRL_nCS_2_PIN},
@@ -162,9 +163,7 @@ sig24131_status_t sig24131_board_reset_all(void)
         }
     }
 
-    /* The commands above are only microseconds apart, so one wait after the last
-     * one covers every device.  It runs even when a command failed, because the
-     * devices that did accept theirs still need it. */
+    /* Send all resets first, then wait once for every device. */
     wk_delay_ms(SIG24131_RESET_DELAY_MS);
     return result;
 }

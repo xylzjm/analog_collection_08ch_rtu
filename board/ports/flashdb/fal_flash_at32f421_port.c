@@ -1,30 +1,15 @@
-/* FAL flash device port for the AT32F421C8T7 on-chip flash.
- *
- * One 64 KB device, 1 KB erase blocks, 8-bit write granularity (one
- * flash_byte_program() per byte; 4-byte-aligned writes could switch to
- * flash_word_program() for speed if the parameter volume ever grows).
- *
- * All three operations bounds-check against the device size without allowing
- * offset + size to wrap, and erase additionally requires both offset and size
- * to be block-aligned (so it can never erase past the requested range).  A
- * failed program or erase returns -1 to FAL; every operation reports the byte
- * count on success.
- */
-
 #include <string.h>
 
 #include "fal.h"
 
 #include "at32f421_flash.h"
 
-/* Hook for a watchdog feed inside the long erase/program loops.  IWDG is not
- * enabled in this build; expand this when it is (see the plan's risk notes). */
+/** @brief Watchdog feed hook for long erase/program loops. */
 #define WATCHDOG_FEED() ((void)0)
 
-/* Offset and size fit the device; written so offset + size cannot wrap past
- * the check. */
 static int in_range(long offset, size_t size)
 {
+    /* Written so offset + size cannot wrap past the device end. */
     size_t const len = at32f421_onchip_flash.len;
 
     return (offset >= 0L)
@@ -34,8 +19,7 @@ static int in_range(long offset, size_t size)
 
 static int init(void)
 {
-    /* The flash controller needs no clock or pin setup; only unlock/lock
-     * brackets the programming below. */
+    /* The flash controller needs no clock or pin setup. */
     return 1;
 }
 
@@ -48,7 +32,7 @@ static int read(long offset, uint8_t* buf, size_t size)
     }
     addr = at32f421_onchip_flash.addr + (uint32_t)offset;
 
-    /* The on-chip flash is memory mapped, so reads are plain memory copies. */
+    /* On-chip flash is memory mapped. */
     memcpy(buf, (const void*)addr, size);
     return (int)size;
 }
@@ -63,6 +47,7 @@ static int write(long offset, const uint8_t* buf, size_t size)
     }
     addr = at32f421_onchip_flash.addr + (uint32_t)offset;
 
+    /* Byte programming must stay in step with FDB_WRITE_GRAN/write_gran. */
     flash_unlock();
     for ( i = 0; i < size; ++i ) {
         if ( flash_byte_program(addr + (uint32_t)i, buf[i])
@@ -73,7 +58,6 @@ static int write(long offset, const uint8_t* buf, size_t size)
         WATCHDOG_FEED();
     }
 
-    /* Read back and compare before reporting success. */
     if ( memcmp((const void*)addr, buf, size) != 0 ) {
         flash_lock();
         return -1;
@@ -88,8 +72,7 @@ static int erase(long offset, size_t size)
     size_t const blk_size = at32f421_onchip_flash.blk_size;
     size_t erased;
 
-    /* Both offset and size are block-aligned, so the loop below erases exactly
-     * the requested range and never steps over the device end. */
+    /* Block alignment keeps the loop from erasing outside the request. */
     if ( !in_range(offset, size)
          || (((size_t)offset % blk_size) != 0U)
          || ((size % blk_size) != 0U) ) {

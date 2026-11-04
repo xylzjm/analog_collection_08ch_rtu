@@ -21,71 +21,49 @@
  * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
- * Function: It is the configure head file for this library.
- * Created on: 2015-07-30
- *
- * Adapted for analog_collection_08ch_rtu: synchronous output to SEGGER RTT,
- * no async/buffered modes, no color.  NOTE: elog.h includes this file as
- * <elog_cfg.h>, so board/ports/easylogger must precede the EasyLogger inc
- * directory on the include path (this file must win over the template).
  */
 
 #ifndef _ELOG_CFG_H_
 #define _ELOG_CFG_H_
-/*---------------------------------------------------------------------------*/
-/* enable log output. */
+
+/** @brief Enable log output. */
 #define ELOG_OUTPUT_ENABLE
-/* setting static output log level. range: from ELOG_LVL_ASSERT to ELOG_LVL_VERBOSE
- * DEBUG while the port is under development, INFO for a release build. */
+
+/** @brief Compile-time maximum output level. */
 #define ELOG_OUTPUT_LVL                          ELOG_LVL_DEBUG
-/* enable assert check */
+
+/** @brief Enable EasyLogger assertions; log_init() routes them to Q_onError(). */
 #define ELOG_ASSERT_ENABLE
-/* buffer size for every line's log
- * 256 saves 768 B RAM over the 1024 template value; the price is truncation
- * of debug lines carrying __FILE__ (see the plan's risk notes). */
+
+/** @brief Per-line buffer size; long lines are truncated. */
 #define ELOG_LINE_BUF_SIZE                       256
-/* output line number max length */
+
+/** @brief Maximum formatted line-number length. */
 #define ELOG_LINE_NUM_MAX_LEN                    5
-/* output filter's tag max length */
+
+/** @brief Maximum tag length used by the output filter. */
 #define ELOG_FILTER_TAG_MAX_LEN                  30
-/* output filter's keyword max length */
+
+/** @brief Maximum keyword length used by the output filter. */
 #define ELOG_FILTER_KW_MAX_LEN                   16
-/* output filter's tag level max num */
+
+/** @brief Number of per-tag level filters. */
 #define ELOG_FILTER_TAG_LVL_MAX_NUM              5
-/* output newline sign */
+
+/** @brief Line terminator appended by EasyLogger. */
 #define ELOG_NEWLINE_SIGN                        "\r\n"
-/*---------------------------------------------------------------------------*/
-/* enable log color */
-/* #define ELOG_COLOR_ENABLE */
-/* change the some level logs to not default color if you want */
+
+/** @brief Color values; unused while ELOG_COLOR_ENABLE is off. */
 #define ELOG_COLOR_ASSERT                        (F_MAGENTA B_NULL S_NORMAL)
 #define ELOG_COLOR_ERROR                         (F_RED B_NULL S_NORMAL)
 #define ELOG_COLOR_WARN                          (F_YELLOW B_NULL S_NORMAL)
 #define ELOG_COLOR_INFO                          (F_CYAN B_NULL S_NORMAL)
 #define ELOG_COLOR_DEBUG                         (F_GREEN B_NULL S_NORMAL)
 #define ELOG_COLOR_VERBOSE                       (F_BLUE B_NULL S_NORMAL)
-/*---------------------------------------------------------------------------*/
-/* enable log fmt */
-/* comment it if you don't want to output them at all */
+
+/** @brief Enable file, function and line fields in formatted output. */
 #define ELOG_FMT_USING_FUNC
 #define ELOG_FMT_USING_DIR
 #define ELOG_FMT_USING_LINE
-/*---------------------------------------------------------------------------*/
-/* enable asynchronous output mode */
-/* #define ELOG_ASYNC_OUTPUT_ENABLE */
-/* the highest output level for async mode, other level will sync output */
-/* #define ELOG_ASYNC_OUTPUT_LVL                    ELOG_LVL_ASSERT */
-/* buffer size for asynchronous output mode */
-/* #define ELOG_ASYNC_OUTPUT_BUF_SIZE               (ELOG_LINE_BUF_SIZE * 10) */
-/* each asynchronous output's log which must end with newline sign */
-/* #define ELOG_ASYNC_LINE_OUTPUT */
-/* asynchronous output mode using POSIX pthread implementation */
-/* #define ELOG_ASYNC_OUTPUT_USING_PTHREAD */
-/*---------------------------------------------------------------------------*/
-/* enable buffered output mode */
-/* #define ELOG_BUF_OUTPUT_ENABLE */
-/* buffer size for buffered output mode */
-/* #define ELOG_BUF_OUTPUT_BUF_SIZE                 (ELOG_LINE_BUF_SIZE * 10) */
 
-#endif /* _ELOG_CFG_H_ */
+#endif

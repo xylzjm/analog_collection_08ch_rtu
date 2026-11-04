@@ -7,50 +7,14 @@ extern "C" {
 
 #include "stdint.h"
 
-/* The interrupt mask must match the QP port: PRIMASK, or BASEPRI with the
- * QF_USE_BASEPRI threshold, is what qv_port.c/QF_crit_entry_() use. */
+/* Interrupt mask must match the QP port (PRIMASK or QF_USE_BASEPRI). */
 #include "qp_config.h"
 
-/* Incomplete on purpose: board_init() owns the parameter KVDB instance and
- * hands it out by pointer; users include flashdb.h for the full type. */
-struct fdb_kvdb;
-
-/*----------------------------------------------------------------------------
- * Nestable critical section
- *
- * One nesting count and one interrupt mask for the whole board: the QP
- * critical section (board.c's strong QF_crit_entry_()/QF_crit_exit_()
- * override of the qv_port.c ones) and every board module expand the same
- * macros, so the modbus core, board code and the framework nest inside each
- * other and the interrupts come back only at the outermost exit.  The macros
- * below are the implementation; the QF functions just expand them.
- *
- * The nesting count (board_crit_nest) is owned by board.c and only declared
- * inside the macros, so it is not part of this header's API: every user goes
- * through the macros and their checks.
- *
- * The checks keep the rules of the original QP port: the outermost entry must
- * find the interrupts enabled (so no section may start inside
- * QF_INT_DISABLE()), a nested entry must find them masked, and an exit must
- * match a pending entry.  A violation is reported to board_crit_error_().
- */
+/** @brief Bring up the board hardware and board-level device objects. */
+void board_init(void);
 
 /** @brief Milliseconds since boot, from the SysTick counter. */
 uint32_t board_tick_get(void);
-
-/**
- * @brief Bring up the whole platform once at power-up.
- *
- * WorkBench peripherals first, then SEGGER RTT, EasyLogger, FAL and the
- * parameter KVDB, and finally the board component objects (see board.c for
- * the exact order and its reasons).  It returns no status: a failing step is
- * logged and the remaining steps still run, and BOARD_SELFTEST reports what
- * ended up working.
- */
-void board_init(void);
-
-/** @brief The parameter KVDB instance that board_init() brings up. */
-struct fdb_kvdb* board_kvdb_get(void);
 
 /** @brief Report a critical-section contract violation; never returns. */
 #ifdef __cplusplus
@@ -59,7 +23,7 @@ struct fdb_kvdb* board_kvdb_get(void);
 _Noreturn void board_crit_error_(int id);
 #endif
 
-/* mask primitives, internal to the macros below */
+/** @brief Read the current interrupt-mask state. */
 static __inline __attribute__((always_inline)) uint32_t board_crit_state_(void)
 {
     uint32_t state;
@@ -72,6 +36,7 @@ static __inline __attribute__((always_inline)) uint32_t board_crit_state_(void)
     return state;
 }
 
+/** @brief Mask interrupts for the board critical section. */
 static __inline __attribute__((always_inline)) void board_crit_mask_(void)
 {
 #ifdef QF_USE_BASEPRI
@@ -81,6 +46,7 @@ static __inline __attribute__((always_inline)) void board_crit_mask_(void)
 #endif
 }
 
+/** @brief Restore interrupts after the board critical section. */
 static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
 {
 #ifdef QF_USE_BASEPRI
@@ -90,13 +56,7 @@ static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
 #endif
 }
 
-/**
- * @brief Enter the board critical section (nestable interrupt mask).
- *
- * The first entry masks the interrupts, a nested entry only raises the
- * nesting count, and the interrupts come back at the outermost exit.  Usable
- * both from thread and from interrupt context.
- */
+/** @brief Enter the nestable board critical section; the outermost entry expects interrupts enabled. */
 #define board_critical_enter()                                             \
     do {                                                                   \
         extern uint32_t volatile board_crit_nest;                          \
@@ -108,7 +68,7 @@ static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
         ++board_crit_nest;                                                 \
     } while ( 0 )
 
-/** @brief Leave the board critical section; see board_critical_enter(). */
+/** @brief Leave the nestable board critical section; only the outermost exit restores interrupts. */
 #define board_critical_exit()                                           \
     do {                                                                \
         extern uint32_t volatile board_crit_nest;                       \
@@ -124,4 +84,4 @@ static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
 }
 #endif
 
-#endif /* __BOARD_H__ */
+#endif
