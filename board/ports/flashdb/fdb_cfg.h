@@ -58,15 +58,10 @@
 
 /* log print macro. default EF_PRINT macro is printf() */
 /* Keep FlashDB's own FDB_LOG_TAG + FDB_DEBUG/INFO/WARN/ERROR macros untouched;
- * only the print channel is redirected.  FlashDB's messages end in a bare
- * '\n' (fdb_def.h), while EasyLogger lines end in ELOG_NEWLINE_SIGN, so every
- * fragment goes through fdb_port_print() (board/ports/flashdb/fdb_port.c),
- * which turns bare LFs into CRLF and hands the result to elog_raw() -- one
- * SEGGER_RTT_Write() per fragment, straight to SEGGER RTT.
+ * only the print channel is redirected: elog_raw() -> SEGGER RTT.
  * elog_raw_output() silently drops while elog.output_enabled is false, so
  * board_init() must call elog_start() before fdb_kvdb_init(). */
-void fdb_port_print(const char* format, ...);
-#define FDB_PRINT(...)              fdb_port_print(__VA_ARGS__)
+#define FDB_PRINT(...)              elog_raw(__VA_ARGS__)
 
 /* print debug information (development builds; FDB_DEBUG carries
  * __FILE__/__LINE__, which raises both ROM and line length -- comment it out
