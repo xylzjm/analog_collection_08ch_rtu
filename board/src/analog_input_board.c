@@ -137,7 +137,7 @@ static void fill_break_config(sig24131_config_t* adc,
             break;
 
         case ANALOG_INPUT_TYPE_PT100:
-            adc->reference                 = SIG24131_REF_INTERNAL_2V5;
+            adc->reference = SIG24131_REF_INTERNAL_2V5;
             /* REF_EN must stay off: it would drive REFP instead of measuring it. */
             adc->internal_reference_enable = 0U;
             adc->gain                      = SIG24131_GAIN_1;

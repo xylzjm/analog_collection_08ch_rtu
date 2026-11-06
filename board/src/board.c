@@ -13,7 +13,9 @@
 #include "elog.h"
 
 #include "analog_input_board.h"
+#include "i2c_soft_board.h"
 #include "sig24131_board.h"
+#include "tmp75_board.h"
 
 /*----------------------------------------------------------------------------*/
 /* Error handling                                                             */
@@ -27,7 +29,7 @@ Q_NORETURN Q_onError(char const* const module,
     char const* name = (module != NULL) ? module : "?";
     uint32_t value;
     size_t len = 0U;
-    size_t n = 0U;
+    size_t n   = 0U;
     size_t i;
     static char const prefix[] = "Q_onError: ";
 
@@ -43,7 +45,7 @@ Q_NORETURN Q_onError(char const* const module,
 
     if ( id < 0 ) {
         line[len++] = '-';
-        value = (uint32_t)(-(id + 1)) + 1U;
+        value       = (uint32_t)(-(id + 1)) + 1U;
     } else {
         value = (uint32_t)id;
     }
@@ -134,6 +136,8 @@ void board_init(void)
 {
     sig24131_status_t sig_status;
     analog_input_status_t analog_status;
+    i2c_soft_status_t i2c_status;
+    tmp75_status_t tmp75_status;
 
     /* Clock and flash wait states must be configured first. */
     wk_system_clock_config();
@@ -162,6 +166,32 @@ void board_init(void)
     if ( sig_status != SIG24131_OK ) {
         elog_error("board", "sig24131_board_reset_all failed (%d)",
                    (int)sig_status);
+    }
+
+    /* The SIG24131 reset already waited 43 ms, which also settles the TMP75. */
+    i2c_status = i2c_soft_board_init();
+    if ( i2c_status != I2C_SOFT_OK ) {
+        elog_error("board", "i2c_soft_board_init failed (%d)",
+                   (int)i2c_status);
+    }
+    tmp75_status = tmp75_board_ctor();
+    if ( tmp75_status != TMP75_OK ) {
+        elog_error("board", "tmp75_board_ctor failed (%d)",
+                   (int)tmp75_status);
+    }
+
+    /* Probe proves wiring and address only; it carries no temperature. */
+    if ( i2c_status == I2C_SOFT_OK ) {
+        i2c_status = i2c_soft_probe(i2c_soft_board_get(),
+                                    TMP75_BOARD_ADDRESS);
+        if ( i2c_status == I2C_SOFT_OK ) {
+            elog_info("board", "tmp75 found at 0x%02X",
+                      (unsigned)TMP75_BOARD_ADDRESS);
+        } else if ( i2c_status == I2C_SOFT_ERR_NACK ) {
+            elog_warn("board", "tmp75 not found (%d)", (int)i2c_status);
+        } else {
+            elog_error("board", "i2c bus unavailable (%d)", (int)i2c_status);
+        }
     }
 
     /* Construction only; the application configures each channel. */

@@ -1,7 +1,7 @@
 #include "sig24131_board.h"
 
-#include "wk_system.h"
 #include "board.h"
+#include "wk_system.h"
 
 /** @brief SPI flag timeout in board-tick milliseconds. */
 #define SPI_TRANSFER_TIMEOUT_TICKS 10U

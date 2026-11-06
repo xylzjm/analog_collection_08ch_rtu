@@ -32,7 +32,8 @@ board_init();   /* 时钟、外设、板级设备 */
 3. TMR6 1 MHz 时基
 4. GPIO、USART1、SPI1、TMR14
 5. SIG24131 设备对象构造与上电复位
-6. analog_input 板级对象构造
+6. 软 I2C 总线构造与初始化、TMP75 构造、0x48 探测
+7. analog_input 板级对象构造
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
@@ -85,6 +86,23 @@ elog_* / FDB_PRINT / printf
 - 构造时释放片选；上电后统一复位，共享一次 43 ms 等待。
 - SPI 传输带超时，超时返回 `SIG24131_ERR_IO`。
 - 板级通道数由 `SIG24131_BOARD_INSTANCE_COUNT` 决定，最大 8。
+
+### I2C 软总线
+
+- PA1 = SDA，PA2 = SCL，开漏输出、初始置高、`GPIO_PULL_NONE`，依赖外部上拉；不使用硬件 I2C。
+- 半周期按实例配置：`i2c_soft_config_t.half_period_us`，本板填 `0`，解析为默认 5 µs（名义 100 kHz 以内，标准模式最稳）。库不校验下限，低于 5 µs 即离开标准模式。
+- 位延时用 `wk_delay_us()`，基于 TMR6 轮询计数，可在关中断下工作。
+- 临界区用 `board_critical_enter/exit`，与 QP 共享同一个嵌套计数；库只做逐边沿 5–20 µs 的屏蔽，不包整事务。
+- 仅任务上下文，禁止 ISR；单实例非线程安全，调用方负责串行。
+- `i2c_soft_board_init()` 失败只记录日志、不阻塞启动；`i2c_soft_init()` 成功后才能发起事务。
+
+### TMP75
+
+- 单片 TMP75，地址 0x48（A2–A0 接地），ALERT 未接，不处理。
+- 复位默认 9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C；需要 0.0625 °C 时由应用调用 `tmp75_write_config()` 切 12-bit。
+- 启动时只对 0x48 做一次 `i2c_soft_probe()`：NACK 只说明地址/接线问题，不表示温度可读。
+- 读取方式：`tmp75_board_get_device()` 取设备对象，再调用 `tmp75_read_temperature()`。
+- 板级 `transfer` 把所有 I2C 失败统一映射为 `TMP75_ERR_IO`；启动 probe 直接调用 `i2c_soft_probe()` 以保留原始状态码。
 
 ### 模拟输入
 

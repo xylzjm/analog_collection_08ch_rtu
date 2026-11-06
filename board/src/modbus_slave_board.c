@@ -24,11 +24,13 @@ typedef struct {
 } timer_ctx_t;
 
 static const line_ctx_t line_ctx = {
-    USART1, USART_DE_GPIO_PORT, USART_DE_PIN
+    USART1,
+    USART_DE_GPIO_PORT,
+    USART_DE_PIN,
 };
 
 static const timer_ctx_t timer_ctx = {
-    TMR14
+    TMR14,
 };
 
 static uint8_t rx_buffer[MB_BUFFER_SIZE];
@@ -75,8 +77,7 @@ static modbus_slave_status_t line_direction(void* ctx,
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t line_put_byte(void* ctx,
-                                           uint8_t byte)
+static modbus_slave_status_t line_put_byte(void* ctx, uint8_t byte)
 {
     const line_ctx_t* b = (const line_ctx_t*)ctx;
 
@@ -92,8 +93,7 @@ static modbus_slave_status_t line_tx_done(void* ctx)
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t timer_arm(void* ctx,
-                                       uint32_t timeout_us)
+static modbus_slave_status_t timer_arm(void* ctx, uint32_t timeout_us)
 {
     const timer_ctx_t* t = (const timer_ctx_t*)ctx;
     uint32_t ticks;
