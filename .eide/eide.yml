@@ -68,7 +68,8 @@ virtualFolder:
               folders: []
     - name: device
       files:
-        - path: ../library/device/sig24131/sig24131.c
+        - path: ../library/device/sig24131/src/sig24131.c
+        - path: ../library/device/tmp75/src/tmp75.c
       folders: []
     - name: third_party
       files: []
@@ -165,6 +166,10 @@ virtualFolder:
             - path: ../library/protocol/modbus_slave/src/modbus_slave_function_code.c
             - path: ../library/protocol/modbus_slave/src/modbus_slave_rtu.c
           folders: []
+        - name: i2c_soft
+          files:
+            - path: ../library/protocol/i2c_soft/src/i2c_soft.c
+          folders: []
 dependenceList:
   - depList:
       - name: Startup
@@ -229,7 +234,7 @@ targets:
       incList:
         - .
         - .cmsis/include
-        - ../library/device/sig24131
+        - ../library/device/sig24131/inc
         - ../library/interface/analog_input
         - ../middleware/qp/qpc/include
         - board/inc
@@ -244,6 +249,8 @@ targets:
         - ../middleware/SEGGER_RTT_V850/Config
         - ../middleware/flashDB/inc
         - ../middleware/flashDB/port/fal/inc
+        - ../library/device/tmp75/inc
+        - ../library/protocol/i2c_soft/inc
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c

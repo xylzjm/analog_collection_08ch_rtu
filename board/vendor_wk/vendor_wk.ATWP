@@ -47,7 +47,8 @@
             <ModeSub name="Mode" value="Asynchronous"/>
         </Mode>
         <Parameters>
-            <ParametersSub name="RealBaudRate" value="115163"/>
+            <ParametersSub name="BaudRate" value="9600"/>
+            <ParametersSub name="RealBaudRate" value="9600"/>
         </Parameters>
         <Interrupts>
             <InterruptsSub name="Interrupt_ERR" value="TRUE"/>
@@ -91,9 +92,13 @@
             <Parameters name="Label" value="CTRL_COM_5"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PA1">
+            <Parameters name="GPIO_Outputlevel" value="GPIO_OUTPUTLEVEL_HIGH"/>
+            <Parameters name="GPIO_Type" value="GPIO_OUTPUT_OPEN_DRAIN"/>
             <Parameters name="Label" value="I2C_SDA"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PA2">
+            <Parameters name="GPIO_Outputlevel" value="GPIO_OUTPUTLEVEL_HIGH"/>
+            <Parameters name="GPIO_Type" value="GPIO_OUTPUT_OPEN_DRAIN"/>
             <Parameters name="Label" value="I2C_SCL"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PA3">

@@ -20,7 +20,6 @@ extern "C" {
  *       the event port and calls modbus_slave_start().
  */
 modbus_slave_status_t modbus_slave_board_ctor(
-    uint32_t baudrate,
     const modbus_slave_callbacks_t* callbacks,
     const modbus_slave_identity_t* identity);
 

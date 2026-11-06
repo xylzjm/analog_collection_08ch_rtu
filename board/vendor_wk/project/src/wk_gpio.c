@@ -62,9 +62,30 @@ void wk_gpio_config(void)
 
     /* gpio output config */
     gpio_bits_reset(GPIOC, CTRL_CV_4_PIN | CTRL_COM_4_PIN);
-    gpio_bits_reset(GPIOF, CTRL_nCS_8_PIN | CTRL_COM_8_PIN | CTRL_COM_3_PIN | CTRL_nCS_6_PIN);
-    gpio_bits_reset(GPIOA, CTRL_COM_5_PIN | I2C_SDA_PIN | I2C_SCL_PIN | CTRL_CV_5_PIN | CTRL_COM_1_PIN | CTRL_nCS_2_PIN | USART_DE_PIN | CTRL_CV_6_PIN);
-    gpio_bits_reset(GPIOB, CTRL_nCS_5_PIN | CTRL_CV_1_PIN | CTRL_nCS_4_PIN | CTRL_nCS_1_PIN | CTRL_CV_8_PIN | CTRL_COM_2_PIN | CTRL_nCS_7_PIN | CTRL_CV_2_PIN | CTRL_COM_6_PIN | CTRL_CV_3_PIN | CTRL_CV_7_PIN | CTRL_COM_7_PIN | CTRL_nCS_3_PIN);
+    gpio_bits_reset(GPIOF, CTRL_nCS_8_PIN
+                               | CTRL_COM_8_PIN
+                               | CTRL_COM_3_PIN
+                               | CTRL_nCS_6_PIN);
+    gpio_bits_reset(GPIOA, CTRL_COM_5_PIN
+                               | CTRL_CV_5_PIN
+                               | CTRL_COM_1_PIN
+                               | CTRL_nCS_2_PIN
+                               | USART_DE_PIN
+                               | CTRL_CV_6_PIN);
+    gpio_bits_set(GPIOA, I2C_SDA_PIN | I2C_SCL_PIN);
+    gpio_bits_reset(GPIOB, CTRL_nCS_5_PIN
+                               | CTRL_CV_1_PIN
+                               | CTRL_nCS_4_PIN
+                               | CTRL_nCS_1_PIN
+                               | CTRL_CV_8_PIN
+                               | CTRL_COM_2_PIN
+                               | CTRL_nCS_7_PIN
+                               | CTRL_CV_2_PIN
+                               | CTRL_COM_6_PIN
+                               | CTRL_CV_3_PIN
+                               | CTRL_CV_7_PIN
+                               | CTRL_COM_7_PIN
+                               | CTRL_nCS_3_PIN);
 
     gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
     gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_PUSH_PULL;
@@ -76,21 +97,48 @@ void wk_gpio_config(void)
     gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
     gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_PUSH_PULL;
     gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
-    gpio_init_struct.gpio_pins           = CTRL_nCS_8_PIN | CTRL_COM_8_PIN | CTRL_COM_3_PIN | CTRL_nCS_6_PIN;
+    gpio_init_struct.gpio_pins           = CTRL_nCS_8_PIN
+                                           | CTRL_COM_8_PIN
+                                           | CTRL_COM_3_PIN
+                                           | CTRL_nCS_6_PIN;
     gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
     gpio_init(GPIOF, &gpio_init_struct);
 
     gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
     gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_PUSH_PULL;
     gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
-    gpio_init_struct.gpio_pins           = CTRL_COM_5_PIN | I2C_SDA_PIN | I2C_SCL_PIN | CTRL_CV_5_PIN | CTRL_COM_1_PIN | CTRL_nCS_2_PIN | USART_DE_PIN | CTRL_CV_6_PIN;
+    gpio_init_struct.gpio_pins           = CTRL_COM_5_PIN
+                                           | CTRL_CV_5_PIN
+                                           | CTRL_COM_1_PIN
+                                           | CTRL_nCS_2_PIN
+                                           | USART_DE_PIN
+                                           | CTRL_CV_6_PIN;
+    gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
+    gpio_init(GPIOA, &gpio_init_struct);
+
+    gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+    gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_OPEN_DRAIN;
+    gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
+    gpio_init_struct.gpio_pins           = I2C_SDA_PIN | I2C_SCL_PIN;
     gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
     gpio_init(GPIOA, &gpio_init_struct);
 
     gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
     gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_PUSH_PULL;
     gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
-    gpio_init_struct.gpio_pins           = CTRL_nCS_5_PIN | CTRL_CV_1_PIN | CTRL_nCS_4_PIN | CTRL_nCS_1_PIN | CTRL_CV_8_PIN | CTRL_COM_2_PIN | CTRL_nCS_7_PIN | CTRL_CV_2_PIN | CTRL_COM_6_PIN | CTRL_CV_3_PIN | CTRL_CV_7_PIN | CTRL_COM_7_PIN | CTRL_nCS_3_PIN;
+    gpio_init_struct.gpio_pins           = CTRL_nCS_5_PIN
+                                           | CTRL_CV_1_PIN
+                                           | CTRL_nCS_4_PIN
+                                           | CTRL_nCS_1_PIN
+                                           | CTRL_CV_8_PIN
+                                           | CTRL_COM_2_PIN
+                                           | CTRL_nCS_7_PIN
+                                           | CTRL_CV_2_PIN
+                                           | CTRL_COM_6_PIN
+                                           | CTRL_CV_3_PIN
+                                           | CTRL_CV_7_PIN
+                                           | CTRL_COM_7_PIN
+                                           | CTRL_nCS_3_PIN;
     gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
     gpio_init(GPIOB, &gpio_init_struct);
 

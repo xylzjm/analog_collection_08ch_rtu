@@ -9,7 +9,7 @@
 #define MB_TMR_MAX_TICKS 65535U
 
 /** @brief Modbus RX/TX buffer size. */
-#define MB_BUFFER_SIZE   256U
+#define MB_BUFFER_SIZE 256U
 
 /** @brief RS485 line binding. */
 typedef struct {
@@ -75,7 +75,8 @@ static modbus_slave_status_t line_direction(void* ctx,
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t line_put_byte(void* ctx, uint8_t byte)
+static modbus_slave_status_t line_put_byte(void* ctx,
+                                           uint8_t byte)
 {
     const line_ctx_t* b = (const line_ctx_t*)ctx;
 
@@ -91,7 +92,8 @@ static modbus_slave_status_t line_tx_done(void* ctx)
     return MODBUS_SLAVE_OK;
 }
 
-static modbus_slave_status_t timer_arm(void* ctx, uint32_t timeout_us)
+static modbus_slave_status_t timer_arm(void* ctx,
+                                       uint32_t timeout_us)
 {
     const timer_ctx_t* t = (const timer_ctx_t*)ctx;
     uint32_t ticks;
@@ -139,7 +141,6 @@ static void critical_exit(void* ctx)
 }
 
 modbus_slave_status_t modbus_slave_board_ctor(
-    uint32_t baudrate,
     const modbus_slave_callbacks_t* callbacks,
     const modbus_slave_identity_t* identity)
 {
@@ -149,23 +150,23 @@ modbus_slave_status_t modbus_slave_board_ctor(
         return MODBUS_SLAVE_ERR_ARG;
     }
 
-    config.baudrate            = baudrate;
-    config.rx_buffer           = rx_buffer;
-    config.rx_capacity         = (uint16_t)MB_BUFFER_SIZE;
-    config.tx_buffer           = tx_buffer;
-    config.tx_capacity         = (uint16_t)MB_BUFFER_SIZE;
-    config.line.ctx            = (void*)&line_ctx;
-    config.line.direction      = line_direction;
-    config.line.put_byte       = line_put_byte;
-    config.line.tx_done        = line_tx_done;
-    config.timer.ctx           = (void*)&timer_ctx;
-    config.timer.arm           = timer_arm;
-    config.timer.cancel        = timer_cancel;
-    config.critical.ctx        = NULL;
-    config.critical.enter      = critical_enter;
-    config.critical.exit       = critical_exit;
-    config.callbacks           = *callbacks;
-    config.identity            = *identity;
+    config.baudrate       = 9600;
+    config.rx_buffer      = rx_buffer;
+    config.rx_capacity    = (uint16_t)MB_BUFFER_SIZE;
+    config.tx_buffer      = tx_buffer;
+    config.tx_capacity    = (uint16_t)MB_BUFFER_SIZE;
+    config.line.ctx       = (void*)&line_ctx;
+    config.line.direction = line_direction;
+    config.line.put_byte  = line_put_byte;
+    config.line.tx_done   = line_tx_done;
+    config.timer.ctx      = (void*)&timer_ctx;
+    config.timer.arm      = timer_arm;
+    config.timer.cancel   = timer_cancel;
+    config.critical.ctx   = NULL;
+    config.critical.enter = critical_enter;
+    config.critical.exit  = critical_exit;
+    config.callbacks      = *callbacks;
+    config.identity       = *identity;
 
     return modbus_slave_ctor(&slave, &config);
 }
