@@ -77,6 +77,27 @@ typedef enum {
     CAL_ERROR_REFERENCE_FAILED      = 11
 } cal_error_t;
 
+/** @brief Result of validating one hidden-block write range. */
+typedef enum {
+    MODBUS_CAL_WRITE_OK = 0,       /**< Range is valid. */
+    MODBUS_CAL_WRITE_BAD_ADDRESS,  /**< Address or reserved register. */
+    MODBUS_CAL_WRITE_BAD_VALUE     /**< CMD span or CMD value is invalid. */
+} modbus_cal_write_status_t;
+
+/**
+ * @brief Validate one hidden-block write range without applying it.
+ *
+ * @param start First register address.
+ * @param count Number of registers.
+ * @param buffer Big-endian register data; count * 2 bytes.
+ * @return Validation result; BAD_ADDRESS maps to exception 02, BAD_VALUE
+ *         maps to exception 03.
+ */
+modbus_cal_write_status_t modbus_cal_regs_check_write(
+    uint16_t start,
+    uint16_t count,
+    uint8_t const* buffer);
+
 /**
  * @brief Test whether a register range lies inside the hidden block.
  *

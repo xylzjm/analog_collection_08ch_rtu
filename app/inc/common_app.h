@@ -45,6 +45,9 @@ extern "C" {
 
 #include "qpc.h"
 
+#include "analog_input.h"
+#include "cal_data.h"
+
 //$declare${Shared} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
 //${Shared::signals} .........................................................
@@ -56,6 +59,7 @@ enum signals {
     /* modbus_app 内部 */
     MB_START_FAILED_SIG,             /* modbus_app 自投递 */
     MB_SAVE_TIMER_SIG,               /* QTimeEvt -> modbus_app */
+    MB_SAVE_CAP_TIMER_SIG,           /* QTimeEvt -> modbus_app，10 s 强制保存 */
     MB_RETRY_TIMER_SIG,              /* QTimeEvt -> modbus_app */
 
     /* modbus_app <-> calibrate_app 组件（直接派发，不排队） */
@@ -98,6 +102,54 @@ enum signals {
     APP_SIG_MAX
 };
 //$enddecl${Shared} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/** @brief CAL_SELECT_SIG payload; built on the stack and dispatched synchronously. */
+typedef struct {
+    QEvt super;
+    uint8_t channel; /**< Modbus channel 0..7. */
+    uint8_t type;    /**< Calibration type 0..3. */
+} cal_select_evt_t;
+
+/** @brief CH_DATA_SIG and CJ_TEMP_SIG payload. */
+typedef struct {
+    QEvt super;
+    uint8_t channel;    /**< Modbus channel, or 0 for the cold junction. */
+    uint8_t status;     /**< Channel or cold-junction status code. */
+    uint8_t reserved[4];/**< Keeps measurement events out of the calibration pool. */
+    int32_t value;      /**< Engineering value x0.001, or INT32_MIN. */
+} meas_evt_t;
+
+/** @brief CH_CONFIG_SIG payload. */
+typedef struct {
+    QEvt super;
+    uint8_t channel;                 /**< Modbus channel 0..7. */
+    analog_input_config_t config;    /**< Input type, model and rate. */
+    int32_t linear_min;              /**< Linear lower limit x0.001. */
+    int32_t linear_max;              /**< Linear upper limit x0.001. */
+    int32_t user_offset;             /**< User offset x0.001. */
+    int32_t user_gain;               /**< User gain x0.001. */
+} cfg_evt_t;
+
+/** @brief CAL_SAVE_SIG payload; storage copies the record immediately. */
+typedef struct {
+    QEvt super;
+    uint8_t channel;               /**< Modbus channel 0..7; selects calN. */
+    cal_ch_record_t const* record; /**< Pending record owned by calibrate_app. */
+} cal_save_evt_t;
+
+/** @brief Report-Slave-ID model string. */
+#define APP_MODEL_STRING "AC08RTU"
+
+/** @brief Firmware version reported by function code 0x11. */
+#define APP_VERSION_MAJOR 1U
+#define APP_VERSION_MINOR 0U
+#define APP_VERSION_PATCH 0U
+
+/** @brief Length of APP_MODEL_STRING without the terminator. */
+#define APP_MODEL_STRING_LENGTH 7U
+
+/** @brief Additional FC11 bytes: model followed by major/minor/patch. */
+#define APP_IDENTITY_ADDITIONAL_LENGTH (APP_MODEL_STRING_LENGTH + 3U)
 
 #ifdef __cplusplus
 }

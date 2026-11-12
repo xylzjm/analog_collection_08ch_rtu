@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "analog_input.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -42,6 +40,12 @@ extern "C" {
 /** @brief Baud rate reported by MODBUS_REG_BAUDRATE. */
 #define MODBUS_BAUDRATE 9600U
 
+/** @brief Wire value selecting the default sample rate (10 Hz). */
+#define MODBUS_REG_RATE_DEFAULT 0xFFFFU
+
+/** @brief Stored index of the default sample rate (10 Hz). */
+#define MODBUS_REG_RATE_DEFAULT_INDEX 2U
+
 /** @brief Report-Slave-ID instance data. */
 #define MODBUS_APP_DEV_FAULT_LOAD 0x0001U
 #define MODBUS_APP_DEV_FAULT_SAVE 0x0002U
@@ -71,13 +75,21 @@ bool modbus_app_regs_rate_valid(uint16_t value);
 uint32_t modbus_app_regs_rate_millihz(uint16_t index);
 
 /**
- * @brief Map a Modbus sensor type to an analog input configuration.
+ * @brief Convert a wire rate index to the stored index.
+ *
+ * @param value Wire value 0..12 or MODBUS_REG_RATE_DEFAULT.
+ * @return Stored index; the default wire value maps to
+ *         MODBUS_REG_RATE_DEFAULT_INDEX.
+ */
+uint8_t modbus_app_regs_rate_store_index(uint16_t value);
+
+/**
+ * @brief Test whether a sensor type uses the linear lower/upper limits.
  *
  * @param value Modbus type 0..10.
- * @param config Receives type and thermocouple model.
- * @return true when defined.
+ * @return true only for 4-20 mA (0) and 0-10 V (1).
  */
-bool modbus_app_regs_type_to_config(uint16_t value, analog_input_config_t* config);
+bool modbus_app_regs_type_is_linear(uint16_t value);
 
 /** @brief Test a user calibration gain, x0.001. */
 bool modbus_app_regs_gain_valid(int32_t gain);

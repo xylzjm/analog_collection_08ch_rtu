@@ -5,6 +5,78 @@
 #include "analog_input_board.h"
 #include "cal_data.h"
 
+static void test_record_sanitize(void)
+{
+    cal_ch_record_t record;
+
+    assert(cal_data_record_sanitize(NULL) == false);
+
+    memset(&record, 0, sizeof(record));
+    record.version = CAL_DATA_VERSION;
+    record.size    = (uint16_t)sizeof(record);
+    record.valid_mask = (uint8_t)((1U << CAL_DATA_TYPE_THERMOCOUPLE)
+                                  | (1U << CAL_DATA_TYPE_PT100));
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].gain_micro = 1000000L;
+    record.entry[CAL_DATA_TYPE_PT100].gain_micro = 0L;
+
+    assert(cal_data_record_sanitize(&record));
+    assert((record.valid_mask
+            & (uint8_t)(1U << CAL_DATA_TYPE_THERMOCOUPLE)) != 0U);
+    assert((record.valid_mask
+            & (uint8_t)(1U << CAL_DATA_TYPE_PT100)) == 0U);
+
+    record.version = 99U;
+    assert(cal_data_record_sanitize(&record) == false);
+    record.version = CAL_DATA_VERSION;
+
+    record.size = 0U;
+    assert(cal_data_record_sanitize(&record) == false);
+    record.size = (uint16_t)sizeof(record);
+
+    record.valid_mask = 0x80U;
+    assert(cal_data_record_sanitize(&record) == false);
+
+    record.valid_mask = (uint8_t)(1U << CAL_DATA_TYPE_THERMOCOUPLE);
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].gain_micro = CAL_GAIN_MICRO_MIN;
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].offset_code = 0L;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask != 0U);
+
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].gain_micro = CAL_GAIN_MICRO_MIN - 1L;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask == 0U);
+
+    record.valid_mask = (uint8_t)(1U << CAL_DATA_TYPE_THERMOCOUPLE);
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].gain_micro = CAL_GAIN_MICRO_MAX;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask != 0U);
+
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].gain_micro = CAL_GAIN_MICRO_MAX + 1L;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask == 0U);
+
+    record.valid_mask = (uint8_t)(1U << CAL_DATA_TYPE_THERMOCOUPLE);
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].gain_micro = 1000000L;
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].offset_code = CAL_OFFSET_CODE_LIMIT;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask != 0U);
+
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].offset_code =
+        CAL_OFFSET_CODE_LIMIT + 1L;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask == 0U);
+
+    record.valid_mask = (uint8_t)(1U << CAL_DATA_TYPE_THERMOCOUPLE);
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].offset_code = -CAL_OFFSET_CODE_LIMIT;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask != 0U);
+
+    record.entry[CAL_DATA_TYPE_THERMOCOUPLE].offset_code =
+        -CAL_OFFSET_CODE_LIMIT - 1L;
+    assert(cal_data_record_sanitize(&record));
+    assert(record.valid_mask == 0U);
+}
+
 int main(void)
 {
     cal_ch_record_t record;
@@ -14,6 +86,7 @@ int main(void)
 
     stub_factory_cal_reset();
     cal_data_init();
+    test_record_sanitize();
 
     stored = cal_data_get(0U);
     assert(stored != NULL);

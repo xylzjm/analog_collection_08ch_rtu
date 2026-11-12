@@ -4,6 +4,17 @@
 
 #include "param_app.h"
 
+static void check_type(uint8_t type,
+                       analog_input_type_t expected,
+                       analog_input_thermocouple_type_t tc)
+{
+    analog_input_config_t config;
+
+    assert(param_app_type_to_config(type, &config));
+    assert(config.type == expected);
+    assert(config.thermocouple_type == tc);
+}
+
 int main(void)
 {
     param_sys_record_t sys;
@@ -54,8 +65,28 @@ int main(void)
     param_app_clear_dirty(3U, rev2);
     assert((param_app_dirty_mask() & 0x0008U) == 0U);
 
-    assert(param_app_type_to_config(6U, &config));
-    assert(config.thermocouple_type == ANALOG_INPUT_THERMOCOUPLE_TYPE_K);
+    check_type(0U, ANALOG_INPUT_TYPE_4_20MA,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE);
+    check_type(1U, ANALOG_INPUT_TYPE_0_10V,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE);
+    check_type(2U, ANALOG_INPUT_TYPE_PT100,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE);
+    check_type(3U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_B);
+    check_type(4U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_E);
+    check_type(5U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_J);
+    check_type(6U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_K);
+    check_type(7U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_N);
+    check_type(8U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_R);
+    check_type(9U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_S);
+    check_type(10U, ANALOG_INPUT_TYPE_THERMOCOUPLE,
+               ANALOG_INPUT_THERMOCOUPLE_TYPE_T);
     assert(!param_app_type_to_config(11U, &config));
     assert(param_app_linear_valid(0L, 1L));
     assert(!param_app_linear_valid(1L, 1L));

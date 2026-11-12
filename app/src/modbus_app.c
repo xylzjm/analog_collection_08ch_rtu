@@ -41,8 +41,6 @@
 #include <string.h>
 
 #include "common_app.h"
-#include "app_evt.h"
-#include "app_version.h"
 #include "board.h"
 #include "cal_data.h"
 #include "channel_app.h"
@@ -53,12 +51,15 @@
 #include "param_app.h"
 #include "storage_app.h"
 
-//$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-// Check for the minimum required QP version
-#if (QP_VERSION < 800U) || (QP_VERSION != ((QP_RELEASE^4294967295U)%0x2710U))
-#error qpc version 8.0.0 or higher required
-#endif
-//$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/** @brief User-parameter save debounce. */
+#define SAVE_DEBOUNCE_MS 1000U
+
+/** @brief Save postponement while frames keep arriving. */
+#define SAVE_IDLE_GATE_MS 500U
+
+/** @brief Maximum postponement of a pending save. */
+#define SAVE_FORCE_MS 10000U
 
 /*----------------------------------------------------------------------------*/
 /* Container helpers                                                          */
@@ -78,10 +79,7 @@ static QEvt const cal_abort_evt  = QEVT_INITIALIZER(CAL_ABORT_SIG);
 static QEvt const cal_exit_evt   = QEVT_INITIALIZER(CAL_EXIT_SIG);
 static QEvt const cal_enter_evt  = QEVT_INITIALIZER(CAL_ENTER_SIG);
 
-static uint8_t const identity_additional[APP_IDENTITY_ADDITIONAL_LENGTH] = {
-    'A', 'C', '0', '8', 'R', 'T', 'U',
-    APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH
-};
+static uint8_t identity_additional[APP_IDENTITY_ADDITIONAL_LENGTH];
 
 static modbus_app* instance;
 
@@ -227,6 +225,11 @@ static modbus_slave_exception_t read_holding(modbus_app* me,
     uint8_t channel;
     uint8_t offset;
 
+    if ( count == 0U
+         || ((uint32_t)start + (uint32_t)count - 1U) > 0xFFFFU ) {
+        return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
+    }
+
     if ( modbus_cal_regs_overlaps(start, count) ) {
         if ( modbus_cal_regs_in_block(start, count) == false ) {
             return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
@@ -241,7 +244,6 @@ static modbus_slave_exception_t read_holding(modbus_app* me,
             }
             return MODBUS_SLAVE_EX_NONE;
         }
-        rearm_hidden_timeout(me);
         for ( i = 0U; i < count; ++i ) {
             address = (uint16_t)(start + i);
             modbus_app_regs_put_u16(&buffer[2U * i], read_hidden_word(me, address));
@@ -277,6 +279,11 @@ static modbus_slave_exception_t read_input(modbus_app* me,
     uint16_t value;
     uint8_t channel;
 
+    if ( count == 0U
+         || ((uint32_t)start + (uint32_t)count - 1U) > 0xFFFFU ) {
+        return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
+    }
+
     for ( i = 0U; i < count; ++i ) {
         address = (uint16_t)(start + i);
         value   = 0U;
@@ -309,7 +316,10 @@ static void note_param_change(modbus_app* me)
     if ( QTimeEvt_getCtr(&me->saveTimer) == 0U ) {
         me->saveFirstTick = now;
     }
-    (void)QTimeEvt_rearm(&me->saveTimer, 1000U);
+    if ( QTimeEvt_getCtr(&me->saveCapTimer) == 0U ) {
+        QTimeEvt_armX(&me->saveCapTimer, SAVE_FORCE_MS, 0U);
+    }
+    (void)QTimeEvt_rearm(&me->saveTimer, SAVE_DEBOUNCE_MS);
 }
 
 static void notify_channel_config(modbus_app* me, uint8_t channel)
@@ -328,6 +338,7 @@ static void notify_channel_config(modbus_app* me, uint8_t channel)
 
     evt = Q_NEW_X(cfg_evt_t, 0U, CH_CONFIG_SIG);
     if ( evt == NULL ) {
+        elog_error("modbus", "cfg event pool empty");
         return;
     }
     evt->channel = channel;
@@ -339,9 +350,7 @@ static void notify_channel_config(modbus_app* me, uint8_t channel)
     evt->user_offset = record.user_offset;
     evt->user_gain   = record.user_gain;
 
-    if ( QACTIVE_POST_X(channel_ao, &evt->super, 0U, me) == false ) {
-        QF_gc(&evt->super);
-    }
+    QACTIVE_POST(channel_ao, &evt->super, me);
 }
 
 static bool find_word(uint16_t start,
@@ -400,6 +409,7 @@ static modbus_slave_exception_t validate_user_write(modbus_app* me,
     uint16_t value;
     uint8_t channel;
     uint8_t offset;
+    uint16_t base;
 
     for ( i = 0U; i < count; ++i ) {
         address = (uint16_t)(start + i);
@@ -412,6 +422,8 @@ static modbus_slave_exception_t validate_user_write(modbus_app* me,
         } else if ( address <= MODBUS_REG_USER_LAST ) {
             return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
         } else if ( modbus_app_regs_channel_addr(address, &channel, &offset) ) {
+            base = (uint16_t)(MODBUS_REG_CH_FIRST
+                              + ((uint16_t)channel * MODBUS_REG_CH_SIZE));
             if ( offset >= MODBUS_REG_CH_RESERVED ) {
                 return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
             }
@@ -429,7 +441,8 @@ static modbus_slave_exception_t validate_user_write(modbus_app* me,
             if ( (offset == MODBUS_REG_CH_USER_OFFSET
                   || offset == MODBUS_REG_CH_USER_OFFSET + 1U)
                  && modbus_app_regs_offset_valid(gather_s32(
-                        start, count, buffer, MODBUS_REG_CH_USER_OFFSET,
+                        start, count, buffer,
+                        (uint16_t)(base + MODBUS_REG_CH_USER_OFFSET),
                         record.user_offset))
                         == false ) {
                 return MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE;
@@ -437,7 +450,8 @@ static modbus_slave_exception_t validate_user_write(modbus_app* me,
             if ( (offset == MODBUS_REG_CH_USER_GAIN
                   || offset == MODBUS_REG_CH_USER_GAIN + 1U)
                  && modbus_app_regs_gain_valid(gather_s32(
-                        start, count, buffer, MODBUS_REG_CH_USER_GAIN,
+                        start, count, buffer,
+                        (uint16_t)(base + MODBUS_REG_CH_USER_GAIN),
                         record.user_gain))
                         == false ) {
                 return MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE;
@@ -461,10 +475,10 @@ static void commit_user_write(modbus_app* me,
     uint16_t value;
     uint8_t channel;
     uint8_t offset;
+    uint16_t base;
     bool sys_changed = false;
     bool ch_changed[MODBUS_REG_CH_COUNT] = {false};
     bool any_changed = false;
-    bool linear_ok;
 
     param_app_get_sys(&sys);
 
@@ -476,6 +490,8 @@ static void commit_user_write(modbus_app* me,
             sys.address = value;
             sys_changed = true;
         } else if ( modbus_app_regs_channel_addr(address, &channel, &offset) ) {
+            base = (uint16_t)(MODBUS_REG_CH_FIRST
+                              + ((uint16_t)channel * MODBUS_REG_CH_SIZE));
             if ( param_app_get_channel(channel, &record) == false ) {
                 continue;
             }
@@ -487,30 +503,34 @@ static void commit_user_write(modbus_app* me,
                     record.type = (uint8_t)value;
                     break;
                 case MODBUS_REG_CH_RATE:
-                    record.rate_index = (uint8_t)value;
+                    record.rate_index = modbus_app_regs_rate_store_index(value);
                     break;
                 case MODBUS_REG_CH_LINEAR_MIN:
                 case MODBUS_REG_CH_LINEAR_MIN + 1U:
                     record.linear_min = gather_s32(
-                        start, count, buffer, MODBUS_REG_CH_LINEAR_MIN,
+                        start, count, buffer,
+                        (uint16_t)(base + MODBUS_REG_CH_LINEAR_MIN),
                         record.linear_min);
                     break;
                 case MODBUS_REG_CH_LINEAR_MAX:
                 case MODBUS_REG_CH_LINEAR_MAX + 1U:
                     record.linear_max = gather_s32(
-                        start, count, buffer, MODBUS_REG_CH_LINEAR_MAX,
+                        start, count, buffer,
+                        (uint16_t)(base + MODBUS_REG_CH_LINEAR_MAX),
                         record.linear_max);
                     break;
                 case MODBUS_REG_CH_USER_OFFSET:
                 case MODBUS_REG_CH_USER_OFFSET + 1U:
                     record.user_offset = gather_s32(
-                        start, count, buffer, MODBUS_REG_CH_USER_OFFSET,
+                        start, count, buffer,
+                        (uint16_t)(base + MODBUS_REG_CH_USER_OFFSET),
                         record.user_offset);
                     break;
                 case MODBUS_REG_CH_USER_GAIN:
                 case MODBUS_REG_CH_USER_GAIN + 1U:
                     record.user_gain = gather_s32(
-                        start, count, buffer, MODBUS_REG_CH_USER_GAIN,
+                        start, count, buffer,
+                        (uint16_t)(base + MODBUS_REG_CH_USER_GAIN),
                         record.user_gain);
                     break;
                 default:
@@ -529,21 +549,9 @@ static void commit_user_write(modbus_app* me,
 
     if ( any_changed ) {
         for ( channel = 0U; channel < MODBUS_REG_CH_COUNT; ++channel ) {
-            if ( ch_changed[channel] == false ) {
-                continue;
+            if ( ch_changed[channel] ) {
+                notify_channel_config(me, channel);
             }
-            if ( param_app_get_channel(channel, &record) ) {
-                linear_ok = param_app_linear_valid(record.linear_min,
-                                                   record.linear_max);
-                if ( linear_ok == false ) {
-                    me->image.ch[channel].status = 6U;
-                    me->image.ch[channel].value  = MODBUS_IMAGE_INVALID_VALUE;
-                } else if ( me->image.ch[channel].status == 6U ) {
-                    me->image.ch[channel].status = 0U;
-                    me->image.ch[channel].value  = MODBUS_IMAGE_INVALID_VALUE;
-                }
-            }
-            notify_channel_config(me, channel);
         }
     }
 
@@ -557,6 +565,7 @@ static modbus_slave_exception_t handle_hidden_write(modbus_app* me,
                                                     uint16_t count,
                                                     uint8_t const* buffer)
 {
+    modbus_cal_write_status_t check;
     uint16_t i;
     uint16_t address;
     uint16_t value;
@@ -568,8 +577,12 @@ static modbus_slave_exception_t handle_hidden_write(modbus_app* me,
     if ( me->calUnlocked == 0U && range_only_magic(start, count) == false ) {
         return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
     }
-    if ( count != 1U && start <= MODBUS_CAL_CMD
-         && (uint32_t)start + (uint32_t)count - 1U >= MODBUS_CAL_CMD ) {
+
+    check = modbus_cal_regs_check_write(start, count, buffer);
+    if ( check == MODBUS_CAL_WRITE_BAD_ADDRESS ) {
+        return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
+    }
+    if ( check == MODBUS_CAL_WRITE_BAD_VALUE ) {
         return MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE;
     }
 
@@ -616,39 +629,33 @@ static modbus_slave_exception_t handle_hidden_write(modbus_app* me,
                 break;
 
             case MODBUS_CAL_CMD:
-                if ( modbus_cal_regs_valid_cmd(value) == false ) {
-                    return MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE;
-                } else if ( value == MODBUS_CAL_CMD_EXIT ) {
+                if ( value == MODBUS_CAL_CMD_EXIT ) {
                     lock_hidden(me);
                     dispatch_cal(me, &cal_exit_evt);
-                } else {
-                    if ( value == MODBUS_CAL_CMD_SELECT ) {
-                        cal_select_evt_t evt;
+                } else if ( value == MODBUS_CAL_CMD_SELECT ) {
+                    cal_select_evt_t evt;
 
-                        evt.super.sig = CAL_SELECT_SIG;
-                        evt.channel   = me->calChannel;
-                        evt.type      = me->calType;
-                        dispatch_cal(me, &evt.super);
-                    } else if ( value == MODBUS_CAL_CMD_LOW ) {
-                        dispatch_cal(me, &cal_low_evt);
-                    } else if ( value == MODBUS_CAL_CMD_HIGH ) {
-                        dispatch_cal(me, &cal_high_evt);
-                    } else if ( value == MODBUS_CAL_CMD_COMMIT ) {
-                        dispatch_cal(me, &cal_commit_evt);
-                    } else {
-                        dispatch_cal(me, &cal_abort_evt);
-                    }
+                    evt.super.sig = CAL_SELECT_SIG;
+                    evt.channel   = me->calChannel;
+                    evt.type      = me->calType;
+                    dispatch_cal(me, &evt.super);
+                } else if ( value == MODBUS_CAL_CMD_LOW ) {
+                    dispatch_cal(me, &cal_low_evt);
+                } else if ( value == MODBUS_CAL_CMD_HIGH ) {
+                    dispatch_cal(me, &cal_high_evt);
+                } else if ( value == MODBUS_CAL_CMD_COMMIT ) {
+                    dispatch_cal(me, &cal_commit_evt);
+                } else {
+                    dispatch_cal(me, &cal_abort_evt);
                 }
                 break;
 
             default:
-                return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
+                /* All addresses were validated before this pass. */
+                break;
         }
     }
 
-    if ( me->calUnlocked != 0U ) {
-        rearm_hidden_timeout(me);
-    }
     return MODBUS_SLAVE_EX_NONE;
 }
 
@@ -681,6 +688,11 @@ static modbus_slave_exception_t holding_registers(void* ctx,
 
     if ( me == NULL ) {
         return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
+    }
+    if ( (mode == MODBUS_SLAVE_REG_WRITE)
+         && (me->calUnlocked != 0U)
+         && modbus_cal_regs_overlaps(start, count) ) {
+        rearm_hidden_timeout(me);
     }
     if ( mode == MODBUS_SLAVE_REG_READ ) {
         return read_holding(me, start, count, buffer);
@@ -726,7 +738,9 @@ void modbus_app_ctor(modbus_app* const me, uint16_t faults)
 
     memset(me, 0, sizeof(*me));
     QActive_ctor(&me->super, Q_STATE_CAST(&modbus_app_initial));
+    QActive_subscribe(&me->super, CJ_TEMP_SIG);
     QTimeEvt_ctorX(&me->saveTimer, &me->super, MB_SAVE_TIMER_SIG, 0U);
+    QTimeEvt_ctorX(&me->saveCapTimer, &me->super, MB_SAVE_CAP_TIMER_SIG, 0U);
     QTimeEvt_ctorX(&me->retryTimer, &me->super, MB_RETRY_TIMER_SIG, 0U);
     QTimeEvt_ctorX(&me->calTimer, &me->super, CAL_TIMEOUT_SIG, 0U);
 
@@ -736,10 +750,10 @@ void modbus_app_ctor(modbus_app* const me, uint16_t faults)
 
     for ( channel = 0U; channel < MODBUS_REG_CH_COUNT; ++channel ) {
         me->image.ch[channel].value  = MODBUS_IMAGE_INVALID_VALUE;
-        me->image.ch[channel].status = MODBUS_IMAGE_NO_SAMPLE_STATUS;
+        me->image.ch[channel].status = MODBUS_CH_STATUS_ADC_IO_FAULT;
     }
     me->image.cj_value  = 0L;
-    me->image.cj_status = MODBUS_IMAGE_CJ_NO_SAMPLE_STATUS;
+    me->image.cj_status = MODBUS_CJ_STATUS_TMP75_IO_FAULT;
 
     calibrate_app_ctor(&me->cal, &me->super);
 
@@ -750,6 +764,11 @@ void modbus_app_ctor(modbus_app* const me, uint16_t faults)
     callbacks.holding_registers = holding_registers;
     callbacks.input_registers   = input_registers;
     callbacks.address           = current_address;
+
+    memcpy(identity_additional, APP_MODEL_STRING, APP_MODEL_STRING_LENGTH);
+    identity_additional[APP_MODEL_STRING_LENGTH] = APP_VERSION_MAJOR;
+    identity_additional[APP_MODEL_STRING_LENGTH + 1U] = APP_VERSION_MINOR;
+    identity_additional[APP_MODEL_STRING_LENGTH + 2U] = APP_VERSION_PATCH;
 
     memset(&identity, 0, sizeof(identity));
     identity.slave_id          = (uint8_t)param_app_get_address();
@@ -778,6 +797,12 @@ QActive* modbus_app_get(void)
     return (instance != NULL) ? &instance->super : NULL;
 }
 
+//$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+// Check for the minimum required QP version
+#if (QP_VERSION < 800U) || (QP_VERSION != ((QP_RELEASE^4294967295U)%0x2710U))
+#error qpc version 8.0.0 or higher required
+#endif
+//$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 //$define${App::modbus_app} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
 //${App::modbus_app} .........................................................
@@ -805,14 +830,8 @@ QState modbus_app_operating(modbus_app * const me, QEvt const * const e) {
             status_ = Q_HANDLED();
             break;
         }
-        //${App::modbus_app::SM::operating::CAL_ENTER, CAL_EXIT, CAL_SELECT,~}
-        case CAL_ENTER_SIG: // intentionally fall through
+        //${App::modbus_app::SM::operating::CAL_EXIT, CAL_SETTLE_TIMER, CAL_S~}
         case CAL_EXIT_SIG: // intentionally fall through
-        case CAL_SELECT_SIG: // intentionally fall through
-        case CAL_LOW_SIG: // intentionally fall through
-        case CAL_HIGH_SIG: // intentionally fall through
-        case CAL_COMMIT_SIG: // intentionally fall through
-        case CAL_ABORT_SIG: // intentionally fall through
         case CAL_SETTLE_TIMER_SIG: // intentionally fall through
         case CAL_SAMPLE_TIMER_SIG: // intentionally fall through
         case CAL_CHANNEL_TIMER_SIG: // intentionally fall through
@@ -829,7 +848,9 @@ QState modbus_app_operating(modbus_app * const me, QEvt const * const e) {
 
             if ( evt->channel < MODBUS_REG_CH_COUNT ) {
                 me->image.ch[evt->channel].value =
-                    (evt->status != 0U) ? MODBUS_IMAGE_INVALID_VALUE : evt->value;
+                    (evt->status != MODBUS_CH_STATUS_NORMAL)
+                        ? MODBUS_IMAGE_INVALID_VALUE
+                        : evt->value;
                 me->image.ch[evt->channel].status = evt->status;
             }
             status_ = Q_HANDLED();
@@ -865,17 +886,34 @@ QState modbus_app_operating(modbus_app * const me, QEvt const * const e) {
             if ( me->saveFirstTick == 0U ) {
                 me->saveFirstTick = now;
             }
-            recent_frame = ((uint32_t)(now - me->lastFrameTick) < 500U) ? true
-                                                                        : false;
-            cap_reached  = ((uint32_t)(now - me->saveFirstTick) >= 10000U) ? true
-                                                                           : false;
+            recent_frame = ((uint32_t)(now - me->lastFrameTick)
+                            < SAVE_IDLE_GATE_MS)
+                               ? true
+                               : false;
+            cap_reached  = ((uint32_t)(now - me->saveFirstTick)
+                            >= SAVE_FORCE_MS)
+                               ? true
+                               : false;
 
             if ( recent_frame && !cap_reached ) {
-                (void)QTimeEvt_rearm(&me->saveTimer, 500U);
+                (void)QTimeEvt_rearm(&me->saveTimer, SAVE_IDLE_GATE_MS);
             } else if ( storage_app_get() != NULL ) {
+                (void)QTimeEvt_disarm(&me->saveCapTimer);
                 QACTIVE_POST(storage_app_get(), &param_save_evt, me);
                 me->saveFirstTick = 0U;
             }
+            status_ = Q_HANDLED();
+            break;
+        }
+        //${App::modbus_app::SM::operating::MB_SAVE_CAP_TIMER}
+        case MB_SAVE_CAP_TIMER_SIG: {
+            (void)QTimeEvt_disarm(&me->saveTimer);
+            (void)QTimeEvt_disarm(&me->saveCapTimer);
+            if ( param_app_dirty_mask() != 0U
+                 && storage_app_get() != NULL ) {
+                QACTIVE_POST(storage_app_get(), &param_save_evt, me);
+            }
+            me->saveFirstTick = 0U;
             status_ = Q_HANDLED();
             break;
         }
@@ -917,7 +955,7 @@ QState modbus_app_serving(modbus_app * const me, QEvt const * const e) {
                 modbus_slave_set_running(me->slave, 0U);
             }
             lock_hidden(me);
-            dispatch_cal(me, &cal_exit_evt);
+            QACTIVE_POST(&me->super, &cal_exit_evt, &me->super);
             status_ = Q_HANDLED();
             break;
         }

@@ -38,24 +38,12 @@
 //$endhead${./app/src::storage_app.c} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 #include "storage_app.h"
 
+#include <string.h>
+
 #include "common_app.h"
-#include "app_evt.h"
-#include "modbus_app.h"
 #include "param_app.h"
 #include "storage_flash.h"
 #include "elog.h"
-
-Q_DEFINE_THIS_MODULE("storage_app")
-
-//$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-// Check for the minimum required QP version
-#if (QP_VERSION < 800U) || (QP_VERSION != ((QP_RELEASE^4294967295U)%0x2710U))
-#error qpc version 8.0.0 or higher required
-#endif
-//$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//$define${App::storage_app} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
-//${App::storage_app} ........................................................
 
 /** @brief Completion events posted by the entry actions (Reminder pattern). */
 static QEvt const more_evt = QEVT_INITIALIZER(STORAGE_MORE_SIG);
@@ -120,24 +108,22 @@ static bool write_cal(storage_app* me)
     return storage_flash_write_cal(me->pendingCalChannel, &me->pendingCal);
 }
 
-static void post_to_modbus(QEvt const* evt)
+static void post_to_modbus(storage_app* me, QEvt const* evt)
 {
-    QActive* modbus = modbus_app_get();
-
-    if ( modbus != NULL ) {
-        QACTIVE_POST(modbus, evt, instance);
+    if ( me->container != NULL ) {
+        QACTIVE_POST(me->container, evt, &me->super);
     }
 }
 
 static void write_param_step(storage_app* me)
 {
     if ( write_one_param() == false ) {
-        post_to_modbus(&param_save_failed_evt);
+        post_to_modbus(me, &param_save_failed_evt);
         QACTIVE_POST(Q_ACTIVE_UPCAST(me), &fail_evt, me);
     } else if ( param_app_dirty_mask() != 0U ) {
         QACTIVE_POST(Q_ACTIVE_UPCAST(me), &more_evt, me);
     } else {
-        post_to_modbus(&param_saved_evt);
+        post_to_modbus(me, &param_saved_evt);
         QACTIVE_POST(Q_ACTIVE_UPCAST(me), &done_evt, me);
     }
 }
@@ -145,18 +131,20 @@ static void write_param_step(storage_app* me)
 static void write_cal_step(storage_app* me)
 {
     if ( write_cal(me) == true ) {
-        post_to_modbus(&cal_saved_evt);
+        post_to_modbus(me, &cal_saved_evt);
         QACTIVE_POST(Q_ACTIVE_UPCAST(me), &done_evt, me);
     } else {
+        memset(&me->pendingCal, 0, sizeof(me->pendingCal));
         me->pendingCalChannel = 0xFFU;
-        post_to_modbus(&cal_save_failed_evt);
+        post_to_modbus(me, &cal_save_failed_evt);
         QACTIVE_POST(Q_ACTIVE_UPCAST(me), &fail_evt, me);
     }
 }
 
-void storage_app_ctor(storage_app* const me)
+void storage_app_ctor(storage_app* const me, QActive* container)
 {
     QActive_ctor(&me->super, Q_STATE_CAST(&storage_app_initial));
+    me->container = container;
     QTimeEvt_ctorX(&me->retryTimer, &me->super, STORAGE_RETRY_TIMER_SIG, 0U);
     QEQueue_init(&me->deferQ, defer_queue_sto, STORAGE_FLASH_DEFER_DEPTH);
     me->pendingCalChannel = 0xFFU;
@@ -167,6 +155,17 @@ QActive* storage_app_get(void)
 {
     return (instance != NULL) ? &instance->super : NULL;
 }
+
+
+//$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+// Check for the minimum required QP version
+#if (QP_VERSION < 800U) || (QP_VERSION != ((QP_RELEASE^4294967295U)%0x2710U))
+#error qpc version 8.0.0 or higher required
+#endif
+//$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//$define${App::storage_app} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
+//${App::storage_app} ........................................................
 
 //${App::storage_app::SM} ....................................................
 QState storage_app_initial(storage_app * const me, void const * const par) {
@@ -181,8 +180,8 @@ QState storage_app_storage(storage_app * const me, QEvt const * const e) {
         //${App::storage_app::SM::storage::PARAM_SAVE}
         case PARAM_SAVE_SIG: {
             if ( QActive_defer(Q_ACTIVE_UPCAST(me), &me->deferQ, e) == false ) {
-                elog_error("storage", "defer queue full");
-                Q_ASSERT(0);
+                /* Dirty mask remains; the next parameter write will retry. */
+                elog_error("storage", "defer queue full; param dirty kept");
             }
             status_ = Q_HANDLED();
             break;
@@ -190,8 +189,8 @@ QState storage_app_storage(storage_app * const me, QEvt const * const e) {
         //${App::storage_app::SM::storage::CAL_SAVE}
         case CAL_SAVE_SIG: {
             if ( QActive_defer(Q_ACTIVE_UPCAST(me), &me->deferQ, e) == false ) {
-                elog_error("storage", "defer queue full");
-                Q_ASSERT(0);
+                elog_error("storage", "defer queue full; cal save failed");
+                post_to_modbus(me, &cal_save_failed_evt);
             }
             status_ = Q_HANDLED();
             break;
@@ -230,13 +229,6 @@ QState storage_app_idle(storage_app * const me, QEvt const * const e) {
         case CAL_SAVE_SIG: {
             note_cal_save(me, Q_EVT_CAST(cal_save_evt_t));
             status_ = Q_TRAN(&storage_app_writing_cal);
-            break;
-        }
-        //${App::storage_app::SM::storage::idle::STORAGE_MORE}
-        case STORAGE_MORE_SIG: // intentionally fall through
-        case STORAGE_DONE_SIG: // intentionally fall through
-        case STORAGE_FAIL_SIG: {
-            status_ = Q_HANDLED();
             break;
         }
         default: {
@@ -300,14 +292,6 @@ QState storage_app_writing_cal(storage_app * const me, QEvt const * const e) {
             status_ = Q_TRAN(&storage_app_idle);
             break;
         }
-        //${App::storage_app::SM::storage::writing_cal::CAL_SAVE}
-        case CAL_SAVE_SIG: {
-            /* calibrate_app stays in saving until the result, so a second
-             * request cannot arrive here; drop it defensively. */
-            elog_error("storage", "CAL_SAVE while writing cal");
-            status_ = Q_HANDLED();
-            break;
-        }
         default: {
             status_ = Q_SUPER(&storage_app_storage);
             break;
@@ -329,13 +313,6 @@ QState storage_app_fault(storage_app * const me, QEvt const * const e) {
         //${App::storage_app::SM::storage::fault}
         case Q_EXIT_SIG: {
             QTimeEvt_disarm(&me->retryTimer);
-            status_ = Q_HANDLED();
-            break;
-        }
-        //${App::storage_app::SM::storage::fault::STORAGE_MORE}
-        case STORAGE_MORE_SIG: // intentionally fall through
-        case STORAGE_DONE_SIG: // intentionally fall through
-        case STORAGE_FAIL_SIG: {
             status_ = Q_HANDLED();
             break;
         }

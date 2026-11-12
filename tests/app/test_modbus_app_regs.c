@@ -23,25 +23,18 @@ static void test_endian(void)
 
 static void test_types(void)
 {
-    analog_input_config_t config;
     uint16_t type;
 
     for ( type = 0U; type <= 10U; ++type ) {
         assert(modbus_app_regs_type_valid(type));
-        assert(modbus_app_regs_type_to_config(type, &config));
     }
     assert(!modbus_app_regs_type_valid(11U));
-    assert(!modbus_app_regs_type_to_config(11U, &config));
 
-    assert(modbus_app_regs_type_to_config(0U, &config));
-    assert(config.type == ANALOG_INPUT_TYPE_4_20MA);
-    assert(modbus_app_regs_type_to_config(1U, &config));
-    assert(config.type == ANALOG_INPUT_TYPE_0_10V);
-    assert(modbus_app_regs_type_to_config(2U, &config));
-    assert(config.type == ANALOG_INPUT_TYPE_PT100);
-    assert(modbus_app_regs_type_to_config(6U, &config));
-    assert(config.type == ANALOG_INPUT_TYPE_THERMOCOUPLE);
-    assert(config.thermocouple_type == ANALOG_INPUT_THERMOCOUPLE_TYPE_K);
+    assert(modbus_app_regs_type_is_linear(0U));
+    assert(modbus_app_regs_type_is_linear(1U));
+    assert(!modbus_app_regs_type_is_linear(2U));
+    assert(!modbus_app_regs_type_is_linear(6U));
+    assert(!modbus_app_regs_type_is_linear(10U));
 }
 
 static void test_rates(void)
@@ -54,6 +47,11 @@ static void test_rates(void)
     assert(modbus_app_regs_rate_millihz(2U) == 10000U);
     assert(modbus_app_regs_rate_millihz(12U) == 100000U);
     assert(modbus_app_regs_rate_millihz(0xFFFFU) == 10000U);
+
+    assert(modbus_app_regs_rate_store_index(0xFFFFU)
+           == MODBUS_REG_RATE_DEFAULT_INDEX);
+    assert(modbus_app_regs_rate_store_index(7U) == 7U);
+    assert(modbus_app_regs_rate_store_index(12U) == 12U);
 }
 
 static void test_ranges(void)

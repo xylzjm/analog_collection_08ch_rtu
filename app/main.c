@@ -5,7 +5,6 @@
 #include "SEGGER_RTT.h"
 #include "elog.h"
 
-#include "app_evt.h"
 #include "cal_data.h"
 #include "common_app.h"
 #include "modbus_app.h"
@@ -83,7 +82,8 @@ int main(void)
 
     modbus_app_ctor(&modbus_obj,
                     load_fault ? MODBUS_APP_DEV_FAULT_LOAD : 0U);
-    storage_app_ctor(&storage_obj);
+    storage_app_ctor(&storage_obj, &modbus_obj.super);
+    calibrate_app_bind_storage(&modbus_obj.cal, storage_app_get());
 
     QActive_start(&modbus_obj.super, Q_PRIO(20, 0), modbus_queue,
                   (uint_fast16_t)(sizeof(modbus_queue) / sizeof(modbus_queue[0])),

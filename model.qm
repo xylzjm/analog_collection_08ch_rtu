@@ -11,6 +11,7 @@
     /* modbus_app 内部 */
     MB_START_FAILED_SIG,             /* modbus_app 自投递 */
     MB_SAVE_TIMER_SIG,               /* QTimeEvt -&gt; modbus_app */
+    MB_SAVE_CAP_TIMER_SIG,           /* QTimeEvt -&gt; modbus_app，10 s 强制保存 */
     MB_RETRY_TIMER_SIG,              /* QTimeEvt -&gt; modbus_app */
 
     /* modbus_app &lt;-&gt; calibrate_app 组件（直接派发，不排队） */
@@ -58,6 +59,7 @@
   <class name="modbus_app" superclass="qpc::QActive">
    <attribute name="slave" type="modbus_slave_t*" visibility="0x02" properties="0x00"/>
    <attribute name="saveTimer" type="QTimeEvt" visibility="0x02" properties="0x00"/>
+   <attribute name="saveCapTimer" type="QTimeEvt" visibility="0x02" properties="0x00"/>
    <attribute name="retryTimer" type="QTimeEvt" visibility="0x02" properties="0x00"/>
    <attribute name="calTimer" type="QTimeEvt" visibility="0x02" properties="0x00"/>
    <attribute name="image" type="modbus_image_t" visibility="0x02" properties="0x00"/>
@@ -79,7 +81,7 @@
      </initial_glyph>
     </initial>
     <state name="operating">
-     <initial target="../8">
+     <initial target=".." cpref="../8">
       <initial_glyph conn="46,16,5,0,10,4">
        <action box="1,-2,10,2"/>
       </initial_glyph>
@@ -91,7 +93,7 @@ dispatch_cal(me, &amp;cal_exit_evt);</action>
        <action box="0,-2,13,2"/>
       </tran_glyph>
      </tran>
-     <tran trig="CAL_ENTER, CAL_EXIT, CAL_SELECT, CAL_LOW, CAL_HIGH, CAL_COMMIT, CAL_ABORT, CAL_SETTLE_TIMER, CAL_SAMPLE_TIMER, CAL_CHANNEL_TIMER, CH_CAL_READY, CAL_SAVED, CAL_SAVE_FAILED">
+     <tran trig="CAL_EXIT, CAL_SETTLE_TIMER, CAL_SAMPLE_TIMER, CAL_CHANNEL_TIMER, CH_CAL_READY, CAL_SAVED, CAL_SAVE_FAILED">
       <action>dispatch_cal(me, e);</action>
       <tran_glyph conn="15,37,3,-1,18">
        <action box="0,-19,18,19"/>
@@ -102,10 +104,10 @@ dispatch_cal(me, &amp;cal_exit_evt);</action>
 
 if ( evt-&gt;channel &lt; MODBUS_REG_CH_COUNT ) {
     me-&gt;image.ch[evt-&gt;channel].value =
-        (evt-&gt;status != 0U) ? MODBUS_IMAGE_INVALID_VALUE : evt-&gt;value;
+        (evt-&gt;status != MODBUS_CH_STATUS_NORMAL) ? MODBUS_IMAGE_INVALID_VALUE : evt-&gt;value;
     me-&gt;image.ch[evt-&gt;channel].status = evt-&gt;status;
 }</action>
-      <tran_glyph conn="15,45,3,-1,10">
+      <tran_glyph conn="15,41,3,-1,10">
        <action box="0,-2,10,2"/>
       </tran_glyph>
      </tran>
@@ -114,19 +116,19 @@ if ( evt-&gt;channel &lt; MODBUS_REG_CH_COUNT ) {
 
 me-&gt;image.cj_value  = evt-&gt;value;
 me-&gt;image.cj_status = evt-&gt;status;</action>
-      <tran_glyph conn="15,49,3,-1,10">
+      <tran_glyph conn="15,45,3,-1,10">
        <action box="0,-2,10,2"/>
       </tran_glyph>
      </tran>
      <tran trig="PARAM_SAVED">
       <action>me-&gt;devFaults &amp;= (uint16_t)~MODBUS_APP_DEV_FAULT_SAVE;</action>
-      <tran_glyph conn="15,53,3,-1,19">
+      <tran_glyph conn="15,49,3,-1,19">
        <action box="0,-2,13,2"/>
       </tran_glyph>
      </tran>
      <tran trig="PARAM_SAVE_FAILED">
       <action>me-&gt;devFaults |= MODBUS_APP_DEV_FAULT_SAVE;</action>
-      <tran_glyph conn="15,57,3,-1,19">
+      <tran_glyph conn="15,53,3,-1,19">
        <action box="0,-2,18,2"/>
       </tran_glyph>
      </tran>
@@ -138,19 +140,32 @@ bool cap_reached;
 if ( me-&gt;saveFirstTick == 0U ) {
     me-&gt;saveFirstTick = now;
 }
-recent_frame = ((uint32_t)(now - me-&gt;lastFrameTick) &lt; 500U) ? true
-                                                            : false;
-cap_reached  = ((uint32_t)(now - me-&gt;saveFirstTick) &gt;= 10000U) ? true
-                                                               : false;
+recent_frame = ((uint32_t)(now - me-&gt;lastFrameTick) &lt; SAVE_IDLE_GATE_MS) ? true
+                                                                         : false;
+cap_reached  = ((uint32_t)(now - me-&gt;saveFirstTick) &gt;= SAVE_FORCE_MS) ? true
+                                                                       : false;
 
 if ( recent_frame &amp;&amp; !cap_reached ) {
-    (void)QTimeEvt_rearm(&amp;me-&gt;saveTimer, 500U);
+    (void)QTimeEvt_rearm(&amp;me-&gt;saveTimer, SAVE_IDLE_GATE_MS);
 } else if ( storage_app_get() != NULL ) {
+    (void)QTimeEvt_disarm(&amp;me-&gt;saveCapTimer);
     QACTIVE_POST(storage_app_get(), &amp;param_save_evt, me);
     me-&gt;saveFirstTick = 0U;
 }</action>
-      <tran_glyph conn="15,61,3,-1,19">
+      <tran_glyph conn="15,57,3,-1,19">
        <action box="0,-2,14,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="MB_SAVE_CAP_TIMER">
+      <action>(void)QTimeEvt_disarm(&amp;me-&gt;saveTimer);
+(void)QTimeEvt_disarm(&amp;me-&gt;saveCapTimer);
+if ( param_app_dirty_mask() != 0U
+     &amp;&amp; storage_app_get() != NULL ) {
+    QACTIVE_POST(storage_app_get(), &amp;param_save_evt, me);
+}
+me-&gt;saveFirstTick = 0U;</action>
+      <tran_glyph conn="15,61,3,-1,19">
+       <action box="0,-2,19,2"/>
       </tran_glyph>
      </tran>
      <state name="serving">
@@ -173,7 +188,7 @@ if ( me-&gt;slave == NULL ) {
     modbus_slave_set_running(me-&gt;slave, 0U);
 }
 lock_hidden(me);
-dispatch_cal(me, &amp;cal_exit_evt);</exit>
+QACTIVE_POST(&amp;me-&gt;super, &amp;cal_exit_evt, &amp;me-&gt;super);</exit>
       <tran trig="MB_FRAME_RCVED">
        <action>me-&gt;lastFrameTick = board_tick_get();
 if ( me-&gt;slave != NULL ) {
@@ -190,7 +205,7 @@ elog_warn(&quot;modbus&quot;, &quot;tx timeout&quot;);</action>
         <action box="0,-2,14,2"/>
        </tran_glyph>
       </tran>
-      <tran trig="MB_START_FAILED" target="../../9">
+      <tran trig="MB_START_FAILED" target="..">
        <tran_glyph conn="54,40,2,0,4">
         <action box="0,0,16,2"/>
        </tran_glyph>
@@ -206,7 +221,7 @@ elog_warn(&quot;modbus&quot;, &quot;tx timeout&quot;);</action>
 }
 QTimeEvt_armX(&amp;me-&gt;retryTimer, 5000U, 0U);</entry>
       <exit>QTimeEvt_disarm(&amp;me-&gt;retryTimer);</exit>
-      <tran trig="MB_RETRY_TIMER" target="../../8">
+      <tran trig="MB_RETRY_TIMER" target="../.." cpref="../../8">
        <tran_glyph conn="50,44,0,2,-4">
         <action box="-16,-2,16,2"/>
        </tran_glyph>
@@ -222,6 +237,7 @@ QTimeEvt_armX(&amp;me-&gt;retryTimer, 5000U, 0U);</entry>
    </statechart>
   </class>
   <class name="storage_app" superclass="qpc::QActive">
+   <attribute name="container" type="QActive*" visibility="0x02" properties="0x00"/>
    <attribute name="retryTimer" type="QTimeEvt" visibility="0x02" properties="0x00"/>
    <attribute name="deferQ" type="QEQueue" visibility="0x02" properties="0x00"/>
    <attribute name="pendingCal" type="cal_ch_record_t" visibility="0x02" properties="0x00"/>
@@ -234,22 +250,27 @@ QTimeEvt_armX(&amp;me-&gt;retryTimer, 5000U, 0U);</entry>
     </initial>
     <state name="storage">
      <tran trig="PARAM_SAVE">
-      <action>QActive_defer(me, &amp;me-&gt;deferQ, e);</action>
+      <action>if ( QActive_defer(Q_ACTIVE_UPCAST(me), &amp;me-&gt;deferQ, e) == false ) {
+    elog_error(&quot;storage&quot;, &quot;defer queue full; param dirty kept&quot;);
+}</action>
       <tran_glyph conn="4,14,3,-1,13">
        <action box="0,-2,13,2"/>
       </tran_glyph>
      </tran>
      <tran trig="CAL_SAVE">
-      <action> QActive_defer(me, &amp;me-&gt;deferQ, e);</action>
+      <action>if ( QActive_defer(Q_ACTIVE_UPCAST(me), &amp;me-&gt;deferQ, e) == false ) {
+    elog_error(&quot;storage&quot;, &quot;defer queue full; cal save failed&quot;);
+    post_to_modbus(me, &amp;cal_save_failed_evt);
+}</action>
       <tran_glyph conn="4,18,3,-1,13">
        <action box="0,-2,11,2"/>
       </tran_glyph>
      </tran>
      <state name="idle">
-      <entry>while ( QActive_recall(me, &amp;me-&gt;deferQ) ) {}</entry>
+      <entry>while ( QActive_recall(Q_ACTIVE_UPCAST(me), &amp;me-&gt;deferQ) ) {}</entry>
       <tran trig="PARAM_SAVE">
        <choice target="../../../3">
-        <guard brief="dirty_mask">param_app_dirty_mask()</guard>
+        <guard brief="dirty_mask">param_app_dirty_mask() != 0U</guard>
         <choice_glyph conn="24,31,4,3,-12,21">
          <action box="0,-14,10,2"/>
         </choice_glyph>
@@ -265,8 +286,7 @@ QTimeEvt_armX(&amp;me-&gt;retryTimer, 5000U, 0U);</entry>
        </tran_glyph>
       </tran>
       <tran trig="CAL_SAVE" target="../../4">
-       <action>storage_note_cal_save(me, Q_EVT_CAST(cal_save_evt_t));
-QACTIVE_POST(me, STORAGE_STEP, NULL);</action>
+       <action>note_cal_save(me, Q_EVT_CAST(cal_save_evt_t));</action>
        <tran_glyph conn="30,35,1,3,15">
         <action box="0,-2,11,2"/>
        </tran_glyph>
@@ -276,7 +296,7 @@ QACTIVE_POST(me, STORAGE_STEP, NULL);</action>
       </state_glyph>
      </state>
      <state name="writing_params">
-      <entry>storage_write_param_step(me);</entry>
+      <entry>write_param_step(me);</entry>
       <tran trig="STORAGE_MORE" target="..">
        <tran_glyph conn="61,19,1,1,4,-2,-4">
         <action box="0,-4,15,2"/>
@@ -297,7 +317,7 @@ QACTIVE_POST(me, STORAGE_STEP, NULL);</action>
       </state_glyph>
      </state>
      <state name="writing_cal">
-      <entry>storage_write_cal_step(me);</entry>
+      <entry>write_cal_step(me);</entry>
       <tran trig="STORAGE_DONE" target="../../2">
        <tran_glyph conn="45,31,3,1,-15">
         <action box="-13,-2,14,2"/>
@@ -308,21 +328,16 @@ QACTIVE_POST(me, STORAGE_STEP, NULL);</action>
         <action box="-13,-2,13,2"/>
        </tran_glyph>
       </tran>
-      <tran trig="CAL_SAVE">
-       <tran_glyph conn="61,37,1,-1,-11">
-        <action box="-10,-2,10,2"/>
-       </tran_glyph>
-      </tran>
       <state_glyph color="1" node="45,29,16,12">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
      <state name="fault">
-      <entry>// arm retry timer 5s</entry>
-      <exit>// disarm</exit>
+      <entry>QTimeEvt_armX(&amp;me-&gt;retryTimer, 5000U, 0U);</entry>
+      <exit>QTimeEvt_disarm(&amp;me-&gt;retryTimer);</exit>
       <tran trig="STORAGE_RETRY_TIMER">
        <choice target="../../../3">
-        <guard brief="dirty_mask">param_app_dirty_mask()</guard>
+        <guard brief="dirty_mask">param_app_dirty_mask() != 0U</guard>
         <choice_glyph conn="27,55,5,1,38,-32,-4">
          <action box="3,-2,10,2"/>
         </choice_glyph>
@@ -349,6 +364,7 @@ QACTIVE_POST(me, STORAGE_STEP, NULL);</action>
   </class>
   <class name="calibrate_app" superclass="qpc::QHsm">
    <attribute name="container" type="QActive*" visibility="0x02" properties="0x00"/>
+   <attribute name="storage" type="QActive*" visibility="0x02" properties="0x00"/>
    <attribute name="pending" type="cal_ch_record_t" visibility="0x02" properties="0x00"/>
    <attribute name="rawLow" type="int32_t" visibility="0x02" properties="0x00"/>
    <attribute name="rawHigh" type="int32_t" visibility="0x02" properties="0x00"/>
@@ -366,7 +382,7 @@ QACTIVE_POST(me, STORAGE_STEP, NULL);</action>
    <attribute name="channelTimer" type="QTimeEvt" visibility="0x02" properties="0x00"/>
    <statechart properties="0x00">
     <initial target="../1">
-     <initial_glyph conn="44,42,5,0,-12,4">
+     <initial_glyph conn="44,26,5,0,-12,4">
       <action box="-10,-2,10,2"/>
      </initial_glyph>
     </initial>
@@ -381,7 +397,7 @@ me-&gt;rawLow  = 0L;
 me-&gt;rawHigh = 0L;
 me-&gt;gain    = 0L;
 me-&gt;offset  = 0L;</action>
-      <tran_glyph conn="13,55,3,-1,13">
+      <tran_glyph conn="13,39,3,-1,13">
        <action box="0,-2,11,2"/>
       </tran_glyph>
      </tran>
@@ -389,28 +405,28 @@ me-&gt;offset  = 0L;</action>
       <choice target="../../../2">
        <guard>select_valid(e)</guard>
        <action>start_select(me, e);</action>
-       <choice_glyph conn="26,59,5,3,48">
+       <choice_glyph conn="26,43,5,3,48">
         <action box="14,-2,13,2"/>
        </choice_glyph>
       </choice>
       <choice target="../../../3">
        <guard>else</guard>
        <action>me-&gt;error = CAL_ERROR_INVALID_CHANNEL_TYPE;</action>
-       <choice_glyph conn="26,59,4,0,18">
+       <choice_glyph conn="26,43,4,0,18">
         <action box="0,6,6,2"/>
        </choice_glyph>
       </choice>
-      <tran_glyph conn="13,59,3,-1,13">
+      <tran_glyph conn="13,43,3,-1,13">
        <action box="0,-2,11,2"/>
       </tran_glyph>
      </tran>
      <tran trig="CAL_LOW, CAL_HIGH, CAL_COMMIT" target="../../3">
       <action>me-&gt;error = CAL_ERROR_NOT_SELECTED;</action>
-      <tran_glyph conn="13,66,3,0,9,11">
+      <tran_glyph conn="13,50,3,0,9,11">
        <action box="0,-5,12,5"/>
       </tran_glyph>
      </tran>
-     <state_glyph node="13,46,27,22">
+     <state_glyph node="13,30,27,22">
       <entry box="0,3,6,2"/>
      </state_glyph>
     </state>
@@ -426,18 +442,18 @@ if ( channel != NULL ) {
               (unsigned)me-&gt;channel);
 }</exit>
      <initial target="../3">
-      <initial_glyph conn="104,49,5,0,-9,4">
+      <initial_glyph conn="104,33,5,0,-9,4">
        <action box="-9,-2,10,2"/>
       </initial_glyph>
      </initial>
      <tran trig="CAL_EXIT, CAL_ABORT" target="../../1">
-      <tran_glyph conn="74,52,3,1,-34">
+      <tran_glyph conn="74,36,3,1,-34">
        <action box="-19,-2,19,2"/>
       </tran_glyph>
      </tran>
      <tran trig="CAL_SELECT, CAL_LOW, CAL_HIGH, CAL_COMMIT">
       <action>me-&gt;error = CAL_ERROR_BUSY;</action>
-      <tran_glyph conn="74,57,3,-1,13">
+      <tran_glyph conn="74,41,3,-1,13">
        <action box="0,-7,13,7"/>
       </tran_glyph>
      </tran>
@@ -449,39 +465,39 @@ if ( channel != NULL ) {
         <guard brief="ok">configure_input(me, &amp;settle_delay_ms)</guard>
         <action>(void)QTimeEvt_disarm(&amp;me-&gt;channelTimer);
 QTimeEvt_armX(&amp;me-&gt;settleTimer, settle_delay_ms + 50U, 0U);</action>
-        <choice_glyph conn="106,61,5,0,5,15">
+        <choice_glyph conn="106,45,5,0,5,15">
          <action box="1,-2,5,2"/>
         </choice_glyph>
        </choice>
        <choice target="../../../../3">
         <guard>else</guard>
         <action>me-&gt;error = CAL_ERROR_CONFIG_FAILED;</action>
-        <choice_glyph conn="106,61,4,1,6,-36,17,-30">
+        <choice_glyph conn="106,45,4,1,6,-36,17,-30">
          <action box="-38,4,6,2"/>
         </choice_glyph>
        </choice>
-       <tran_glyph conn="90,61,3,-1,16">
+       <tran_glyph conn="90,45,3,-1,16">
         <action box="0,-2,15,2"/>
        </tran_glyph>
       </tran>
       <tran trig="CAL_CHANNEL_TIMER" target="../../../3">
        <action>me-&gt;error = CAL_ERROR_CHANNEL_NOT_READY;</action>
-       <tran_glyph conn="90,63,3,1,-24,17,-26">
+       <tran_glyph conn="90,47,3,1,-24,17,-26">
         <action box="-35,-2,19,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,53,30,19">
+      <state_glyph color="1" node="90,37,30,19">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
      <state name="settling">
       <entry>me-&gt;status = CAL_STATUS_SETTLING;</entry>
       <tran trig="CAL_SETTLE_TIMER" target="../../5">
-       <tran_glyph conn="90,84,3,0,18,7">
+       <tran_glyph conn="90,68,3,0,18,7">
         <action box="0,-2,17,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,76,30,11">
+      <state_glyph color="1" node="90,60,30,11">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
@@ -489,25 +505,21 @@ QTimeEvt_armX(&amp;me-&gt;settleTimer, settle_delay_ms + 50U, 0U);</action>
       <entry>me-&gt;status = CAL_STATUS_SETTLED;</entry>
       <tran trig="CAL_LOW" target="../../6">
        <action>start_capture_low(me);</action>
-       <tran_glyph conn="90,99,3,0,10,7">
+       <tran_glyph conn="90,83,3,0,10,7">
         <action box="0,-2,10,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,91,30,11">
+      <state_glyph color="1" node="90,75,30,11">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
      <state name="capturing_low">
-      <entry>me-&gt;sampleCount = 0U;
-me-&gt;sampleSum   = 0L;
-me-&gt;status      = CAL_STATUS_CAPTURING_LOW;
-QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</entry>
       <tran trig="CAL_SAMPLE_TIMER">
        <action>bool ok = sample_once(me);</action>
        <choice>
         <guard brief="ok,&lt;16">ok &amp;&amp; me-&gt;sampleCount &lt; CAL_SAMPLE_COUNT</guard>
         <action>QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</action>
-        <choice_glyph conn="107,114,5,-1,9">
+        <choice_glyph conn="107,98,5,-1,9">
          <action box="1,-2,8,2"/>
         </choice_glyph>
        </choice>
@@ -515,36 +527,30 @@ QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</entry>
         <guard brief="ok,=16">ok</guard>
         <action>me-&gt;rawLow = me-&gt;sampleSum / (int32_t)CAL_SAMPLE_AVERAGE;
 (void)QTimeEvt_disarm(&amp;me-&gt;sampleTimer);</action>
-        <choice_glyph conn="107,114,4,0,15">
+        <choice_glyph conn="107,98,4,0,15">
          <action box="0,3,8,2"/>
         </choice_glyph>
        </choice>
        <choice target="../../../../3">
         <guard>else</guard>
         <action>me-&gt;error = CAL_ERROR_CAPTURE_FAILED;</action>
-        <choice_glyph conn="107,114,4,1,4,-25,-30,-42">
+        <choice_glyph conn="107,98,4,1,4,-25,-30,-42">
          <action box="-39,-28,6,2"/>
         </choice_glyph>
        </choice>
-       <tran_glyph conn="90,114,3,-1,17">
+       <tran_glyph conn="90,98,3,-1,17">
         <action box="0,-2,17,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,106,30,19">
-       <entry box="0,3,6,2"/>
-      </state_glyph>
+      <state_glyph color="1" node="90,90,30,19"/>
      </state>
      <state name="capturing_high">
-      <entry>me-&gt;sampleCount = 0U;
-me-&gt;sampleSum   = 0L;
-me-&gt;status      = CAL_STATUS_CAPTURING_HIGH;
-QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</entry>
       <tran trig="CAL_SAMPLE_TIMER">
        <action>bool ok = sample_once(me);</action>
        <choice>
         <guard brief="ok,&lt;16">ok &amp;&amp; me-&gt;sampleCount &lt; CAL_SAMPLE_COUNT</guard>
         <action>QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</action>
-        <choice_glyph conn="108,159,5,-1,9">
+        <choice_glyph conn="108,143,5,-1,9">
          <action box="1,-2,8,2"/>
         </choice_glyph>
        </choice>
@@ -552,40 +558,38 @@ QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</entry>
         <guard brief="ok,=16">ok</guard>
         <action>me-&gt;rawHigh = me-&gt;sampleSum / (int32_t)CAL_SAMPLE_AVERAGE;
 (void)QTimeEvt_disarm(&amp;me-&gt;sampleTimer);</action>
-        <choice_glyph conn="108,159,4,0,12">
+        <choice_glyph conn="108,143,4,0,12">
          <action box="0,3,10,2"/>
         </choice_glyph>
        </choice>
        <choice target="../../../../3">
         <guard>else</guard>
         <action>me-&gt;error = CAL_ERROR_CAPTURE_FAILED;</action>
-        <choice_glyph conn="108,159,4,2,4,-87,-69">
+        <choice_glyph conn="108,143,4,2,4,-87,-69">
          <action box="-24,2,6,2"/>
         </choice_glyph>
        </choice>
-       <tran_glyph conn="90,159,3,-1,18">
+       <tran_glyph conn="90,143,3,-1,18">
         <action box="0,-2,18,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,151,30,16">
-       <entry box="0,3,6,2"/>
-      </state_glyph>
+      <state_glyph color="1" node="90,135,30,16"/>
      </state>
      <state name="low_captured">
       <entry>me-&gt;status = CAL_STATUS_LOW_CAPTURED;</entry>
       <tran trig="CAL_HIGH" target="../../7">
        <action>start_capture_high(me);</action>
-       <tran_glyph conn="90,141,3,0,10,10">
+       <tran_glyph conn="90,125,3,0,10,10">
         <action box="0,-2,10,2"/>
        </tran_glyph>
       </tran>
       <tran trig="CAL_LOW" target="../../6">
        <action>start_capture_low(me);</action>
-       <tran_glyph conn="90,137,3,2,10,-12">
+       <tran_glyph conn="90,121,3,2,10,-12">
         <action box="0,-2,10,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,129,30,18">
+      <state_glyph color="1" node="90,113,30,18">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
@@ -593,36 +597,36 @@ QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</entry>
       <entry>me-&gt;status = CAL_STATUS_HIGH_CAPTURED;</entry>
       <tran trig="CAL_LOW" target="../../6">
        <action>start_capture_low(me);</action>
-       <tran_glyph conn="90,183,3,1,38,-72,-8">
+       <tran_glyph conn="90,167,3,1,38,-72,-8">
         <action box="0,-2,10,2"/>
        </tran_glyph>
       </tran>
       <tran trig="CAL_HIGH" target="../../7">
        <action>start_capture_high(me);</action>
-       <tran_glyph conn="90,179,3,1,34,-23,-4">
+       <tran_glyph conn="90,163,3,1,34,-23,-4">
         <action box="0,-2,10,2"/>
        </tran_glyph>
       </tran>
       <tran trig="CAL_COMMIT">
        <action>cal_error_t error = commit(me);</action>
        <choice target="../../../10">
-        <guard brief="ok"/>
-        <choice_glyph conn="105,187,4,0,9">
+        <guard brief="ok">error == CAL_ERROR_NONE</guard>
+        <choice_glyph conn="105,171,4,0,9">
          <action box="0,6,10,2"/>
         </choice_glyph>
        </choice>
        <choice>
         <guard>else</guard>
         <action>me-&gt;error = (uint8_t)error;</action>
-        <choice_glyph conn="105,187,5,-1,7">
+        <choice_glyph conn="105,171,5,-1,7">
          <action box="1,-2,6,2"/>
         </choice_glyph>
        </choice>
-       <tran_glyph conn="90,187,3,-1,15">
+       <tran_glyph conn="90,171,3,-1,15">
         <action box="0,-2,12,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,171,30,21">
+      <state_glyph color="1" node="90,155,30,21">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
@@ -631,13 +635,13 @@ QTimeEvt_armX(&amp;me-&gt;sampleTimer, 100U, 0U);</entry>
 me-&gt;exitPending = 0U;</entry>
       <tran trig="CAL_ABORT">
        <action>me-&gt;error = CAL_ERROR_BUSY;</action>
-       <tran_glyph conn="90,204,3,-1,12">
+       <tran_glyph conn="90,188,3,-1,12">
         <action box="0,-2,11,2"/>
        </tran_glyph>
       </tran>
       <tran trig="CAL_EXIT">
        <action>me-&gt;exitPending = 1U;</action>
-       <tran_glyph conn="90,208,3,-1,12">
+       <tran_glyph conn="90,192,3,-1,12">
         <action box="0,-2,10,2"/>
        </tran_glyph>
       </tran>
@@ -646,17 +650,17 @@ me-&gt;exitPending = 0U;</entry>
 me-&gt;error = CAL_ERROR_SAVE_FAILED;</action>
        <choice target="../../../9">
         <guard brief="!exitPending">me-&gt;exitPending == 0U</guard>
-        <choice_glyph conn="102,212,5,3,-16,-38,4">
+        <choice_glyph conn="102,196,5,3,-16,-38,4">
          <action box="-12,-2,12,2"/>
         </choice_glyph>
        </choice>
        <choice target="../../../../3">
         <guard>else</guard>
-        <choice_glyph conn="102,212,4,2,4,-86,-122">
+        <choice_glyph conn="102,196,4,2,4,-86,-122">
          <action box="-18,2,6,2"/>
         </choice_glyph>
        </choice>
-       <tran_glyph conn="120,212,1,-1,-18">
+       <tran_glyph conn="120,196,1,-1,-18">
         <action box="-16,-2,16,2"/>
        </tran_glyph>
       </tran>
@@ -664,26 +668,25 @@ me-&gt;error = CAL_ERROR_SAVE_FAILED;</action>
        <action>apply_pending(me);</action>
        <choice target="../../../../4">
         <guard brief="!exitPending">me-&gt;exitPending == 0U</guard>
-        <choice_glyph conn="103,220,4,2,4,67,-168">
+        <choice_glyph conn="103,204,4,2,4,67,-168">
          <action box="1,2,11,2"/>
         </choice_glyph>
        </choice>
        <choice target="../../../../1">
         <guard>else</guard>
-        <action>// pending 提交到 app_cal_data 并应用</action>
-        <choice_glyph conn="103,220,5,0,29,-182,-104,8">
+        <choice_glyph conn="103,204,5,0,29,-182,-104,8">
          <action box="1,-2,6,2"/>
         </choice_glyph>
        </choice>
-       <tran_glyph conn="90,220,3,-1,13">
+       <tran_glyph conn="90,204,3,-1,13">
         <action box="0,-2,11,2"/>
        </tran_glyph>
       </tran>
-      <state_glyph color="1" node="90,196,30,30">
+      <state_glyph color="1" node="90,180,30,30">
        <entry box="0,3,6,2"/>
       </state_glyph>
      </state>
-     <state_glyph node="74,44,81,184">
+     <state_glyph node="74,28,81,184">
       <exit box="0,3,6,2"/>
      </state_glyph>
     </state>
@@ -694,27 +697,27 @@ me-&gt;error = CAL_ERROR_SAVE_FAILED;</action>
        <guard>select_valid(e)</guard>
        <action>me-&gt;error = CAL_ERROR_NONE;
 start_select(me, e);</action>
-       <choice_glyph conn="26,92,5,3,48">
+       <choice_glyph conn="26,76,5,3,48">
         <action box="14,-2,14,2"/>
        </choice_glyph>
       </choice>
       <choice>
        <guard>else</guard>
        <action>me-&gt;error = CAL_ERROR_INVALID_CHANNEL_TYPE;</action>
-       <choice_glyph conn="26,92,4,-1,-7">
+       <choice_glyph conn="26,76,4,-1,-7">
         <action box="0,-5,10,2"/>
        </choice_glyph>
       </choice>
-      <tran_glyph conn="13,92,3,-1,13">
+      <tran_glyph conn="13,76,3,-1,13">
        <action box="0,-2,12,2"/>
       </tran_glyph>
      </tran>
      <tran trig="CAL_ABORT, CAL_EXIT, CAL_ENTER" target="../../1">
-      <tran_glyph conn="30,77,0,2,-9">
+      <tran_glyph conn="30,61,0,2,-9">
        <action box="0,-7,11,5"/>
       </tran_glyph>
      </tran>
-     <state_glyph color="2" node="13,77,27,17">
+     <state_glyph color="2" node="13,61,27,17">
       <entry box="0,3,6,2"/>
      </state_glyph>
     </state>
@@ -725,37 +728,37 @@ me-&gt;error  = CAL_ERROR_NONE;</entry>
       <choice target="../../../2">
        <guard>select_valid(e)</guard>
        <action>start_select(me, e);</action>
-       <choice_glyph conn="170,52,5,1,-15">
+       <choice_glyph conn="170,36,5,1,-15">
         <action box="-13,-2,13,2"/>
        </choice_glyph>
       </choice>
       <choice target="../../../3">
        <guard>else</guard>
        <action>me-&gt;error = CAL_ERROR_INVALID_CHANNEL_TYPE;</action>
-       <choice_glyph conn="170,52,4,3,-22,-161,54,4">
+       <choice_glyph conn="170,36,4,3,-22,-161,54,4">
         <action box="-68,-24,6,2"/>
        </choice_glyph>
       </choice>
-      <tran_glyph conn="187,52,1,-1,-17">
+      <tran_glyph conn="187,36,1,-1,-17">
        <action box="-12,-2,12,2"/>
       </tran_glyph>
      </tran>
      <tran trig="CAL_ABORT, CAL_EXIT, CAL_ENTER" target="../../1">
-      <tran_glyph conn="166,44,0,0,-10,-142,12">
+      <tran_glyph conn="166,28,0,0,-10,-142,12">
        <action box="-64,-12,30,2"/>
       </tran_glyph>
      </tran>
      <tran trig="CAL_LOW, CAL_HIGH, CAL_COMMIT" target="../../3">
       <action>me-&gt;error = CAL_ERROR_NOT_SELECTED;</action>
-      <tran_glyph conn="174,44,0,3,-18,-169,62,8">
+      <tran_glyph conn="174,28,0,3,-18,-169,62,8">
        <action box="-72,-20,30,2"/>
       </tran_glyph>
      </tran>
-     <state_glyph node="159,44,28,12">
+     <state_glyph node="159,28,28,12">
       <entry box="0,3,6,2"/>
      </state_glyph>
     </state>
-    <state_diagram size="193,234"/>
+    <state_diagram size="193,222"/>
    </statechart>
   </class>
  </package>

@@ -45,6 +45,37 @@ bool cal_data_set(uint8_t channel, const cal_ch_record_t* record)
     return true;
 }
 
+static bool entry_valid(const cal_entry_t* entry)
+{
+    return (entry->gain_micro >= CAL_GAIN_MICRO_MIN
+            && entry->gain_micro <= CAL_GAIN_MICRO_MAX
+            && entry->offset_code >= -CAL_OFFSET_CODE_LIMIT
+            && entry->offset_code <= CAL_OFFSET_CODE_LIMIT)
+               ? true
+               : false;
+}
+
+bool cal_data_record_sanitize(cal_ch_record_t* record)
+{
+    uint8_t const valid_bits = (uint8_t)((1U << CAL_DATA_TYPE_COUNT) - 1U);
+    uint8_t type;
+
+    if ( record == NULL
+         || record->version != CAL_DATA_VERSION
+         || record->size != (uint16_t)sizeof(*record)
+         || (record->valid_mask & (uint8_t)~valid_bits) != 0U ) {
+        return false;
+    }
+
+    for ( type = 0U; type < CAL_DATA_TYPE_COUNT; ++type ) {
+        if ( (record->valid_mask & (uint8_t)(1U << type)) != 0U
+             && entry_valid(&record->entry[type]) == false ) {
+            record->valid_mask &= (uint8_t)~(1U << type);
+        }
+    }
+    return true;
+}
+
 uint8_t cal_data_valid_mask(uint8_t channel)
 {
     if ( channel >= CAL_DATA_CHANNEL_COUNT ) {

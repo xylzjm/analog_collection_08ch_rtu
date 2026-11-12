@@ -41,18 +41,10 @@
 #include <string.h>
 
 #include "common_app.h"
-#include "app_evt.h"
 #include "analog_input_board.h"
 #include "channel_app.h"
-#include "storage_app.h"
 #include "elog.h"
 
-//$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-// Check for the minimum required QP version
-#if (QP_VERSION < 800U) || (QP_VERSION != ((QP_RELEASE^4294967295U)%0x2710U))
-#error qpc version 8.0.0 or higher required
-#endif
-//$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 /*----------------------------------------------------------------------------*/
 /* Component helpers                                                          */
@@ -249,8 +241,9 @@ static cal_error_t commit(calibrate_app* me)
     int64_t gain_micro;
     int64_t offset_code;
 
-    if ( me->rawLow > CAL_RAW_CODE_LIMIT || me->rawLow < -CAL_RAW_CODE_LIMIT
-         || me->rawHigh > CAL_RAW_CODE_LIMIT || me->rawHigh < -CAL_RAW_CODE_LIMIT ) {
+    if ( me->rawLow >= CAL_RAW_CODE_LIMIT || me->rawLow <= -CAL_RAW_CODE_LIMIT
+         || me->rawHigh >= CAL_RAW_CODE_LIMIT
+         || me->rawHigh <= -CAL_RAW_CODE_LIMIT ) {
         return CAL_ERROR_CAPTURE_FAILED;
     }
     if ( reference_codes(me->type, &ideal_low, &ideal_high) == false ) {
@@ -276,21 +269,23 @@ static cal_error_t commit(calibrate_app* me)
         return CAL_ERROR_OFFSET_OUT_OF_RANGE;
     }
 
+    storage = me->storage;
+    if ( storage == NULL ) {
+        return CAL_ERROR_SAVE_FAILED;
+    }
+    save_evt = Q_NEW(cal_save_evt_t, CAL_SAVE_SIG);
+    if ( save_evt == NULL ) {
+        return CAL_ERROR_SAVE_FAILED;
+    }
+
     me->gain   = (int32_t)gain_micro;
     me->offset = (int32_t)offset_code;
-
     me->pending.entry[me->type].gain_micro  = me->gain;
     me->pending.entry[me->type].offset_code = me->offset;
     me->pending.valid_mask |= (uint8_t)(1U << me->type);
     me->pending.version = CAL_DATA_VERSION;
     me->pending.size    = (uint16_t)sizeof(me->pending);
 
-    storage = storage_app_get();
-    if ( storage == NULL ) {
-        return CAL_ERROR_SAVE_FAILED;
-    }
-
-    save_evt = Q_NEW(cal_save_evt_t, CAL_SAVE_SIG);
     save_evt->channel = me->channel;
     save_evt->record  = &me->pending;
     QACTIVE_POST(storage, &save_evt->super, me->container);
@@ -338,6 +333,17 @@ void calibrate_app_ctor(calibrate_app* const me, QActive* const container)
     QTimeEvt_ctorX(&me->channelTimer, container, CAL_CHANNEL_TIMER_SIG, 0U);
 }
 
+void calibrate_app_bind_storage(calibrate_app* const me, QActive* storage)
+{
+    me->storage = storage;
+}
+
+//$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+// Check for the minimum required QP version
+#if (QP_VERSION < 800U) || (QP_VERSION != ((QP_RELEASE^4294967295U)%0x2710U))
+#error qpc version 8.0.0 or higher required
+#endif
+//$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 //$define${App::calibrate_app} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
 //${App::calibrate_app} ......................................................
@@ -373,7 +379,7 @@ QState calibrate_app_idle(calibrate_app * const me, QEvt const * const e) {
         }
         //${App::calibrate_app::SM::idle::CAL_SELECT}
         case CAL_SELECT_SIG: {
-            //${App::calibrate_app::SM::idle::CAL_SELECT::[channel/type]}
+            //${App::calibrate_app::SM::idle::CAL_SELECT::[select_valid(e)]}
             if (select_valid(e)) {
                 start_select(me, e);
                 status_ = Q_TRAN(&calibrate_app_active);
@@ -393,12 +399,6 @@ QState calibrate_app_idle(calibrate_app * const me, QEvt const * const e) {
             status_ = Q_TRAN(&calibrate_app_error);
             break;
         }
-        //${App::calibrate_app::SM::idle::CAL_ABORT, CAL_EXIT}
-        case CAL_ABORT_SIG: // intentionally fall through
-        case CAL_EXIT_SIG: {
-            status_ = Q_HANDLED();
-            break;
-        }
         default: {
             status_ = Q_SUPER(&QHsm_top);
             break;
@@ -411,11 +411,6 @@ QState calibrate_app_idle(calibrate_app * const me, QEvt const * const e) {
 QState calibrate_app_active(calibrate_app * const me, QEvt const * const e) {
     QState status_;
     switch (e->sig) {
-        //${App::calibrate_app::SM::active}
-        case Q_ENTRY_SIG: {
-            status_ = Q_HANDLED();
-            break;
-        }
         //${App::calibrate_app::SM::active}
         case Q_EXIT_SIG: {
             QActive* channel;
@@ -451,21 +446,6 @@ QState calibrate_app_active(calibrate_app * const me, QEvt const * const e) {
             status_ = Q_HANDLED();
             break;
         }
-        //${App::calibrate_app::SM::active::CAL_ENTER}
-        case CAL_ENTER_SIG: {
-            status_ = Q_HANDLED();
-            break;
-        }
-        //${App::calibrate_app::SM::active::CH_CAL_READY, CAL_SAVED, CAL_SAVE_~}
-        case CH_CAL_READY_SIG: // intentionally fall through
-        case CAL_SAVED_SIG: // intentionally fall through
-        case CAL_SAVE_FAILED_SIG: // intentionally fall through
-        case CAL_SETTLE_TIMER_SIG: // intentionally fall through
-        case CAL_SAMPLE_TIMER_SIG: // intentionally fall through
-        case CAL_CHANNEL_TIMER_SIG: {
-            status_ = Q_HANDLED();
-            break;
-        }
         default: {
             status_ = Q_SUPER(&QHsm_top);
             break;
@@ -487,7 +467,6 @@ QState calibrate_app_waiting_channel(calibrate_app * const me, QEvt const * cons
         //${App::calibrate_app::SM::active::waiting_channel::CH_CAL_READY}
         case CH_CAL_READY_SIG: {
             uint32_t settle_delay_ms = 0U;
-
             //${App::calibrate_app::SM::active::waiting_channel::CH_CAL_READY::[ok]}
             if (configure_input(me, &settle_delay_ms)) {
                 (void)QTimeEvt_disarm(&me->channelTimer);
@@ -566,19 +545,9 @@ QState calibrate_app_settled(calibrate_app * const me, QEvt const * const e) {
 QState calibrate_app_capturing_low(calibrate_app * const me, QEvt const * const e) {
     QState status_;
     switch (e->sig) {
-        //${App::calibrate_app::SM::active::capturing_low}
-        case Q_ENTRY_SIG: {
-            me->sampleCount = 0U;
-            me->sampleSum   = 0L;
-            me->status      = CAL_STATUS_CAPTURING_LOW;
-            QTimeEvt_armX(&me->sampleTimer, 100U, 0U);
-            status_ = Q_HANDLED();
-            break;
-        }
         //${App::calibrate_app::SM::active::capturing_low::CAL_SAMPLE_TIMER}
         case CAL_SAMPLE_TIMER_SIG: {
             bool ok = sample_once(me);
-
             //${App::calibrate_app::SM::active::capturing_low::CAL_SAMPLE_TIMER::[ok,<16]}
             if (ok && me->sampleCount < CAL_SAMPLE_COUNT) {
                 QTimeEvt_armX(&me->sampleTimer, 100U, 0U);
@@ -590,7 +559,7 @@ QState calibrate_app_capturing_low(calibrate_app * const me, QEvt const * const 
                 (void)QTimeEvt_disarm(&me->sampleTimer);
                 status_ = Q_TRAN(&calibrate_app_low_captured);
             }
-            //${App::calibrate_app::SM::active::capturing_low::CAL_SAMPLE_TIMER::[!ok]}
+            //${App::calibrate_app::SM::active::capturing_low::CAL_SAMPLE_TIMER::[else]}
             else {
                 me->error = CAL_ERROR_CAPTURE_FAILED;
                 status_ = Q_TRAN(&calibrate_app_error);
@@ -609,19 +578,9 @@ QState calibrate_app_capturing_low(calibrate_app * const me, QEvt const * const 
 QState calibrate_app_capturing_high(calibrate_app * const me, QEvt const * const e) {
     QState status_;
     switch (e->sig) {
-        //${App::calibrate_app::SM::active::capturing_high}
-        case Q_ENTRY_SIG: {
-            me->sampleCount = 0U;
-            me->sampleSum   = 0L;
-            me->status      = CAL_STATUS_CAPTURING_HIGH;
-            QTimeEvt_armX(&me->sampleTimer, 100U, 0U);
-            status_ = Q_HANDLED();
-            break;
-        }
         //${App::calibrate_app::SM::active::capturing_high::CAL_SAMPLE_TIMER}
         case CAL_SAMPLE_TIMER_SIG: {
             bool ok = sample_once(me);
-
             //${App::calibrate_app::SM::active::capturing_high::CAL_SAMPLE_TIMER::[ok,<16]}
             if (ok && me->sampleCount < CAL_SAMPLE_COUNT) {
                 QTimeEvt_armX(&me->sampleTimer, 100U, 0U);
@@ -633,7 +592,7 @@ QState calibrate_app_capturing_high(calibrate_app * const me, QEvt const * const
                 (void)QTimeEvt_disarm(&me->sampleTimer);
                 status_ = Q_TRAN(&calibrate_app_high_captured);
             }
-            //${App::calibrate_app::SM::active::capturing_high::CAL_SAMPLE_TIMER::[!ok]}
+            //${App::calibrate_app::SM::active::capturing_high::CAL_SAMPLE_TIMER::[else]}
             else {
                 me->error = CAL_ERROR_CAPTURE_FAILED;
                 status_ = Q_TRAN(&calibrate_app_error);
@@ -703,12 +662,11 @@ QState calibrate_app_high_captured(calibrate_app * const me, QEvt const * const 
         //${App::calibrate_app::SM::active::high_captured::CAL_COMMIT}
         case CAL_COMMIT_SIG: {
             cal_error_t error = commit(me);
-
             //${App::calibrate_app::SM::active::high_captured::CAL_COMMIT::[ok]}
             if (error == CAL_ERROR_NONE) {
                 status_ = Q_TRAN(&calibrate_app_saving);
             }
-            //${App::calibrate_app::SM::active::high_captured::CAL_COMMIT::[!ok]}
+            //${App::calibrate_app::SM::active::high_captured::CAL_COMMIT::[else]}
             else {
                 me->error = (uint8_t)error;
                 status_ = Q_HANDLED();
@@ -734,12 +692,8 @@ QState calibrate_app_saving(calibrate_app * const me, QEvt const * const e) {
             status_ = Q_HANDLED();
             break;
         }
-        //${App::calibrate_app::SM::active::saving::CAL_ABORT, CAL_SELECT, CAL_LOW, CAL_HIGH, CAL_COMMIT}
-        case CAL_ABORT_SIG: // intentionally fall through
-        case CAL_SELECT_SIG: // intentionally fall through
-        case CAL_LOW_SIG: // intentionally fall through
-        case CAL_HIGH_SIG: // intentionally fall through
-        case CAL_COMMIT_SIG: {
+        //${App::calibrate_app::SM::active::saving::CAL_ABORT}
+        case CAL_ABORT_SIG: {
             me->error = CAL_ERROR_BUSY;
             status_ = Q_HANDLED();
             break;
@@ -777,11 +731,6 @@ QState calibrate_app_saving(calibrate_app * const me, QEvt const * const e) {
             }
             break;
         }
-        //${App::calibrate_app::SM::active::saving::CAL_ENTER}
-        case CAL_ENTER_SIG: {
-            status_ = Q_HANDLED();
-            break;
-        }
         default: {
             status_ = Q_SUPER(&calibrate_app_active);
             break;
@@ -802,7 +751,7 @@ QState calibrate_app_error(calibrate_app * const me, QEvt const * const e) {
         }
         //${App::calibrate_app::SM::error::CAL_SELECT}
         case CAL_SELECT_SIG: {
-            //${App::calibrate_app::SM::error::CAL_SELECT::[channel/type]}
+            //${App::calibrate_app::SM::error::CAL_SELECT::[select_valid(e)]}
             if (select_valid(e)) {
                 me->error = CAL_ERROR_NONE;
                 start_select(me, e);
@@ -843,7 +792,7 @@ QState calibrate_app_done(calibrate_app * const me, QEvt const * const e) {
         }
         //${App::calibrate_app::SM::done::CAL_SELECT}
         case CAL_SELECT_SIG: {
-            //${App::calibrate_app::SM::done::CAL_SELECT::[channel/type]}
+            //${App::calibrate_app::SM::done::CAL_SELECT::[select_valid(e)]}
             if (select_valid(e)) {
                 start_select(me, e);
                 status_ = Q_TRAN(&calibrate_app_active);

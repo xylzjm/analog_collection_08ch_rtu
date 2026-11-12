@@ -43,11 +43,45 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 #include "qpc.h"
 #include "modbus_slave.h"
-#include "modbus_image.h"
 
 #include "calibrate_app.h"
+
+/** @brief Channel status codes reported in input registers 0x0010..0x0017. */
+typedef enum {
+    MODBUS_CH_STATUS_NORMAL = 0,            /**< Normal. */
+    MODBUS_CH_STATUS_THERMOCOUPLE_OPEN = 1, /**< Thermocouple open circuit. */
+    MODBUS_CH_STATUS_PT100_LEAD_OPEN = 2,   /**< PT100 excitation lead open. */
+    MODBUS_CH_STATUS_PT100_RETURN_OPEN = 3, /**< PT100 return lead open. */
+    MODBUS_CH_STATUS_OVERRANGE = 4,         /**< Over-range or conversion failure. */
+    MODBUS_CH_STATUS_ADC_IO_FAULT = 5,      /**< ADC or IO fault. */
+    MODBUS_CH_STATUS_PARAM_INVALID = 6      /**< Invalid parameter, e.g. linear limits. */
+} modbus_ch_status_t;
+
+/** @brief Cold-junction status codes reported in input register 0x001A. */
+typedef enum {
+    MODBUS_CJ_STATUS_NORMAL = 0,          /**< Normal. */
+    MODBUS_CJ_STATUS_TMP75_IO_FAULT = 1   /**< TMP75 I/O fault. */
+} modbus_cj_status_t;
+
+/** @brief Input image of one measurement channel. */
+typedef struct {
+    int32_t value;   /**< Engineering value x0.001; INT32_MIN when invalid. */
+    uint16_t status; /**< modbus_ch_status_t value. */
+} modbus_ch_image_t;
+
+/** @brief Input image of the whole device. */
+typedef struct {
+    modbus_ch_image_t ch[8]; /**< One entry per Modbus channel 0..7. */
+    int32_t cj_value;        /**< Cold-junction temperature x0.001. */
+    uint16_t cj_status;      /**< modbus_cj_status_t value. */
+} modbus_image_t;
+
+/** @brief Value forced into an invalid measurement. */
+#define MODBUS_IMAGE_INVALID_VALUE ((int32_t)0x80000000L)
 
 //$declare${App::modbus_app} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
@@ -59,6 +93,7 @@ typedef struct {
 // private:
     modbus_slave_t* slave;
     QTimeEvt saveTimer;
+    QTimeEvt saveCapTimer;
     QTimeEvt retryTimer;
     QTimeEvt calTimer;
     modbus_image_t image;

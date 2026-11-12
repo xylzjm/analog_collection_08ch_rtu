@@ -20,4 +20,17 @@ extern uint32_t stub_factory_cal_mask;
 
 void stub_factory_cal_reset(void);
 
+analog_input_t* analog_input_board_get(uint8_t channel);
+
+analog_input_status_t analog_input_board_code_from_physical(
+    analog_input_type_t type,
+    float physical,
+    int32_t* code);
+
+extern analog_input_config_t stub_analog_input_config;
+
+void stub_analog_input_set_sample(int32_t code);
+
+void stub_analog_input_reset(void);
+
 #endif

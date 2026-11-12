@@ -57,6 +57,7 @@ typedef struct {
 
 // private:
     QActive* container;
+    QActive* storage;
     cal_ch_record_t pending;
     int32_t rawLow;
     int32_t rawHigh;
@@ -109,10 +110,7 @@ QState calibrate_app_done(calibrate_app * const me, QEvt const * const e);
 #define CAL_REFERENCE_0_10V_LOW_V    0.0f
 #define CAL_REFERENCE_0_10V_HIGH_V   10.0f
 
-/** @brief Coefficient limits. */
-#define CAL_GAIN_MICRO_MIN 500000L
-#define CAL_GAIN_MICRO_MAX 2000000L
-#define CAL_OFFSET_CODE_LIMIT 16777216L
+/** @brief Raw-code capture limit. */
 #define CAL_RAW_CODE_LIMIT 8388608L
 
 /**
@@ -123,6 +121,16 @@ QState calibrate_app_done(calibrate_app * const me, QEvt const * const e);
  * @note The component has no queue or priority of its own.
  */
 void calibrate_app_ctor(calibrate_app* const me, QActive* const container);
+
+/**
+ * @brief Bind the storage active object used for calibration saves.
+ *
+ * @param me Calibration component.
+ * @param storage Storage AO, or NULL when unavailable.
+ * @note Called after storage_app_ctor(); commit() returns SAVE_FAILED while
+ *       the storage is NULL.
+ */
+void calibrate_app_bind_storage(calibrate_app* const me, QActive* storage);
 
 #ifdef __cplusplus
 }

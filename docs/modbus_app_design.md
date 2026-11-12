@@ -20,16 +20,18 @@
 
 ## 事件与内存池
 
-共享信号只来自 QM 生成的 `common_app.h`。带载荷的事件定义在 `app_evt.h`：
+共享信号和事件载荷都集中在 QM 生成的 `common_app.h`：信号枚举在生成区，事件载荷在手写区。
 
 - `cal_select_evt_t`：栈上构造并同步 `QHSM_DISPATCH()`，不进事件池。
 - `meas_evt_t`：`CH_DATA` / `CJ_TEMP`，池 2，64 块。
 - `cfg_evt_t`：`CH_CONFIG`，池 3，16 块。
 - `cal_save_evt_t`：`CAL_SAVE`，池 1，8 块。
 
+`modbus_app_ctor()` 已订阅 `CJ_TEMP_SIG`；当前 `cold_junction_app` 仍是桩，尚无发布者。
+
 测量事件比校准保存事件多 4 字节填充，保证 `Q_NEW_X()` 的首个足够大块选择落到正确的池；否则两个 16 字节事件会共用池 1。
 
-握手和结果事件使用模块内静态 `QEvt` 和 `QACTIVE_POST()`；只有测量/配置事件允许 margin 0 丢弃。
+握手和结果事件使用模块内静态 `QEvt` 和 `QACTIVE_POST()`；配置事件 `CH_CONFIG` 也使用 `QACTIVE_POST()`（队列满由 Debug 断言暴露）；只有测量事件允许 margin 0 丢弃。
 
 ## 输入映像
 
@@ -38,7 +40,7 @@
 - 上电初值：通道 `value = INT32_MIN`、`status = 5`；冷端 `value = 0`、`status = 1`。
 - `CH_DATA_SIG` 更新通道；`status != 0` 时强制 `INT32_MIN`。
 - `CJ_TEMP_SIG` 更新冷端。
-- 线性下限 ≥ 上限时直接置通道状态 6 和哨兵，修正后恢复状态 0。
+- 线性下限 ≥ 上限时不在此处改状态；`modbus_app` 只投递 `CH_CONFIG`，由 `channel_app` 判定并上报状态 6。
 
 ## 用户寄存器回调
 
@@ -67,9 +69,10 @@ FC03/FC04 读取任意合法范围；保留区返回 0。FC06/FC10 写入采用�
 
 `storage_app` 是 QV 下的普通 AO，不能抢占 Flash 操作；它提供状态机、重试和模块边界，不消除 Flash 写入停顿。
 
-- `PARAM_SAVE`：`modbus_app` 在参数写入后重新武装 1 s 去抖；到期时若 500 ms 内收到过帧且未到 10 s 上限，则顺延 500 ms，否则投递保存请求。
+- `PARAM_SAVE`：`modbus_app` 在参数写入后重新武装 1 s 去抖；到期时若 500 ms 内收到过帧且未到 10 s 上限，则顺延 500 ms，否则投递保存请求。`saveFirstTick` 只服务于 500 ms 空闲门控；10 s 强制上限由独立的 `saveCapTimer` 保证。
 - `CAL_SAVE`：校准提交后立即投递，不走去抖。
-- `storage` 超级状态对 `PARAM_SAVE` / `CAL_SAVE` 调用 `QActive_defer()`；`idle` entry 用 `QActive_recall()` 循环回收。
+- `storage` 超级状态对 `PARAM_SAVE` / `CAL_SAVE` 调用 `QActive_defer()`；`idle` entry 用 `QActive_recall()` 循环回收。defer 满时：`CAL_SAVE` 立即投递 `CAL_SAVE_FAILED`；`PARAM_SAVE` 记录日志并保留 dirty，由下一次参数写或 fault 重试处理。
+- `storage_app_ctor()` 绑定容器 `QActive*`；保存结果通过该容器投递，不再调用 `modbus_app_get()`。
 - `writing_params` / `writing_cal` 的 entry 只写一个 key，然后投递 `STORAGE_MORE` / `STORAGE_DONE` / `STORAGE_FAIL`；转换只按完成事件走。
 - 参数保存失败：置设备故障 bit1，进入 `fault`，5 s 后按脏标志重试；成功清除 bit1。
 - 校准保存失败：投递 `CAL_SAVE_FAILED`，丢弃待写记录，回 `idle`；不重试、不置设备故障位。
@@ -93,7 +96,7 @@ load_fault = storage_load();
 cal_data_apply_all();
 
 modbus_app_ctor(&modbus_obj, load_fault ? MODBUS_APP_DEV_FAULT_LOAD : 0U);
-storage_app_ctor(&storage_obj);
+storage_app_ctor(&storage_obj, &modbus_obj.super);
 
 QActive_start(&modbus_obj.super, Q_PRIO(20, 0), modbus_queue, 32, NULL, 0, NULL);
 QActive_start(&storage_obj.super, Q_PRIO(9, 0), storage_queue, 8, NULL, 0, NULL);
@@ -104,6 +107,6 @@ QF_run();
 
 ## 已知边界
 
-- `channel_app` 尚未实现：校准组件用自己合成的 `CH_CAL_READY` 走通配置/采样；退出时不恢复用户 ADC 配置。
+- `channel_app` 尚未实现：校准组件用自己合成的 `CH_CAL_READY` 走通配置/采样；退出时不恢复用户 ADC 配置。`channel_app_init()`/`cold_junction_app_init()` 保留给后续模块，当前 `main` 不调用。
 - 冷端模块尚未实现：`CJ_TEMP` 事件路径已就绪，输入映像在收到事件前保持故障初值。
 - QV 非抢占：Flash 擦除/编程期间整机停顿，保存瞬间可能丢一帧。

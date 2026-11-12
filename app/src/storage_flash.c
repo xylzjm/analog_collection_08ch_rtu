@@ -91,18 +91,6 @@ static bool channel_valid(const param_ch_record_t* record)
                : false;
 }
 
-static bool cal_valid(const cal_ch_record_t* record)
-{
-    uint8_t const valid_bits =
-        (uint8_t)((1U << CAL_DATA_TYPE_COUNT) - 1U);
-
-    return (record->version == CAL_DATA_VERSION
-            && record->size == (uint16_t)sizeof(*record)
-            && (record->valid_mask & (uint8_t)~valid_bits) == 0U)
-               ? true
-               : false;
-}
-
 bool storage_load(void)
 {
     union {
@@ -145,10 +133,10 @@ bool storage_load(void)
     for ( channel = 0U; channel < CAL_DATA_CHANNEL_COUNT; ++channel ) {
         make_cal_key(channel, key);
         if ( read_blob(key, &cal, (uint16_t)sizeof(cal), &len) == false
-             || len != sizeof(cal) || cal_valid(&cal) == false ) {
+             || len != sizeof(cal)
+             || cal_data_record_sanitize(&cal) == false ) {
             continue;
         }
-        cal.valid_mask &= (uint8_t)((1U << CAL_DATA_TYPE_COUNT) - 1U);
         (void)cal_data_set(channel, &cal);
     }
 

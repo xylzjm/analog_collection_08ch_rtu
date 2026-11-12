@@ -38,7 +38,7 @@ load_fault = storage_load();     /* fal_init + fdb_kvdb_init + sys/ch/cal */
 cal_data_apply_all();            /* 有效校准写入板级表 */
 
 modbus_app_ctor(&modbus_obj, load_fault ? MODBUS_APP_DEV_FAULT_LOAD : 0U);
-storage_app_ctor(&storage_obj);
+storage_app_ctor(&storage_obj, &modbus_obj.super);
 QActive_start(&modbus_obj.super,  Q_PRIO(20, 0), modbus_queue,  32, NULL, 0, NULL);
 QActive_start(&storage_obj.super, Q_PRIO(9, 0),  storage_queue,  8, NULL, 0, NULL);
 QF_run();
@@ -88,7 +88,7 @@ elog_* / FDB_PRINT / printf
 - 写操作逐字节调用 `flash_byte_program()` 并回读校验。
 - `FDB_DEBUG_ENABLE` 当前打开，发布构建可关闭以节省 ROM 和 RTT 流量。
 - FAL/FDB 日志走 `printf` / `elog_raw`，FAL 自带 ANSI 转义，RTT Viewer 中可能可见。
-- 键：`sys`、`ch0..ch7`、`cal0..cal7`。每条记录带 `version + size`；用户参数记录不符时使用默认值并置设备故障 bit0，校准记录不符时按未校准处理。
+- 键：`sys`、`ch0..ch7`、`cal0..cal7`。每条记录带 `version + size`；用户参数记录不符时使用默认值并置设备故障 bit0；校准记录头部不符时按未校准处理，单个系数越界只清除该类型有效位。
 
 ## 应用层与 Modbus
 
@@ -97,7 +97,8 @@ elog_* / FDB_PRINT / printf
 - 从站地址默认 1，可写 1..247；波特率固定 9600。
 - FC11 型号 `AC08RTU`，版本 1.0.0。
 - 测量值为 int32 定点 ×0.001，高字在前；无效值 `0x80000000`。
-- 通道状态非 0 时测量值强制为哨兵；线性下限 ≥ 上限时状态 6。
+- 通道状态非 0 时测量值强制为哨兵；线性参数是否有效由 `channel_app` 判定并上报状态 6。
+- 上电后、首个 `CH_DATA` 前，8 通道 `value=0x80000000`、`status=5`（ADC/IO 故障）；冷端 `value=0`、`status=1`。
 - 设备故障位：bit0 参数加载异常，bit1 参数保存失败；正常读 0。
 
 输入寄存器（FC04）：
@@ -124,7 +125,7 @@ elog_* / FDB_PRINT / printf
 | `+0x06..0x07` | 用户校准偏移 |
 | `+0x08..0x09` | 用户校准增益（1000 = 1.0） |
 
-传感器类型：0=4-20 mA、1=0-10 V、2=PT100、3..10=TC B/E/J/K/N/R/S/T（默认 6=TC-K）。采样率索引：0=2.5 Hz、1=5、2=10、3=12.5、4=15、5=20、6=25、7=30、8=40、9=50、10=60、11=80、12=100，`0xFFFF` 按 10 Hz。线性类型默认 0/0 会被判为无效，改成 4-20 mA/0-10 V 后必须同时写上下限。
+传感器类型：0=4-20 mA、1=0-10 V、2=PT100、3..10=TC B/E/J/K/N/R/S/T（默认 6=TC-K）。采样率索引：0=2.5 Hz、1=5、2=10、3=12.5、4=15、5=20、6=25、7=30、8=40、9=50、10=60、11=80、12=100，`0xFFFF` 为默认 10 Hz 的写入别名，保存后回读为索引 2。线性类型的上下限由 `channel_app` 判定，下限 ≥ 上限时由通道上报状态 6。
 
 ### 保存行为
 
@@ -230,4 +231,4 @@ elog_* / FDB_PRINT / printf
 - 调试构建定义：`AT32F421C8T7`
 - include 顺序要求：`board/ports/easylogger` 必须早于 `../middleware/EasyLogger/easylogger/inc`
 - 参数分区使用 Flash 尾部 4 KB，下载时不要使用全片擦除
-- 主机测试：`tests/stubs` 提供 board/flash 桩，gcc 编译 `tests/app/*.c` 与对应纯 C 模块
+- 主机测试：`powershell -ExecutionPolicy Bypass -File tests/run_host_tests.ps1`；`tests/stubs` 提供 board/analog input/QP/FlashDB 测试桩。脚本包含 9 个常规测试（含 `test_storage_flash`）和 3 个不定义 `Q_UNSAFE` 的 QP FuSa 安全测试（`test_modbus_app_safe`、`test_calibrate_app_safe`、`test_storage_app_safe`）。

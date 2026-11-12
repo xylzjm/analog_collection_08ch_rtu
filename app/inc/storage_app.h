@@ -56,6 +56,7 @@ typedef struct {
     QActive super;
 
 // private:
+    QActive* container;
     QTimeEvt retryTimer;
     QEQueue deferQ;
     cal_ch_record_t pendingCal;
@@ -75,8 +76,9 @@ QState storage_app_fault(storage_app * const me, QEvt const * const e);
  * @brief Construct the storage active object.
  *
  * @param me Storage owned by the caller.
+ * @param container Active object that receives PARAM_SAVED/CAL_SAVED results.
  */
-void storage_app_ctor(storage_app * const me);
+void storage_app_ctor(storage_app * const me, QActive* container);
 
 /**
  * @brief Return the storage active object.

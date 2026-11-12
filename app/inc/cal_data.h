@@ -19,6 +19,13 @@ extern "C" {
 /** @brief Calibration record format version. */
 #define CAL_DATA_VERSION 1U
 
+/** @brief Allowed factory gain range, 1000000 means 1.0. */
+#define CAL_GAIN_MICRO_MIN 500000L
+#define CAL_GAIN_MICRO_MAX 2000000L
+
+/** @brief Allowed factory offset magnitude, in raw ADC codes. */
+#define CAL_OFFSET_CODE_LIMIT 16777216L
+
 /** @brief Factory calibration type; independent of the Modbus user type. */
 typedef enum {
     CAL_DATA_TYPE_THERMOCOUPLE = 0, /**< Thermocouple mV channel. */
@@ -61,6 +68,15 @@ const cal_ch_record_t* cal_data_get(uint8_t channel);
  * @return true when stored, false for an invalid argument.
  */
 bool cal_data_set(uint8_t channel, const cal_ch_record_t* record);
+
+/**
+ * @brief Validate a calibration record and clear out-of-range entries.
+ *
+ * @param record Record to check and modify.
+ * @return false when the header is invalid; true otherwise.
+ * @note Valid bits whose coefficients are out of range are cleared.
+ */
+bool cal_data_record_sanitize(cal_ch_record_t* record);
 
 /**
  * @brief Return the valid-type bitmap of one channel.

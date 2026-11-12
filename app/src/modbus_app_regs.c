@@ -1,5 +1,7 @@
 #include "modbus_app_regs.h"
 
+#include <stddef.h>
+
 static const uint32_t rates_millihz[] = {
     2500U,   /* 2.5 Hz */
     5000U,   /* 5 Hz */
@@ -21,6 +23,11 @@ bool modbus_app_regs_type_valid(uint16_t value)
     return (value <= 10U) ? true : false;
 }
 
+bool modbus_app_regs_type_is_linear(uint16_t value)
+{
+    return (value <= 1U) ? true : false;
+}
+
 bool modbus_app_regs_rate_valid(uint16_t value)
 {
     return (value < (uint16_t)(sizeof(rates_millihz) / sizeof(rates_millihz[0]))
@@ -37,63 +44,11 @@ uint32_t modbus_app_regs_rate_millihz(uint16_t index)
     return rates_millihz[index];
 }
 
-bool modbus_app_regs_type_to_config(uint16_t value, analog_input_config_t* config)
+uint8_t modbus_app_regs_rate_store_index(uint16_t value)
 {
-    analog_input_thermocouple_type_t tc_type = ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE;
-    analog_input_type_t input_type;
-
-    if ( config == NULL || modbus_app_regs_type_valid(value) == false ) {
-        return false;
-    }
-
-    switch ( value ) {
-        case 0U:
-            input_type = ANALOG_INPUT_TYPE_4_20MA;
-            break;
-        case 1U:
-            input_type = ANALOG_INPUT_TYPE_0_10V;
-            break;
-        case 2U:
-            input_type = ANALOG_INPUT_TYPE_PT100;
-            break;
-        case 3U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_B;
-            break;
-        case 4U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_E;
-            break;
-        case 5U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_J;
-            break;
-        case 6U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_K;
-            break;
-        case 7U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_N;
-            break;
-        case 8U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_R;
-            break;
-        case 9U:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_S;
-            break;
-        default:
-            input_type = ANALOG_INPUT_TYPE_THERMOCOUPLE;
-            tc_type    = ANALOG_INPUT_THERMOCOUPLE_TYPE_T;
-            break;
-    }
-
-    config->type                = input_type;
-    config->thermocouple_type   = tc_type;
-    config->sample_rate_millihz = 0U;
-    return true;
+    return (value == MODBUS_REG_RATE_DEFAULT)
+               ? (uint8_t)MODBUS_REG_RATE_DEFAULT_INDEX
+               : (uint8_t)value;
 }
 
 bool modbus_app_regs_gain_valid(int32_t gain)
