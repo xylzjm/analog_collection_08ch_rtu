@@ -110,6 +110,9 @@ uint32_t board_tick_get(void)
 void SysTick_Handler(void)
 {
     ++systick_ctr;
+
+    /* Drives QP time events from the same 1 ms timebase. */
+    QTIMEEVT_TICK_X(0U, (void*)0);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -126,6 +129,9 @@ void QF_onStartup(void)
 
 void QV_onIdle(void)
 {
+    /* Called with interrupts disabled; re-enable them atomically with sleep. */
+    QF_INT_ENABLE();
+    __asm volatile("wfi");
 }
 
 /*----------------------------------------------------------------------------*/

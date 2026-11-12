@@ -1,5 +1,8 @@
 #include "analog_input_board.h"
 
+#include <math.h>
+
+#include "board.h"
 #include "sig24131_board.h"
 #include "wk_system.h"
 
@@ -186,6 +189,44 @@ static float adc_volts(int32_t sample_code,
     return (float)sample_code
            * ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS
            / (FULL_SCALE_CODE * gain);
+}
+
+static uint8_t cal_type_from_input(analog_input_type_t type)
+{
+    switch ( type ) {
+        case ANALOG_INPUT_TYPE_PT100:
+            return 1U;
+        case ANALOG_INPUT_TYPE_4_20MA:
+            return 2U;
+        case ANALOG_INPUT_TYPE_0_10V:
+            return 3U;
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            break;
+    }
+    return 0U;
+}
+
+static int32_t apply_factory_cal(const analog_input_board_t* instance,
+                                 int32_t sample_code)
+{
+    uint8_t cal_type;
+    int64_t scaled;
+
+    cal_type = cal_type_from_input(instance->base.config.type);
+    if ( (instance->factory_cal_valid & (uint8_t)(1U << cal_type)) == 0U ) {
+        return sample_code;
+    }
+
+    scaled = ((int64_t)instance->factory_cal[cal_type].gain_micro
+              * (int64_t)sample_code)
+                 / 1000000L
+             + (int64_t)instance->factory_cal[cal_type].offset_code;
+    if ( scaled > 8388607LL ) {
+        scaled = 8388607LL;
+    } else if ( scaled < -8388608LL ) {
+        scaled = -8388608LL;
+    }
+    return (int32_t)scaled;
 }
 
 static analog_input_status_t convert_linear(analog_input_t* self,
@@ -392,20 +433,24 @@ static analog_input_status_t convert(analog_input_t* self,
                                      float* measurement)
 {
     analog_input_board_t* instance;
+    int32_t code;
 
     instance = (analog_input_board_t*)self;
     if ( is_configured(instance) == 0U ) {
         return ANALOG_INPUT_ERR_STATE;
     }
 
+    /* Factory calibration corrects the raw code before any sensor model. */
+    code = apply_factory_cal(instance, sample_code);
+
     switch ( self->config.type ) {
         case ANALOG_INPUT_TYPE_4_20MA:
         case ANALOG_INPUT_TYPE_0_10V:
-            return convert_linear(self, sample_code, context, measurement);
+            return convert_linear(self, code, context, measurement);
         case ANALOG_INPUT_TYPE_PT100:
-            return convert_pt100(sample_code, measurement);
+            return convert_pt100(code, measurement);
         case ANALOG_INPUT_TYPE_THERMOCOUPLE:
-            return convert_thermocouple(self, sample_code, context, measurement);
+            return convert_thermocouple(self, code, context, measurement);
     }
     return ANALOG_INPUT_ERR_STATE;
 }
@@ -556,4 +601,91 @@ analog_input_t* analog_input_board_get(uint8_t channel)
         return NULL;
     }
     return &instances[channel - 1U].base;
+}
+
+analog_input_status_t analog_input_board_set_factory_calibration(
+    uint8_t channel,
+    uint8_t cal_type,
+    const analog_input_factory_cal_t* cal)
+{
+    analog_input_board_t* instance;
+
+    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT
+         || cal_type >= 4U ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    instance = &instances[channel - 1U];
+
+    board_critical_enter();
+    if ( cal != NULL ) {
+        instance->factory_cal[cal_type] = *cal;
+        instance->factory_cal_valid |= (uint8_t)(1U << cal_type);
+    } else {
+        instance->factory_cal_valid &= (uint8_t)~(1U << cal_type);
+    }
+    board_critical_exit();
+    return ANALOG_INPUT_OK;
+}
+
+static analog_input_status_t code_from_scaled(float scaled, int32_t* code)
+{
+    if ( code == NULL || isfinite((double)scaled) == 0 ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+    if ( scaled > 8388607.0f || scaled < -8388608.0f ) {
+        return ANALOG_INPUT_ERR_CONVERSION;
+    }
+    *code = (int32_t)scaled;
+    return ANALOG_INPUT_OK;
+}
+
+analog_input_status_t analog_input_board_code_from_physical(
+    analog_input_type_t type,
+    float physical,
+    int32_t* code)
+{
+    float scaled;
+
+    if ( code == NULL || isfinite((double)physical) == 0 ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    switch ( type ) {
+        case ANALOG_INPUT_TYPE_4_20MA:
+            /* mA -> shunt volts -> ADC pin volts -> code. */
+            scaled = physical / 1000.0f
+                     * ANALOG_INPUT_BOARD_SHUNT_OHMS
+                     / ANALOG_INPUT_BOARD_ATTENUATION_RATIO;
+            scaled = scaled * FULL_SCALE_CODE
+                     * (float)(1UL << ANALOG_INPUT_BOARD_CURRENT_GAIN)
+                     / ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS;
+            break;
+
+        case ANALOG_INPUT_TYPE_0_10V:
+            scaled = physical / ANALOG_INPUT_BOARD_ATTENUATION_RATIO;
+            scaled = scaled * FULL_SCALE_CODE
+                     * (float)(1UL << ANALOG_INPUT_BOARD_VOLTAGE_GAIN)
+                     / ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS;
+            break;
+
+        case ANALOG_INPUT_TYPE_PT100:
+            /* Inverse of convert_pt100(): ohm -> ratiometric code. */
+            scaled = physical * (float)(1UL << ANALOG_INPUT_BOARD_RTD_GAIN)
+                     * FULL_SCALE_CODE
+                     / (2.0f * ANALOG_INPUT_BOARD_RTD_REFERENCE_OHMS);
+            break;
+
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            /* mV -> ADC pin volts -> code; the model does not affect gain. */
+            scaled = physical / 1000.0f;
+            scaled = scaled * FULL_SCALE_CODE
+                     * (float)(1UL << ANALOG_INPUT_BOARD_THERMOCOUPLE_GAIN)
+                     / ANALOG_INPUT_BOARD_INTERNAL_REFERENCE_VOLTS;
+            break;
+
+        default:
+            return ANALOG_INPUT_ERR_ARG;
+    }
+
+    return code_from_scaled(scaled, code);
 }

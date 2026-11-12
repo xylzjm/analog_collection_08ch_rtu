@@ -7,13 +7,16 @@
 ## 目录与分层
 
 ```text
-app/                    应用入口、日志服务
+app/                    应用入口、Modbus/参数/校准/存储模块
+app/inc, app/src        QM 生成的状态机与手写应用模块
 board/inc, board/src    板级硬件与板级设备适配
 board/ports/            中间件移植层
 board/vendor_wk/        WorkBench 生成的外设初始化代码
+docs/                   应用层设计与工厂校准协议
+tests/                  纯 C 模块的主机测试
 ```
 
-- `app/`：组合根（composition root）、日志初始化，后续放参数模块和应用对象。
+- `app/`：组合根、日志初始化、Modbus 从站、参数镜像、工厂校准、保存 AO 和契约桩。
 - `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
@@ -22,7 +25,23 @@ board/vendor_wk/        WorkBench 生成的外设初始化代码
 
 ```c
 log_init();     /* SEGGER RTT + EasyLogger */
+QF_init();      /* QP 框架、事件池、订阅表 */
+QActive_psInit(subscr, APP_SIG_MAX);
+QF_poolInit(cal_pool,  sizeof(cal_pool),  sizeof(cal_save_evt_t));
+QF_poolInit(meas_pool, sizeof(meas_pool), sizeof(meas_evt_t));
+QF_poolInit(cfg_pool,  sizeof(cfg_pool),  sizeof(cfg_evt_t));
 board_init();   /* 时钟、外设、板级设备 */
+
+param_app_init();                /* 用户参数默认值 */
+cal_data_init();                 /* 工厂校准默认：全部无效、增益 1.0 */
+load_fault = storage_load();     /* fal_init + fdb_kvdb_init + sys/ch/cal */
+cal_data_apply_all();            /* 有效校准写入板级表 */
+
+modbus_app_ctor(&modbus_obj, load_fault ? MODBUS_APP_DEV_FAULT_LOAD : 0U);
+storage_app_ctor(&storage_obj);
+QActive_start(&modbus_obj.super,  Q_PRIO(20, 0), modbus_queue,  32, NULL, 0, NULL);
+QActive_start(&storage_obj.super, Q_PRIO(9, 0),  storage_queue,  8, NULL, 0, NULL);
+QF_run();
 ```
 
 `board_init()` 只负责板级硬件：
@@ -37,7 +56,7 @@ board_init();   /* 时钟、外设、板级设备 */
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储初始化不属于 board 层。后续由参数/存储模块（例如 `app/param` 或 `library/storage`）拥有 `fdb_kvdb`，并调用 `fal_init()` / `fdb_kvdb_init()`；日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储由 `app/src/storage_flash.c` 拥有 `fdb_kvdb`：启动时 `storage_load()` 同步调用 `fal_init()` / `fdb_kvdb_init()` 并读取 `sys`、`ch0..ch7`、`cal0..cal7`；运行期由 `storage_app` 异步写入。日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 
@@ -69,13 +88,61 @@ elog_* / FDB_PRINT / printf
 - 写操作逐字节调用 `flash_byte_program()` 并回读校验。
 - `FDB_DEBUG_ENABLE` 当前打开，发布构建可关闭以节省 ROM 和 RTT 流量。
 - FAL/FDB 日志走 `printf` / `elog_raw`，FAL 自带 ANSI 转义，RTT Viewer 中可能可见。
+- 键：`sys`、`ch0..ch7`、`cal0..cal7`。每条记录带 `version + size`；用户参数记录不符时使用默认值并置设备故障 bit0，校准记录不符时按未校准处理。
+
+## 应用层与 Modbus
+
+### 用户协议
+
+- 从站地址默认 1，可写 1..247；波特率固定 9600。
+- FC11 型号 `AC08RTU`，版本 1.0.0。
+- 测量值为 int32 定点 ×0.001，高字在前；无效值 `0x80000000`。
+- 通道状态非 0 时测量值强制为哨兵；线性下限 ≥ 上限时状态 6。
+- 设备故障位：bit0 参数加载异常，bit1 参数保存失败；正常读 0。
+
+输入寄存器（FC04）：
+
+| 地址 | 内容 |
+|---|---|
+| `0x0000 + 2*c` | CHc 测量值 |
+| `0x0010 + c` | CHc 状态 |
+| `0x0018..0x0019` | 冷端温度 |
+| `0x001A` | 冷端状态 |
+| `0x001B` | 设备故障位域 |
+| 其余 | 读 0 |
+
+保持寄存器（FC03/06/10）：
+
+| 地址 | 内容 |
+|---|---|
+| `0x0000` | 从站地址 |
+| `0x0001` | 波特率 9600，只读 |
+| `0x0100 + c*0x20 + 0x00` | 传感器类型 0..10 |
+| `+0x01` | 采样率索引 0..12 |
+| `+0x02..0x03` | 线性下限 |
+| `+0x04..0x05` | 线性上限 |
+| `+0x06..0x07` | 用户校准偏移 |
+| `+0x08..0x09` | 用户校准增益（1000 = 1.0） |
+
+传感器类型：0=4-20 mA、1=0-10 V、2=PT100、3..10=TC B/E/J/K/N/R/S/T（默认 6=TC-K）。采样率索引：0=2.5 Hz、1=5、2=10、3=12.5、4=15、5=20、6=25、7=30、8=40、9=50、10=60、11=80、12=100，`0xFFFF` 按 10 Hz。线性类型默认 0/0 会被判为无效，改成 4-20 mA/0-10 V 后必须同时写上下限。
+
+### 保存行为
+
+- 用户参数写入后立即生效，1 s 去抖后自动保存；若 500 ms 内收到过帧且未到 10 s 上限，顺延 500 ms。
+- 保存按 `sys`、`ch0..ch7` 分 key，一次只写一个；失败置故障 bit1 并 5 s 重试。
+- 出厂校准按 `cal0..cal7` 分 key，提交后立即保存；失败保留旧系数，不重试。
+- Flash 擦除/编程期间 QV 整机停顿，保存瞬间可能丢一帧。
+
+### 出厂校准
+
+工厂隐藏寄存器块和夹具流程见 `docs/factory_calibration.md`，不属于用户文档。用户侧不可见，普通恢复默认不影响校准记录。
 
 ## 板级资源
 
 ### 时钟与中断
 
 - 系统时钟 120 MHz。
-- SysTick：1 ms，优先级 15。
+- SysTick：1 ms，优先级 15；同时通过 `QTIMEEVT_TICK_X(0, NULL)` 驱动 QP 时间事件。
 - USART1、TMR14：抢占优先级 5。
 - TMR6：1 MHz 时基，供 `wk_delay_us/ms` 使用。
 - TMR14：10 us/tick，16 位周期覆盖 T3.5 和 9600 baud 下的 TX 看门狗。
@@ -122,7 +189,7 @@ elog_* / FDB_PRINT / printf
 
 ### Modbus RTU
 
-- USART1：TX PA9，RX PA10，115200 8N1。
+- USART1：TX PA9，RX PA10，9600 8N1。
 - RS485 DE：PA11，高电平驱动总线。
 - T3.5 / TX 看门狗：TMR14。
 - RX/TX 缓冲区各 256 B。
@@ -158,8 +225,9 @@ elog_* / FDB_PRINT / printf
 ## 构建
 
 - IDE：EIDE
-- 编译器：ARMCLANG 6，C99，`-O0`
+- 编译器：ARMCLANG 6，C99，`-Os`（Debug 目标；60 KB ROM 限制下的体积优化）
 - 运行库：microlib
 - 调试构建定义：`AT32F421C8T7`
 - include 顺序要求：`board/ports/easylogger` 必须早于 `../middleware/EasyLogger/easylogger/inc`
 - 参数分区使用 Flash 尾部 4 KB，下载时不要使用全片擦除
+- 主机测试：`tests/stubs` 提供 board/flash 桩，gcc 编译 `tests/app/*.c` 与对应纯 C 模块

@@ -12,7 +12,6 @@ extern "C" {
 /**
  * @brief Construct the slave instance.
  *
- * @param baudrate Bus baudrate.
  * @param callbacks Data-space callbacks and shared context.
  * @param identity Report-Slave-ID data.
  * @return MODBUS_SLAVE_OK, or the failing constructor status.
