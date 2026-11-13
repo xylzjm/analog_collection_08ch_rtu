@@ -18,6 +18,8 @@ board/vendor_wk/        WorkBench 生成的外设初始化代码
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
 
+应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`；本文只描述板级、驱动与移植。当前 `app/` 尚无活动对象，该设计尚未实现。
+
 ## 启动顺序
 
 ```c
@@ -117,12 +119,13 @@ elog_* / FDB_PRINT / printf
   - 4-20 mA：COM=1，CV=1
   - 热电偶：COM=1，CV=0
 - 默认采样率 10 Hz；配置后需要 2 个转换周期稳定。
-- 支持全部 SIG24131 数据率，单位 mHz。
+- 本板采样率上限 100 Hz（`ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ`，即 `ANALOG_INPUT_BOARD_RATE_100_HZ`）：SIG24131 本身可到 9.6 kHz，但前端切换、8 通道轮询和遥测链路都按 100 Hz 设计，更高速率由 `analog_input_configure()` 返回 `ANALOG_INPUT_ERR_UNSUPPORTED`。
+- 速率单位 mHz，可用档位 2.5 Hz 至 100 Hz，见 `ANALOG_INPUT_BOARD_RATE_*`。
 - 热电偶断线检测使用 burnout 电流；PT100 通过参考电阻电压判断断线/断激励/断回流。
 
 ### Modbus RTU
 
-- USART1：TX PA9，RX PA10，115200 8N1。
+- USART1：TX PA9，RX PA10，9600 8N1。
 - RS485 DE：PA11，高电平驱动总线。
 - T3.5 / TX 看门狗：TMR14。
 - RX/TX 缓冲区各 256 B。

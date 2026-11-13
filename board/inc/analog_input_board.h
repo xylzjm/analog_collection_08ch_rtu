@@ -53,7 +53,12 @@ extern "C" {
 /** @brief PT100 excitation current. */
 #define ANALOG_INPUT_BOARD_RTD_IDAC_CURRENT SIG24131_IDAC_500_UA
 
-/** @brief Supported SIG24131 data rates, in millihertz. */
+/**
+ * @brief Sample rates supported by this board, in millihertz.
+ *
+ * The list stops at ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ; SIG24131 data
+ * rates above it are rejected by analog_input_configure().
+ */
 #define ANALOG_INPUT_BOARD_RATE_2_5_HZ  2500U
 #define ANALOG_INPUT_BOARD_RATE_5_HZ    5000U
 #define ANALOG_INPUT_BOARD_RATE_10_HZ   10000U
@@ -67,25 +72,15 @@ extern "C" {
 #define ANALOG_INPUT_BOARD_RATE_60_HZ   60000U
 #define ANALOG_INPUT_BOARD_RATE_80_HZ   80000U
 #define ANALOG_INPUT_BOARD_RATE_100_HZ  100000U
-#define ANALOG_INPUT_BOARD_RATE_120_HZ  120000U
-#define ANALOG_INPUT_BOARD_RATE_160_HZ  160000U
-#define ANALOG_INPUT_BOARD_RATE_200_HZ  200000U
-#define ANALOG_INPUT_BOARD_RATE_240_HZ  240000U
-#define ANALOG_INPUT_BOARD_RATE_250_HZ  250000U
-#define ANALOG_INPUT_BOARD_RATE_300_HZ  300000U
-#define ANALOG_INPUT_BOARD_RATE_400_HZ  400000U
-#define ANALOG_INPUT_BOARD_RATE_480_HZ  480000U
-#define ANALOG_INPUT_BOARD_RATE_500_HZ  500000U
-#define ANALOG_INPUT_BOARD_RATE_600_HZ  600000U
-#define ANALOG_INPUT_BOARD_RATE_800_HZ  800000U
-#define ANALOG_INPUT_BOARD_RATE_1000_HZ 1000000U
-#define ANALOG_INPUT_BOARD_RATE_1200_HZ 1200000U
-#define ANALOG_INPUT_BOARD_RATE_2000_HZ 2000000U
-#define ANALOG_INPUT_BOARD_RATE_2400_HZ 2400000U
-#define ANALOG_INPUT_BOARD_RATE_4000_HZ 4000000U
-#define ANALOG_INPUT_BOARD_RATE_4800_HZ 4800000U
-#define ANALOG_INPUT_BOARD_RATE_8000_HZ 8000000U
-#define ANALOG_INPUT_BOARD_RATE_9600_HZ 9600000U
+
+/**
+ * @brief Highest sample rate this board accepts, in millihertz.
+ *
+ * SIG24131 itself runs up to 9600 Hz, but this board is specified for 100 Hz
+ * only: the front-end switches, the 8-channel polling and the telemetry path
+ * all assume that ceiling.
+ */
+#define ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ ANALOG_INPUT_BOARD_RATE_100_HZ
 
 /** @brief Rate used when the caller passes zero. */
 #define ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ ANALOG_INPUT_BOARD_RATE_10_HZ

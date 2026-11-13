@@ -341,6 +341,11 @@ static analog_input_status_t configure(analog_input_t* self,
                        ? ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ
                        : config->sample_rate_millihz;
 
+    /* The board is specified up to 100 Hz even though SIG24131 can go higher. */
+    if ( rate_millihz > ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ ) {
+        return ANALOG_INPUT_ERR_UNSUPPORTED;
+    }
+
     if ( sig24131_data_rate_from_millihz(rate_millihz, &data_rate)
          != SIG24131_OK ) {
         return ANALOG_INPUT_ERR_UNSUPPORTED;

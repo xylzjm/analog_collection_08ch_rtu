@@ -116,11 +116,14 @@ void SysTick_Handler(void)
 /* QP port lifecycle                                                          */
 /*----------------------------------------------------------------------------*/
 
-void QF_onCleanup(void)
+void QF_onStartup(void)
 {
+    /* 1 ms tick feeds board_tick_get(); priorities must match the board port. */
+    systick_interrupt_config(1000);
+    wk_nvic_config();
 }
 
-void QF_onStartup(void)
+void QF_onCleanup(void)
 {
 }
 
@@ -142,10 +145,6 @@ void board_init(void)
     /* Clock and flash wait states must be configured first. */
     wk_system_clock_config();
     wk_periph_clock_config();
-
-    /* 1 ms tick feeds board_tick_get(); priorities must match the board port. */
-    systick_interrupt_config(1000);
-    wk_nvic_config();
 
     /* wk_delay_us/ms and the SIG24131 reset wait depend on this timebase. */
     wk_timebase_init();
