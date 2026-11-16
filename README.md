@@ -13,12 +13,12 @@ board/ports/            中间件移植层
 board/vendor_wk/        WorkBench 生成的外设初始化代码
 ```
 
-- `app/`：组合根（composition root）、日志初始化，后续放参数模块和应用对象。
+- `app/`：组合根（composition root）、日志初始化、参数模块与应用对象（活动对象见 `app/ao/`，被动组件见 `app/component/`）。
 - `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
 
-应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`；本文只描述板级、驱动与移植。当前 `app/` 尚无活动对象，该设计尚未实现。
+应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`，每个活动对象的独立设计文档见 `docs/ao/`（`ao_channel.md` ×8 实例、`ao_cold_junction.md`、`ao_modbus.md`），被动组件见 `docs/component/`（`param.md`、`reg_map.md`）；本文只描述板级、驱动与移植。应用层已按设计实现（11 个活动对象 + `ch_config`/`reg_map`/`param` 被动组件，宿主测试见 `app/component/test/`），板上行为（时序、固化、断线码）尚待硬件验证。
 
 ## 启动顺序
 
@@ -39,7 +39,7 @@ board_init();   /* 时钟、外设、板级设备 */
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储初始化不属于 board 层。后续由参数/存储模块（例如 `app/param` 或 `library/storage`）拥有 `fdb_kvdb`，并调用 `fal_init()` / `fdb_kvdb_init()`；日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储初始化不属于 board 层。`app/component/param.c` 拥有 `fdb_kvdb`，在 `AoModbus` 初始转换内（`QF_run()` 之前）调用 `fal_init()` / `fdb_kvdb_init()`；日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 
@@ -101,7 +101,7 @@ elog_* / FDB_PRINT / printf
 ### TMP75
 
 - 单片 TMP75，地址 0x48（A2–A0 接地），ALERT 未接，不处理。
-- 复位默认 9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C；需要 0.0625 °C 时由应用调用 `tmp75_write_config()` 切 12-bit。
+- 按上电默认配置运行：9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C（冷端补偿已接受该量化），应用层不写配置寄存器。将来需要更高分辨率时在板级初始化调用 `tmp75_write_config()`，写后延时 ≥ `tmp75_conversion_time_ms()` 再返回——板级契约：`board_init()` 返回时 TMP75 至少已完成一次转换（首读不会读到上电 0 °C 假值）。
 - 启动时只对 0x48 做一次 `i2c_soft_probe()`：NACK 只说明地址/接线问题，不表示温度可读。
 - 读取方式：`tmp75_board_get_device()` 取设备对象，再调用 `tmp75_read_temperature()`。
 - 板级 `transfer` 把所有 I2C 失败统一映射为 `TMP75_ERR_IO`；启动 probe 直接调用 `i2c_soft_probe()` 以保留原始状态码。
@@ -161,8 +161,8 @@ elog_* / FDB_PRINT / printf
 ## 构建
 
 - IDE：EIDE
-- 编译器：ARMCLANG 6，C99，`-O0`
+- 编译器：ARMCLANG 6，C99，`-O1`（2026-11 定夺：QP 运行时与 FlashDB KV 层全量链接后 `-O0` 需约 70 KB ROM，超出 60 KB 可用区；`-O1` 实测 51.3 KB，纯逻辑语义仍由宿主 gcc 测试守护）
 - 运行库：microlib
 - 调试构建定义：`AT32F421C8T7`
 - include 顺序要求：`board/ports/easylogger` 必须早于 `../middleware/EasyLogger/easylogger/inc`
-- 参数分区使用 Flash 尾部 4 KB，下载时不要使用全片擦除
+- 参数分区使用 Flash 尾部 4 KB，下载时**禁止全片擦除**：全片擦除会被设备当作崭新空片（默认表物化、以出厂配置运行、不报故障），已固化的校准参数将不可恢复——校准参数必须由上位机留档，以便误擦后重新下发

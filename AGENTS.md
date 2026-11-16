@@ -2,7 +2,8 @@
 
 8-channel analog-input RTU firmware (4-20 mA, 0-10 V, PT100, thermocouple) for
 AT32F421C8T7: Cortex-M4, 120 MHz, 60 KB usable flash, 16 KB SRAM. C99, armclang
-(AC6), microlib, `-O0` debug build. EIDE project only - no Makefile, CMake, CI,
+(AC6), microlib, `-O1` debug build (decided 2026-11: the linked QP runtime and
+FlashDB KV layer need ~70 KB ROM at `-O0`, the usable region is 60 KB). EIDE project only - no Makefile, CMake, CI,
 lint or typecheck step exists.
 
 ## Start with README.md
@@ -30,8 +31,8 @@ workspace file adds both folders; without them nothing compiles.
   `2b2c107904df4cdb1e97e57d6947db29`.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
   the `fdb_kvdb` parameter partition, and ROM is linked to 60 KB (`0xF000`).
-- A clean build is 60 C files, ROM about 30.8/60 KB, RAM 4.2/16 KB. Budget
-  matters; `-O0` is in use.
+- A clean build is 67 C files, ROM about 51.3/60 KB, RAM 9.7/16 KB. Budget
+  matters; `-O1` is in use.
 - `build/` is gitignored and often stale. Never treat `build/Debug/*.lnp`,
   `*.map` or `.obj` as the current file list - rebuild first.
   `build/Debug/compile_commands.json` is regenerated per build and feeds clangd.
@@ -62,11 +63,18 @@ before `../middleware/EasyLogger/easylogger/inc`, otherwise the template
 
 ## Current state of the firmware
 
-`app/main.c` only runs `log_init()` then `board_init()` and idles. Board ports
-for Modbus, SIG24131, analog input, TMP75 and the soft I2C bus are constructed,
-but no QP active objects exist, `on_frame_received` is not routed to
-`modbus_slave_advance()`, and FAL/KVDB parameter storage is not initialized. Do
-not assume the RTU already runs end to end.
+The QP/C application layer from `docs/` is implemented: 11 active objects
+(8x AoChannel at prio 2..9, AoColdJunction 10, AoModbus 11) plus the passive
+components `ch_config` / `reg_map` / `param` (+ `param_defaults.c`). Host
+tests live in `app/component/test/` (self-contained `main()` + `CHECK`). The
+composition root is `app/main.c`: it starts subscribers before publishers
+(each channel subscribes right after its own start, because
+`QActive_subscribe()` requires a registered AO), and `param_boot_load()` runs
+inside the AoModbus initial transition (`QActive_start()` context, before
+`QF_run()`). `on_frame_received` is routed to `modbus_slave_advance()` via
+SIG_FRAME. Board-level behavior is unchanged except the SysTick tick feed.
+On-target behavior (timing, flash commit, wire-break codes) is still
+unverified on hardware.
 
 ## Hard invariants
 
