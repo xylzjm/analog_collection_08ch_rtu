@@ -1,0 +1,298 @@
+/**
+ * @file reg_map.c
+ * @brief Modbus data-space map: span table, addressing and register codecs.
+ */
+
+#include "reg_map.h"
+
+#include <string.h>
+
+/*
+ * The one and only register map. Segment order follows reg_space_t so a
+ * space with no spans (coils, discrete inputs) answers "unmapped" from the
+ * table itself. Holding: 8 channel configuration blocks at 16n + device
+ * register 128. Input: 8 channel telemetry blocks at 8n + system block 64.
+ */
+static const reg_span_t reg_map_spans[] = {
+    { REG_SPACE_HOLDING, 0U,   REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 16U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 32U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 48U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 64U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 80U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 96U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, 112U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
+    { REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV },
+    { REG_SPACE_INPUT, 0U,  REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 8U,  REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 16U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 24U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 32U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 40U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 48U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, 56U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
+    { REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS }
+};
+
+/**
+ * @brief Write one big-endian float32 as two registers (high word first).
+ */
+static void reg_map_put_float(uint8_t* buf,
+                              float value)
+{
+    uint32_t bits;
+
+    memcpy(&bits, &value, sizeof(bits));
+    modbus_slave_put_u16(&buf[0], (uint16_t)(bits >> 16));
+    modbus_slave_put_u16(&buf[2], (uint16_t)(bits & 0xFFFFU));
+}
+
+/**
+ * @brief Read one big-endian float32 from two registers (high word first).
+ */
+static float reg_map_get_float(const uint8_t* buf)
+{
+    uint32_t bits;
+    float value;
+
+    bits = ((uint32_t)modbus_slave_get_u16(&buf[0]) << 16)
+           | (uint32_t)modbus_slave_get_u16(&buf[2]);
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+const reg_span_t* reg_map_find(reg_space_t space,
+                               uint16_t start,
+                               uint16_t count)
+{
+    uint32_t end;
+    size_t i;
+
+    if ( count == 0U ) {
+        return NULL;
+    }
+    end = (uint32_t)start + (uint32_t)count;
+
+    for ( i = 0U; i < (sizeof(reg_map_spans) / sizeof(reg_map_spans[0])); ++i ) {
+        const reg_span_t* span = &reg_map_spans[i];
+
+        if ( span->space != space ) {
+            continue;
+        }
+        if ( ((uint32_t)span->base <= (uint32_t)start)
+             && (end <= ((uint32_t)span->base + (uint32_t)span->n)) ) {
+            return span;
+        }
+    }
+    return NULL;
+}
+
+modbus_slave_exception_t reg_map_check(reg_space_t space,
+                                       uint16_t start,
+                                       uint16_t count,
+                                       const reg_span_t** out)
+{
+    const reg_span_t* span;
+    bool space_mapped = false;
+    size_t i;
+
+    for ( i = 0U; i < (sizeof(reg_map_spans) / sizeof(reg_map_spans[0])); ++i ) {
+        if ( reg_map_spans[i].space == space ) {
+            space_mapped = true;
+            break;
+        }
+    }
+    if ( !space_mapped ) {
+        return MODBUS_SLAVE_EX_ILLEGAL_FUNCTION;
+    }
+
+    span = reg_map_find(space, start, count);
+    if ( span == NULL ) {
+        return MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS;
+    }
+    if ( out != NULL ) {
+        *out = span;
+    }
+    return MODBUS_SLAVE_EX_NONE;
+}
+
+void reg_map_ch_encode(const ch_config_t* cfg,
+                       uint8_t* buf)
+{
+    uint16_t code;
+
+    switch ( cfg->type ) {
+        case (uint8_t)CH_TYPE_TC:
+            code = (uint16_t)cfg->tc_type;
+            break;
+        case (uint8_t)CH_TYPE_PT100:
+            code = 8U;
+            break;
+        case (uint8_t)CH_TYPE_4_20MA:
+            code = 9U;
+            break;
+        case (uint8_t)CH_TYPE_0_10V:
+            code = 10U;
+            break;
+        default:
+            code = 11U; /* out of range on purpose; reads back as invalid */
+            break;
+    }
+
+    modbus_slave_put_u16(&buf[0], code);
+    modbus_slave_put_u16(&buf[2], cfg->rate_code);
+    reg_map_put_float(&buf[4], cfg->linear_min);
+    reg_map_put_float(&buf[8], cfg->linear_max);
+    reg_map_put_float(&buf[12], cfg->offset);
+    reg_map_put_float(&buf[16], cfg->gain);
+}
+
+void reg_map_ch_decode(const uint8_t* buf,
+                       ch_config_t* cfg)
+{
+    uint16_t code = modbus_slave_get_u16(&buf[0]);
+
+    cfg->rate_code  = modbus_slave_get_u16(&buf[2]);
+    cfg->linear_min = reg_map_get_float(&buf[4]);
+    cfg->linear_max = reg_map_get_float(&buf[8]);
+    cfg->offset     = reg_map_get_float(&buf[12]);
+    cfg->gain       = reg_map_get_float(&buf[16]);
+
+    if ( code < 8U ) {
+        cfg->type    = (uint8_t)CH_TYPE_TC;
+        cfg->tc_type = (uint8_t)code;
+    }
+    else if ( code == 8U ) {
+        cfg->type    = (uint8_t)CH_TYPE_PT100;
+        cfg->tc_type = CH_TC_TYPE_NONE;
+    }
+    else if ( code == 9U ) {
+        cfg->type    = (uint8_t)CH_TYPE_4_20MA;
+        cfg->tc_type = CH_TC_TYPE_NONE;
+    }
+    else if ( code == 10U ) {
+        cfg->type    = (uint8_t)CH_TYPE_0_10V;
+        cfg->tc_type = CH_TC_TYPE_NONE;
+    }
+    else {
+        /* Layout only: unknown codes become a sentinel the validator rejects. */
+        cfg->type    = 0xFFU;
+        cfg->tc_type = CH_TC_TYPE_NONE;
+    }
+}
+
+void reg_map_dev_encode(uint16_t addr,
+                        uint8_t* buf)
+{
+    modbus_slave_put_u16(&buf[0], addr);
+}
+
+uint16_t reg_map_dev_decode(const uint8_t* buf)
+{
+    return modbus_slave_get_u16(&buf[0]);
+}
+
+bool reg_map_dev_addr_valid(uint16_t addr)
+{
+    return (addr >= REG_MAP_DEV_ADDR_MIN) && (addr <= REG_MAP_DEV_ADDR_MAX);
+}
+
+void reg_map_input_encode(const reg_map_input_image_t* in,
+                          uint16_t start,
+                          uint16_t count,
+                          uint8_t* buf)
+{
+    uint16_t i;
+
+    for ( i = 0U; i < count; ++i ) {
+        uint16_t addr = (uint16_t)(start + i);
+        uint16_t word = 0U;
+
+        if ( addr < REG_MAP_SYS_BASE ) {
+            uint16_t ch  = (uint16_t)(addr / REG_MAP_CH_IN_STRIDE);
+            uint16_t off = (uint16_t)(addr % REG_MAP_CH_IN_STRIDE);
+
+            if ( off == 0U ) {
+                uint32_t bits;
+
+                memcpy(&bits, &in->value[ch], sizeof(bits));
+                word = (uint16_t)(bits >> 16);
+            }
+            else if ( off == 1U ) {
+                uint32_t bits;
+
+                memcpy(&bits, &in->value[ch], sizeof(bits));
+                word = (uint16_t)(bits & 0xFFFFU);
+            }
+            else if ( off == 2U ) {
+                word = in->status[ch];
+            }
+            else {
+                word = 0U; /* reserved */
+            }
+        }
+        else if ( addr < (REG_MAP_SYS_BASE + REG_MAP_CH_IN_LEN) ) {
+            uint16_t off = (uint16_t)(addr - REG_MAP_SYS_BASE);
+
+            if ( off == 0U ) {
+                uint32_t bits;
+
+                memcpy(&bits, &in->cjc_temp, sizeof(bits));
+                word = (uint16_t)(bits >> 16);
+            }
+            else if ( off == 1U ) {
+                uint32_t bits;
+
+                memcpy(&bits, &in->cjc_temp, sizeof(bits));
+                word = (uint16_t)(bits & 0xFFFFU);
+            }
+            else if ( off == 4U ) {
+                word = in->fault_word;
+            }
+            else {
+                word = 0U; /* reserved */
+            }
+        }
+        else {
+            word = 0U; /* defensive: outside every span */
+        }
+
+        modbus_slave_put_u16(&buf[2U * i], word);
+    }
+}
+
+uint16_t reg_map_fault_word(uint8_t cjc_valid,
+                            uint16_t latched)
+{
+    uint16_t word = (uint16_t)(latched & REG_MAP_FAULT_LATCHED_MASK);
+
+    if ( cjc_valid == 0U ) {
+        word |= REG_MAP_FAULT_CJC;
+    }
+    return word;
+}
+
+uint16_t reg_map_wire_status_code(uint8_t cfg_type,
+                                  uint8_t wire_status)
+{
+    if ( wire_status == 0U ) {
+        return (uint16_t)REG_MAP_STATUS_OK;
+    }
+
+    if ( cfg_type == (uint8_t)CH_TYPE_TC ) {
+        /* A thermocouple loop cannot report which lead is open. */
+        return (uint16_t)REG_MAP_STATUS_TC_BREAK;
+    }
+
+    if ( cfg_type == (uint8_t)CH_TYPE_PT100 ) {
+        if ( wire_status == 2U ) {
+            return (uint16_t)REG_MAP_STATUS_RTD_LEAD_BREAK;
+        }
+        if ( wire_status == 3U ) {
+            return (uint16_t)REG_MAP_STATUS_RTD_RETURN_BREAK;
+        }
+    }
+
+    /* Unresolvable PT100 break or non-detectable type: front-end violation. */
+    return (uint16_t)REG_MAP_STATUS_HW_ERROR;
+}

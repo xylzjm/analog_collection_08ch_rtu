@@ -110,6 +110,9 @@ uint32_t board_tick_get(void)
 void SysTick_Handler(void)
 {
     ++systick_ctr;
+
+    /* 1 ms clock tick for the QP time events (rate 0). */
+    QTIMEEVT_TICK_X(0U, (void*)0);
 }
 
 /*----------------------------------------------------------------------------*/
