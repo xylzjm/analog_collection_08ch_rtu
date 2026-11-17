@@ -7,41 +7,24 @@
 ## 目录与分层
 
 ```text
-app/                    应用入口、Modbus/参数/校准/存储模块
-app/inc, app/src        QM 生成的状态机与手写应用模块
+app/                    应用入口、日志服务
 board/inc, board/src    板级硬件与板级设备适配
 board/ports/            中间件移植层
 board/vendor_wk/        WorkBench 生成的外设初始化代码
-docs/                   应用层设计与工厂校准协议
-tests/                  纯 C 模块的主机测试
 ```
 
-- `app/`：组合根、日志初始化、Modbus 从站、参数镜像、工厂校准、保存 AO 和契约桩。
+- `app/`：组合根（composition root）、日志初始化、参数模块与应用对象（活动对象见 `app/ao/`，被动组件见 `app/component/`）。
 - `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
+
+应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`，每个活动对象的独立设计文档见 `docs/ao/`（`ao_channel.md` ×8 实例、`ao_cold_junction.md`、`ao_modbus.md`），被动组件见 `docs/component/`（`param.md`、`reg_map.md`）；本文只描述板级、驱动与移植。应用层已按设计实现（11 个活动对象 + `ch_config`/`reg_map`/`param` 被动组件，宿主测试见 `app/component/test/`），板上行为（时序、固化、断线码）尚待硬件验证。
 
 ## 启动顺序
 
 ```c
 log_init();     /* SEGGER RTT + EasyLogger */
-QF_init();      /* QP 框架、事件池、订阅表 */
-QActive_psInit(subscr, APP_SIG_MAX);
-QF_poolInit(cal_pool,  sizeof(cal_pool),  sizeof(cal_save_evt_t));
-QF_poolInit(meas_pool, sizeof(meas_pool), sizeof(meas_evt_t));
-QF_poolInit(cfg_pool,  sizeof(cfg_pool),  sizeof(cfg_evt_t));
 board_init();   /* 时钟、外设、板级设备 */
-
-param_app_init();                /* 用户参数默认值 */
-cal_data_init();                 /* 工厂校准默认：全部无效、增益 1.0 */
-load_fault = storage_load();     /* fal_init + fdb_kvdb_init + sys/ch/cal */
-cal_data_apply_all();            /* 有效校准写入板级表 */
-
-modbus_app_ctor(&modbus_obj, load_fault ? MODBUS_APP_DEV_FAULT_LOAD : 0U);
-storage_app_ctor(&storage_obj, &modbus_obj.super);
-QActive_start(&modbus_obj.super,  Q_PRIO(20, 0), modbus_queue,  32, NULL, 0, NULL);
-QActive_start(&storage_obj.super, Q_PRIO(9, 0),  storage_queue,  8, NULL, 0, NULL);
-QF_run();
 ```
 
 `board_init()` 只负责板级硬件：
@@ -56,7 +39,7 @@ QF_run();
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储由 `app/src/storage_flash.c` 拥有 `fdb_kvdb`：启动时 `storage_load()` 同步调用 `fal_init()` / `fdb_kvdb_init()` 并读取 `sys`、`ch0..ch7`、`cal0..cal7`；运行期由 `storage_app` 异步写入。日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储初始化不属于 board 层。`app/component/param.c` 拥有 `fdb_kvdb`，在 `AoModbus` 初始转换内（`QF_run()` 之前）调用 `fal_init()` / `fdb_kvdb_init()`；日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 
@@ -88,62 +71,13 @@ elog_* / FDB_PRINT / printf
 - 写操作逐字节调用 `flash_byte_program()` 并回读校验。
 - `FDB_DEBUG_ENABLE` 当前打开，发布构建可关闭以节省 ROM 和 RTT 流量。
 - FAL/FDB 日志走 `printf` / `elog_raw`，FAL 自带 ANSI 转义，RTT Viewer 中可能可见。
-- 键：`sys`、`ch0..ch7`、`cal0..cal7`。每条记录带 `version + size`；用户参数记录不符时使用默认值并置设备故障 bit0；校准记录头部不符时按未校准处理，单个系数越界只清除该类型有效位。
-
-## 应用层与 Modbus
-
-### 用户协议
-
-- 从站地址默认 1，可写 1..247；波特率固定 9600。
-- FC11 型号 `AC08RTU`，版本 1.0.0。
-- 测量值为 int32 定点 ×0.001，高字在前；无效值 `0x80000000`。
-- 通道状态非 0 时测量值强制为哨兵；线性参数是否有效由 `channel_app` 判定并上报状态 6。
-- 上电后、首个 `CH_DATA` 前，8 通道 `value=0x80000000`、`status=5`（ADC/IO 故障）；冷端 `value=0`、`status=1`。
-- 设备故障位：bit0 参数加载异常，bit1 参数保存失败；正常读 0。
-
-输入寄存器（FC04）：
-
-| 地址 | 内容 |
-|---|---|
-| `0x0000 + 2*c` | CHc 测量值 |
-| `0x0010 + c` | CHc 状态 |
-| `0x0018..0x0019` | 冷端温度 |
-| `0x001A` | 冷端状态 |
-| `0x001B` | 设备故障位域 |
-| 其余 | 读 0 |
-
-保持寄存器（FC03/06/10）：
-
-| 地址 | 内容 |
-|---|---|
-| `0x0000` | 从站地址 |
-| `0x0001` | 波特率 9600，只读 |
-| `0x0100 + c*0x20 + 0x00` | 传感器类型 0..10 |
-| `+0x01` | 采样率索引 0..12 |
-| `+0x02..0x03` | 线性下限 |
-| `+0x04..0x05` | 线性上限 |
-| `+0x06..0x07` | 用户校准偏移 |
-| `+0x08..0x09` | 用户校准增益（1000 = 1.0） |
-
-传感器类型：0=4-20 mA、1=0-10 V、2=PT100、3..10=TC B/E/J/K/N/R/S/T（默认 6=TC-K）。采样率索引：0=2.5 Hz、1=5、2=10、3=12.5、4=15、5=20、6=25、7=30、8=40、9=50、10=60、11=80、12=100，`0xFFFF` 为默认 10 Hz 的写入别名，保存后回读为索引 2。线性类型的上下限由 `channel_app` 判定，下限 ≥ 上限时由通道上报状态 6。
-
-### 保存行为
-
-- 用户参数写入后立即生效，1 s 去抖后自动保存；若 500 ms 内收到过帧且未到 10 s 上限，顺延 500 ms。
-- 保存按 `sys`、`ch0..ch7` 分 key，一次只写一个；失败置故障 bit1 并 5 s 重试。
-- 出厂校准按 `cal0..cal7` 分 key，提交后立即保存；失败保留旧系数，不重试。
-- Flash 擦除/编程期间 QV 整机停顿，保存瞬间可能丢一帧。
-
-### 出厂校准
-
-工厂隐藏寄存器块和夹具流程见 `docs/factory_calibration.md`，不属于用户文档。用户侧不可见，普通恢复默认不影响校准记录。
 
 ## 板级资源
 
 ### 时钟与中断
 
 - 系统时钟 120 MHz。
-- SysTick：1 ms，优先级 15；同时通过 `QTIMEEVT_TICK_X(0, NULL)` 驱动 QP 时间事件。
+- SysTick：1 ms，优先级 15。
 - USART1、TMR14：抢占优先级 5。
 - TMR6：1 MHz 时基，供 `wk_delay_us/ms` 使用。
 - TMR14：10 us/tick，16 位周期覆盖 T3.5 和 9600 baud 下的 TX 看门狗。
@@ -167,7 +101,7 @@ elog_* / FDB_PRINT / printf
 ### TMP75
 
 - 单片 TMP75，地址 0x48（A2–A0 接地），ALERT 未接，不处理。
-- 复位默认 9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C；需要 0.0625 °C 时由应用调用 `tmp75_write_config()` 切 12-bit。
+- 按上电默认配置运行：9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C（冷端补偿已接受该量化），应用层不写配置寄存器。将来需要更高分辨率时在板级初始化调用 `tmp75_write_config()`，写后延时 ≥ `tmp75_conversion_time_ms()` 再返回——板级契约：`board_init()` 返回时 TMP75 至少已完成一次转换（首读不会读到上电 0 °C 假值）。
 - 启动时只对 0x48 做一次 `i2c_soft_probe()`：NACK 只说明地址/接线问题，不表示温度可读。
 - 读取方式：`tmp75_board_get_device()` 取设备对象，再调用 `tmp75_read_temperature()`。
 - 板级 `transfer` 把所有 I2C 失败统一映射为 `TMP75_ERR_IO`；启动 probe 直接调用 `i2c_soft_probe()` 以保留原始状态码。
@@ -185,7 +119,8 @@ elog_* / FDB_PRINT / printf
   - 4-20 mA：COM=1，CV=1
   - 热电偶：COM=1，CV=0
 - 默认采样率 10 Hz；配置后需要 2 个转换周期稳定。
-- 支持全部 SIG24131 数据率，单位 mHz。
+- 本板采样率上限 100 Hz（`ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ`，即 `ANALOG_INPUT_BOARD_RATE_100_HZ`）：SIG24131 本身可到 9.6 kHz，但前端切换、8 通道轮询和遥测链路都按 100 Hz 设计，更高速率由 `analog_input_configure()` 返回 `ANALOG_INPUT_ERR_UNSUPPORTED`。
+- 速率单位 mHz，可用档位 2.5 Hz 至 100 Hz，见 `ANALOG_INPUT_BOARD_RATE_*`。
 - 热电偶断线检测使用 burnout 电流；PT100 通过参考电阻电压判断断线/断激励/断回流。
 
 ### Modbus RTU
@@ -226,9 +161,8 @@ elog_* / FDB_PRINT / printf
 ## 构建
 
 - IDE：EIDE
-- 编译器：ARMCLANG 6，C99，`-Os`（Debug 目标；60 KB ROM 限制下的体积优化）
+- 编译器：ARMCLANG 6，C99，`-O1`（2026-11 定夺：QP 运行时与 FlashDB KV 层全量链接后 `-O0` 需约 70 KB ROM，超出 60 KB 可用区；`-O1` 实测 51.3 KB，纯逻辑语义仍由宿主 gcc 测试守护）
 - 运行库：microlib
 - 调试构建定义：`AT32F421C8T7`
 - include 顺序要求：`board/ports/easylogger` 必须早于 `../middleware/EasyLogger/easylogger/inc`
-- 参数分区使用 Flash 尾部 4 KB，下载时不要使用全片擦除
-- 主机测试：`powershell -ExecutionPolicy Bypass -File tests/run_host_tests.ps1`；`tests/stubs` 提供 board/analog input/QP/FlashDB 测试桩。脚本包含 9 个常规测试（含 `test_storage_flash`）和 3 个不定义 `Q_UNSAFE` 的 QP FuSa 安全测试（`test_modbus_app_safe`、`test_calibrate_app_safe`、`test_storage_app_safe`）。
+- 参数分区使用 Flash 尾部 4 KB，下载时**禁止全片擦除**：全片擦除会被设备当作崭新空片（默认表物化、以出厂配置运行、不报故障），已固化的校准参数将不可恢复——校准参数必须由上位机留档，以便误擦后重新下发

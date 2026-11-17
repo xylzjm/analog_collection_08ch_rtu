@@ -113,16 +113,13 @@ virtualFolder:
     - name: app
       files:
         - path: app/main.c
-        - path: app/src/cal_data.c
-        - path: app/src/calibrate_app.c
-        - path: app/src/channel_app_stub.c
-        - path: app/src/cold_junction_app_stub.c
-        - path: app/src/modbus_app.c
-        - path: app/src/modbus_app_regs.c
-        - path: app/src/modbus_cal_regs.c
-        - path: app/src/param_app.c
-        - path: app/src/storage_app.c
-        - path: app/src/storage_flash.c
+        - path: app/component/ch_config.c
+        - path: app/component/reg_map.c
+        - path: app/component/param.c
+        - path: app/component/param_defaults.c
+        - path: app/ao/ao_channel.c
+        - path: app/ao/ao_cold_junction.c
+        - path: app/ao/ao_modbus.c
       folders: []
     - name: board
       files:
@@ -263,7 +260,8 @@ targets:
         - ../middleware/flashDB/port/fal/inc
         - ../library/device/tmp75/inc
         - ../library/protocol/i2c_soft/inc
-        - app/inc
+        - app/component
+        - app/ao
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c
@@ -295,7 +293,7 @@ targets:
             language-c: c99
             language-cpp: c++98
             one-elf-section-per-function: true
-            optimization: level-image-size
+            optimization: level-1
             warnings: ac5-like-warnings
           global:
             output-debug-info: enable

@@ -111,7 +111,7 @@ void SysTick_Handler(void)
 {
     ++systick_ctr;
 
-    /* Drives QP time events from the same 1 ms timebase. */
+    /* 1 ms clock tick for the QP time events (rate 0). */
     QTIMEEVT_TICK_X(0U, (void*)0);
 }
 
@@ -119,19 +119,19 @@ void SysTick_Handler(void)
 /* QP port lifecycle                                                          */
 /*----------------------------------------------------------------------------*/
 
-void QF_onCleanup(void)
+void QF_onStartup(void)
 {
+    /* 1 ms tick feeds board_tick_get(); priorities must match the board port. */
+    systick_interrupt_config(1000);
+    wk_nvic_config();
 }
 
-void QF_onStartup(void)
+void QF_onCleanup(void)
 {
 }
 
 void QV_onIdle(void)
 {
-    /* Called with interrupts disabled; re-enable them atomically with sleep. */
-    QF_INT_ENABLE();
-    __asm volatile("wfi");
 }
 
 /*----------------------------------------------------------------------------*/
@@ -148,10 +148,6 @@ void board_init(void)
     /* Clock and flash wait states must be configured first. */
     wk_system_clock_config();
     wk_periph_clock_config();
-
-    /* 1 ms tick feeds board_tick_get(); priorities must match the board port. */
-    systick_interrupt_config(1000);
-    wk_nvic_config();
 
     /* wk_delay_us/ms and the SIG24131 reset wait depend on this timebase. */
     wk_timebase_init();

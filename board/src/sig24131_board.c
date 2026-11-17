@@ -1,6 +1,7 @@
+#include "board.h"
 #include "sig24131_board.h"
 
-#include "board.h"
+#include "at32f421_wk_config.h"
 #include "wk_system.h"
 
 /** @brief SPI flag timeout in board-tick milliseconds. */

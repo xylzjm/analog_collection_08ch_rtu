@@ -5,10 +5,14 @@
 
 #include "analog_input.h"
 #include "sig24131.h"
+#include "sig24131_board.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** @brief Number of analog input channels on this board (one per SIG24131). */
+#define ANALOG_INPUT_BOARD_CHANNEL_COUNT SIG24131_BOARD_INSTANCE_COUNT
 
 /** @brief Burden resistor for the 4-20 mA input. */
 #define ANALOG_INPUT_BOARD_SHUNT_OHMS 200.0f
@@ -53,7 +57,12 @@ extern "C" {
 /** @brief PT100 excitation current. */
 #define ANALOG_INPUT_BOARD_RTD_IDAC_CURRENT SIG24131_IDAC_500_UA
 
-/** @brief Supported SIG24131 data rates, in millihertz. */
+/**
+ * @brief Sample rates supported by this board, in millihertz.
+ *
+ * The list stops at ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ; SIG24131 data
+ * rates above it are rejected by analog_input_configure().
+ */
 #define ANALOG_INPUT_BOARD_RATE_2_5_HZ  2500U
 #define ANALOG_INPUT_BOARD_RATE_5_HZ    5000U
 #define ANALOG_INPUT_BOARD_RATE_10_HZ   10000U
@@ -67,25 +76,15 @@ extern "C" {
 #define ANALOG_INPUT_BOARD_RATE_60_HZ   60000U
 #define ANALOG_INPUT_BOARD_RATE_80_HZ   80000U
 #define ANALOG_INPUT_BOARD_RATE_100_HZ  100000U
-#define ANALOG_INPUT_BOARD_RATE_120_HZ  120000U
-#define ANALOG_INPUT_BOARD_RATE_160_HZ  160000U
-#define ANALOG_INPUT_BOARD_RATE_200_HZ  200000U
-#define ANALOG_INPUT_BOARD_RATE_240_HZ  240000U
-#define ANALOG_INPUT_BOARD_RATE_250_HZ  250000U
-#define ANALOG_INPUT_BOARD_RATE_300_HZ  300000U
-#define ANALOG_INPUT_BOARD_RATE_400_HZ  400000U
-#define ANALOG_INPUT_BOARD_RATE_480_HZ  480000U
-#define ANALOG_INPUT_BOARD_RATE_500_HZ  500000U
-#define ANALOG_INPUT_BOARD_RATE_600_HZ  600000U
-#define ANALOG_INPUT_BOARD_RATE_800_HZ  800000U
-#define ANALOG_INPUT_BOARD_RATE_1000_HZ 1000000U
-#define ANALOG_INPUT_BOARD_RATE_1200_HZ 1200000U
-#define ANALOG_INPUT_BOARD_RATE_2000_HZ 2000000U
-#define ANALOG_INPUT_BOARD_RATE_2400_HZ 2400000U
-#define ANALOG_INPUT_BOARD_RATE_4000_HZ 4000000U
-#define ANALOG_INPUT_BOARD_RATE_4800_HZ 4800000U
-#define ANALOG_INPUT_BOARD_RATE_8000_HZ 8000000U
-#define ANALOG_INPUT_BOARD_RATE_9600_HZ 9600000U
+
+/**
+ * @brief Highest sample rate this board accepts, in millihertz.
+ *
+ * SIG24131 itself runs up to 9600 Hz, but this board is specified for 100 Hz
+ * only: the front-end switches, the 8-channel polling and the telemetry path
+ * all assume that ceiling.
+ */
+#define ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ ANALOG_INPUT_BOARD_RATE_100_HZ
 
 /** @brief Rate used when the caller passes zero. */
 #define ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ ANALOG_INPUT_BOARD_RATE_10_HZ
@@ -105,19 +104,11 @@ extern "C" {
 /** @brief Ratio below which the PT100 return lead counts as open. */
 #define ANALOG_INPUT_BOARD_RTD_BREAK_RETURN_RATIO 0.25f
 
-/** @brief Factory calibration coefficients applied to raw ADC codes. */
-typedef struct {
-    int32_t gain_micro;  /**< 1000000 means 1.0. */
-    int32_t offset_code; /**< Offset in raw ADC codes. */
-} analog_input_factory_cal_t;
-
 /** @brief Analog input object bound to one SIG24131 channel. */
 typedef struct {
     analog_input_t base; /**< Interface base object; must be first. */
     sig24131_t* device;  /**< Borrowed SIG24131 driver instance. */
     uint8_t channel;     /**< One-based board channel. */
-    analog_input_factory_cal_t factory_cal[4]; /**< One entry per calibration type. */
-    uint8_t factory_cal_valid;                 /**< One bit per valid entry. */
 } analog_input_board_t;
 
 /**
@@ -146,35 +137,6 @@ uint8_t analog_input_board_count(void);
  * @return The channel object, or NULL for an invalid channel.
  */
 analog_input_t* analog_input_board_get(uint8_t channel);
-
-/**
- * @brief Install or clear one factory calibration entry.
- *
- * @param channel One-based board channel 1..8.
- * @param cal_type Calibration type 0..3.
- * @param cal Coefficients to copy, or NULL to clear the entry.
- * @return ANALOG_INPUT_OK, or ANALOG_INPUT_ERR_ARG for an invalid argument.
- * @note Call while the channel is paused or before it starts sampling.
- */
-analog_input_status_t analog_input_board_set_factory_calibration(
-    uint8_t channel,
-    uint8_t cal_type,
-    const analog_input_factory_cal_t* cal);
-
-/**
- * @brief Convert a physical reference value to its ideal raw ADC code.
- *
- * @param type User input type.
- * @param physical Value in mA (current), V (voltage), ohm (PT100) or mV
- *        (thermocouple).
- * @param code Receives the signed 24-bit ideal code.
- * @return ANALOG_INPUT_OK, or ANALOG_INPUT_ERR_ARG / ERR_CONVERSION.
- * @note Thermocouple models share the mV channel; the model is ignored.
- */
-analog_input_status_t analog_input_board_code_from_physical(
-    analog_input_type_t type,
-    float physical,
-    int32_t* code);
 
 #ifdef __cplusplus
 }

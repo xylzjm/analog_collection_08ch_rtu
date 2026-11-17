@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include "at32f421_wk_config.h"
 #include "sig24131.h"
 
 #ifdef __cplusplus

@@ -1,35 +1,17 @@
 #include <stdio.h>
 
-#include "board.h"
-#include "qpc.h"
 #include "SEGGER_RTT.h"
+#include "board.h"
 #include "elog.h"
+#include "qpc.h"
 
-#include "cal_data.h"
-#include "common_app.h"
-#include "modbus_app.h"
-#include "modbus_app_regs.h"
-#include "param_app.h"
-#include "storage_app.h"
-#include "storage_flash.h"
-
-/** @brief Event pools sized for the payload types that use them. */
-static cal_save_evt_t cal_pool[8];
-static meas_evt_t meas_pool[64];
-static cfg_evt_t cfg_pool[16];
-
-static QSubscrList subscr[APP_SIG_MAX];
-
-static QEvtPtr modbus_queue[32];
-static QEvtPtr storage_queue[8];
-
-static modbus_app modbus_obj;
-static storage_app storage_obj;
+#include "ao_channel.h"
+#include "ao_cold_junction.h"
+#include "ao_events.h"
+#include "ao_modbus.h"
 
 /** @brief Route EasyLogger assertions to the project error handler. */
-static void elog_assert_handler(char const* expr,
-                                char const* func,
-                                size_t line)
+static void elog_assert_handler(char const* expr, char const* func, size_t line)
 {
     (void)expr;
     (void)func;
@@ -58,40 +40,55 @@ static void log_init(void)
     elog_start();
 }
 
+/*----------------------------------------------------------------------------*/
+/* Composition root                                                           */
+/*----------------------------------------------------------------------------*/
+
+static ao_channel_t channels[CH_CONFIG_CHANNEL_COUNT];
+static ao_cold_junction_t cold_junction;
+static ao_modbus_t modbus;
+
+static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][AO_CHANNEL_QUEUE_LEN];
+static QEvtPtr cjc_queue[AO_COLD_JUNCTION_QUEUE_LEN];
+static QEvtPtr modbus_queue[AO_MODBUS_QUEUE_LEN];
+
+static QSubscrList subscrSto[MAX_SIG];
+
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
+
 int main(void)
 {
-    bool load_fault;
+    uint8_t i;
 
     log_init();
-
-    QF_init();
-    QActive_psInit(subscr, APP_SIG_MAX);
-    QF_poolInit(cal_pool, (uint_fast32_t)sizeof(cal_pool),
-                (uint_fast16_t)sizeof(cal_save_evt_t));
-    QF_poolInit(meas_pool, (uint_fast32_t)sizeof(meas_pool),
-                (uint_fast16_t)sizeof(meas_evt_t));
-    QF_poolInit(cfg_pool, (uint_fast32_t)sizeof(cfg_pool),
-                (uint_fast16_t)sizeof(cfg_evt_t));
-
     board_init();
 
-    param_app_init();
-    cal_data_init();
-    load_fault = storage_load();
-    cal_data_apply_all();
+    QF_init();
+    QActive_psInit(subscrSto, MAX_SIG);
+    QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
+    QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
-    modbus_app_ctor(&modbus_obj,
-                    load_fault ? MODBUS_APP_DEV_FAULT_LOAD : 0U);
-    storage_app_ctor(&storage_obj, &modbus_obj.super);
-    calibrate_app_bind_storage(&modbus_obj.cal, storage_app_get());
+    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+        ao_channel_ctor(&channels[i], (uint8_t)(i + 1U));
+    }
+    ao_cold_junction_ctor(&cold_junction);
+    ao_modbus_ctor(&modbus);
 
-    QActive_start(&modbus_obj.super, Q_PRIO(20, 0), modbus_queue,
-                  (uint_fast16_t)(sizeof(modbus_queue) / sizeof(modbus_queue[0])),
-                  NULL, 0U, NULL);
-    /* channel_app[0..7] and cold_junction_app stay stubs for this stage. */
-    QActive_start(&storage_obj.super, Q_PRIO(9, 0), storage_queue,
-                  (uint_fast16_t)(sizeof(storage_queue) / sizeof(storage_queue[0])),
-                  NULL, 0U, NULL);
+    /*
+     * Start order: channels first, then AoModbus (its boot load publishes
+     * CONFIG_SET_SIG to the channels), then AoColdJunction so its first CJC_SIG
+     * reaches every subscriber. Every active object subscribes inside its own
+     * state-machine initial transition (QP/C example style; QActive_start()
+     * registers the AO before QASM_INIT).
+     */
+    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+        QActive_start(Q_ACTIVE_UPCAST(&channels[i]), Q_PRIO((uint8_t)(2U + i), 0U), ch_queue[i], AO_CHANNEL_QUEUE_LEN, (void*)0, 0U, (void*)0);
+    }
 
-    QF_run();
+    QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(11U, 0U), modbus_queue, AO_MODBUS_QUEUE_LEN, (void*)0, 0U, (void*)0);
+
+    QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(10U, 0U), cjc_queue, AO_COLD_JUNCTION_QUEUE_LEN, (void*)0, 0U, (void*)0);
+
+    return QF_run();
 }
