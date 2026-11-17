@@ -23,7 +23,7 @@
 static struct fdb_kvdb kvdb;
 
 /** @brief KV keys of the per-channel configurations. */
-static const char* const cfg_keys[CH_CONFIG_CHANNEL_COUNT] = {
+static const char* const cfg_keys[] = {
     "cfg/ch1", "cfg/ch2", "cfg/ch3", "cfg/ch4",
     "cfg/ch5", "cfg/ch6", "cfg/ch7", "cfg/ch8"
 };
@@ -50,8 +50,7 @@ static uint8_t db_ok;
  * @param cfg Receives the validated, normalized configuration.
  * @return true when the key exists, has the expected size and validates.
  */
-static bool param_load_cfg(uint8_t ch,
-                           ch_config_t* cfg)
+static bool load_cfg(uint8_t ch, ch_config_t* cfg)
 {
     struct fdb_blob blob;
     size_t len;
@@ -70,7 +69,7 @@ static bool param_load_cfg(uint8_t ch,
  * @param addr Receives the stored address.
  * @return true when the key exists, has the expected size and is 1..247.
  */
-static bool param_load_addr(uint16_t* addr)
+static bool load_addr(uint16_t* addr)
 {
     struct fdb_blob blob;
     size_t len;
@@ -88,14 +87,14 @@ static bool param_load_addr(uint16_t* addr)
  *
  * @param result Receives the loaded parameters and the per-key flags.
  */
-static void param_load_all(param_boot_result_t* result)
+static void load_all(param_boot_result_t* result)
 {
     uint8_t ch;
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         ch_config_t cfg;
 
-        if ( param_load_cfg(ch, &cfg) ) {
+        if ( load_cfg(ch, &cfg) ) {
             result->cfg[ch]        = cfg;
             result->cfg_valid[ch]  = 1U;
             snapshot[ch]           = cfg;
@@ -108,7 +107,7 @@ static void param_load_all(param_boot_result_t* result)
         }
     }
 
-    if ( param_load_addr(&result->dev_addr) ) {
+    if ( load_addr(&result->dev_addr) ) {
         addr_snapshot       = result->dev_addr;
         addr_snapshot_valid = 1U;
     }
@@ -137,7 +136,7 @@ void param_boot_load(param_boot_result_t* result)
 
     db_ok      = 1U;
     result->db_ok = 1U;
-    param_load_all(result);
+    load_all(result);
 }
 
 param_status_t param_save_cfg(uint8_t ch,
@@ -225,5 +224,5 @@ void param_set_default_all(void)
 
     /* Defaults are materialized now; adopt them as the committed state. */
     memset(&result, 0, sizeof(result));
-    param_load_all(&result);
+    load_all(&result);
 }

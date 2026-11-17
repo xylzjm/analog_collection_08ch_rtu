@@ -5,7 +5,7 @@
  * @file ao_cold_junction.h
  * @brief Cold junction temperature active object (TMP75).
  *
- * Sole owner of the TMP75 and the shared soft I2C bus; publishes the SIG_CJC
+ * Sole owner of the TMP75 and the shared soft I2C bus; publishes the CJC_SIG
  * heartbeat once per second. See docs/ao/ao_cold_junction.md.
  */
 

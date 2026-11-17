@@ -4,7 +4,7 @@
  *
  * The write pipeline (docs/component/reg_map.md section 5) is atomic per
  * frame: validate everything first, commit synchronously with a read-back
- * check, and only then touch the mirror or publish SIG_CONFIG_SET.
+ * check, and only then touch the mirror or publish CONFIG_SET_SIG.
  */
 
 #include "ao_modbus.h"
@@ -18,29 +18,32 @@
 
 Q_DEFINE_THIS_MODULE("ao_modbus")
 
-static QState ao_modbus_initial(ao_modbus_t* const me,
-                                void const* const par);
-static QState ao_modbus_serving(ao_modbus_t* const me,
-                                QEvt const* const e);
+/* Static events posted from the ISR event port (QEVT_INITIALIZER, ROM). */
+static QEvt const frameEvt     = QEVT_INITIALIZER(FRAME_SIG);
+static QEvt const txDoneEvt    = QEVT_INITIALIZER(TX_DONE_SIG);
+static QEvt const txTimeoutEvt = QEVT_INITIALIZER(TX_TIMEOUT_SIG);
+
+static QState ao_modbus_initial(ao_modbus_t* const me, void const* const par);
+static QState ao_modbus_serving(ao_modbus_t* const me, QEvt const* const e);
 
 /**
- * @brief Publish one SIG_CONFIG_SET event (commit succeeded).
+ * @brief Publish one CONFIG_SET_SIG event (commit succeeded).
  */
-static void ao_modbus_publish_config(ao_modbus_t* me,
-                                     uint8_t ch,
-                                     const ch_config_t* cfg)
+static void publish_config(ao_modbus_t* me, uint8_t ch, const ch_config_t* cfg)
 {
-    config_set_evt_t* evt = Q_NEW(config_set_evt_t, SIG_CONFIG_SET);
+    config_set_evt_t* evt = Q_NEW(config_set_evt_t, CONFIG_SET_SIG);
+
+    (void)me; /* the publish sender; referenced only in Q_SPY builds */
 
     evt->ch  = ch;
     evt->cfg = *cfg;
-    QACTIVE_PUBLISH(&evt->super, &me->super);
+    QACTIVE_PUBLISH(&evt->super, Q_ACTIVE_UPCAST(me));
 }
 
 /**
  * @brief Synthesize the device fault word from mirrors and latches.
  */
-static uint16_t ao_modbus_fault_word(const ao_modbus_t* me)
+static uint16_t fault_word(const ao_modbus_t* me)
 {
     uint16_t latched = 0U;
     uint8_t ch;
@@ -67,11 +70,7 @@ static uint16_t ao_modbus_fault_word(const ao_modbus_t* me)
 /* Data-space callbacks                                                       */
 /*----------------------------------------------------------------------------*/
 
-static modbus_slave_exception_t ao_modbus_coils(void* ctx,
-                                                uint16_t start,
-                                                uint16_t count,
-                                                uint8_t* buffer,
-                                                modbus_slave_register_mode_t mode)
+static modbus_slave_exception_t coils(void* ctx, uint16_t start, uint16_t count, uint8_t* buffer, modbus_slave_register_mode_t mode)
 {
     (void)ctx;
     (void)buffer;
@@ -81,11 +80,7 @@ static modbus_slave_exception_t ao_modbus_coils(void* ctx,
     return reg_map_check(REG_SPACE_COIL, start, count, NULL);
 }
 
-static modbus_slave_exception_t ao_modbus_discrete(void* ctx,
-                                                   uint16_t start,
-                                                   uint16_t count,
-                                                   uint8_t* buffer,
-                                                   modbus_slave_register_mode_t mode)
+static modbus_slave_exception_t discrete(void* ctx, uint16_t start, uint16_t count, uint8_t* buffer, modbus_slave_register_mode_t mode)
 {
     (void)ctx;
     (void)buffer;
@@ -94,11 +89,7 @@ static modbus_slave_exception_t ao_modbus_discrete(void* ctx,
     return reg_map_check(REG_SPACE_DISCRETE, start, count, NULL);
 }
 
-static modbus_slave_exception_t ao_modbus_input(void* ctx,
-                                                uint16_t start,
-                                                uint16_t count,
-                                                uint8_t* buffer,
-                                                modbus_slave_register_mode_t mode)
+static modbus_slave_exception_t input(void* ctx, uint16_t start, uint16_t count, uint8_t* buffer, modbus_slave_register_mode_t mode)
 {
     ao_modbus_t* me = (ao_modbus_t*)ctx;
     reg_map_input_image_t image;
@@ -115,7 +106,7 @@ static modbus_slave_exception_t ao_modbus_input(void* ctx,
     memcpy(image.value, me->value, sizeof(image.value));
     memcpy(image.status, me->status, sizeof(image.status));
     image.cjc_temp   = me->cjc_temp;
-    image.fault_word = ao_modbus_fault_word(me);
+    image.fault_word = fault_word(me);
     reg_map_input_encode(&image, start, count, buffer);
     return MODBUS_SLAVE_EX_NONE;
 }
@@ -123,11 +114,7 @@ static modbus_slave_exception_t ao_modbus_input(void* ctx,
 /**
  * @brief Holding register write pipeline: validate, commit, then update.
  */
-static modbus_slave_exception_t ao_modbus_holding_write(ao_modbus_t* me,
-                                                        uint16_t start,
-                                                        const reg_span_t* span,
-                                                        uint16_t count,
-                                                        const uint8_t* buffer)
+static modbus_slave_exception_t holding_write(ao_modbus_t* me, uint16_t start, const reg_span_t* span, uint16_t count, const uint8_t* buffer)
 {
     param_status_t st;
 
@@ -174,17 +161,13 @@ static modbus_slave_exception_t ao_modbus_holding_write(ao_modbus_t* me,
             me->cfg_image[ch] = cand;
             me->load_failed[ch] = 0U;
             me->b1              = 0U;
-            ao_modbus_publish_config(me, (uint8_t)(ch + 1U), &cand);
+            publish_config(me, (uint8_t)(ch + 1U), &cand);
         }
         return MODBUS_SLAVE_EX_NONE;
     }
 }
 
-static modbus_slave_exception_t ao_modbus_holding(void* ctx,
-                                                  uint16_t start,
-                                                  uint16_t count,
-                                                  uint8_t* buffer,
-                                                  modbus_slave_register_mode_t mode)
+static modbus_slave_exception_t holding(void* ctx, uint16_t start, uint16_t count, uint8_t* buffer, modbus_slave_register_mode_t mode)
 {
     ao_modbus_t* me = (ao_modbus_t*)ctx;
     const reg_span_t* span = NULL;
@@ -196,7 +179,7 @@ static modbus_slave_exception_t ao_modbus_holding(void* ctx,
     }
 
     if ( mode == MODBUS_SLAVE_REG_WRITE ) {
-        return ao_modbus_holding_write(me, start, span, count, buffer);
+        return holding_write(me, start, span, count, buffer);
     }
 
     {
@@ -215,7 +198,7 @@ static modbus_slave_exception_t ao_modbus_holding(void* ctx,
     return MODBUS_SLAVE_EX_NONE;
 }
 
-static uint8_t ao_modbus_address(void* ctx)
+static uint8_t address(void* ctx)
 {
     ao_modbus_t* me = (ao_modbus_t*)ctx;
 
@@ -226,25 +209,25 @@ static uint8_t ao_modbus_address(void* ctx)
 /* ISR event port                                                             */
 /*----------------------------------------------------------------------------*/
 
-static void ao_modbus_on_frame(void* ctx)
+static void on_frame(void* ctx)
 {
     ao_modbus_t* me = (ao_modbus_t*)ctx;
 
-    QACTIVE_POST(&me->super, &me->frameEvt, &me->super);
+    QACTIVE_POST(Q_ACTIVE_UPCAST(me), &frameEvt, (void*)0);
 }
 
-static void ao_modbus_on_sent(void* ctx)
+static void on_sent(void* ctx)
 {
     ao_modbus_t* me = (ao_modbus_t*)ctx;
 
-    QACTIVE_POST(&me->super, &me->txDoneEvt, &me->super);
+    QACTIVE_POST(Q_ACTIVE_UPCAST(me), &txDoneEvt, (void*)0);
 }
 
-static void ao_modbus_on_timeout(void* ctx)
+static void on_timeout(void* ctx)
 {
     ao_modbus_t* me = (ao_modbus_t*)ctx;
 
-    QACTIVE_POST(&me->super, &me->txTimeoutEvt, &me->super);
+    QACTIVE_POST(Q_ACTIVE_UPCAST(me), &txTimeoutEvt, (void*)0);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -253,19 +236,16 @@ static void ao_modbus_on_timeout(void* ctx)
 
 void ao_modbus_ctor(ao_modbus_t* me)
 {
-    static uint8_t const additional[] = "8CH-AI-RTU";
+    static const uint8_t additional[] = "8CH-AI-RTU";
     modbus_slave_callbacks_t cb;
     modbus_slave_identity_t id;
     modbus_slave_port_event_t ev;
     uint8_t ch;
 
     QActive_ctor(&me->super, Q_STATE_CAST(&ao_modbus_initial));
-    QEvt_ctor(&me->frameEvt, SIG_FRAME);
-    QEvt_ctor(&me->txDoneEvt, SIG_TX_DONE);
-    QEvt_ctor(&me->txTimeoutEvt, SIG_TX_TIMEOUT);
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        /* Channels report "unconfigured" until the first SIG_MEASURE. */
+        /* Channels report "unconfigured" until the first MEASURE_SIG. */
         me->value[ch]        = 0.0f;
         me->status[ch]       = (uint16_t)REG_MAP_STATUS_UNCONFIGURED;
         me->load_failed[ch]  = 0U;
@@ -273,7 +253,7 @@ void ao_modbus_ctor(ao_modbus_t* me)
     memset(me->cfg_image, 0, sizeof(me->cfg_image));
 
     me->cjc_temp        = 0.0f;
-    me->cjc_valid       = 0U; /* not ready: b0 until the first SIG_CJC */
+    me->cjc_valid       = 0U; /* not ready: b0 until the first CJC_SIG */
     me->addr_image      = REG_MAP_DEV_ADDR_MIN;
     me->b1              = 0U;
     me->addr_load_failed = 0U;
@@ -282,11 +262,11 @@ void ao_modbus_ctor(ao_modbus_t* me)
     me->tx_timeout_cnt  = 0U;
 
     cb.ctx               = me;
-    cb.coils             = ao_modbus_coils;
-    cb.discrete_inputs   = ao_modbus_discrete;
-    cb.holding_registers = ao_modbus_holding;
-    cb.input_registers   = ao_modbus_input;
-    cb.address           = ao_modbus_address;
+    cb.coils             = coils;
+    cb.discrete_inputs   = discrete;
+    cb.holding_registers = holding;
+    cb.input_registers   = input;
+    cb.address           = address;
 
     id.slave_id          = 0xFFU;
     id.is_running        = 1U;
@@ -296,9 +276,9 @@ void ao_modbus_ctor(ao_modbus_t* me)
     (void)modbus_slave_board_ctor(&cb, &id);
 
     ev.ctx              = me;
-    ev.on_frame_received = ao_modbus_on_frame;
-    ev.on_frame_sent     = ao_modbus_on_sent;
-    ev.on_tx_timeout     = ao_modbus_on_timeout;
+    ev.on_frame_received = on_frame;
+    ev.on_frame_sent     = on_sent;
+    ev.on_tx_timeout     = on_timeout;
     (void)modbus_slave_set_event_port(modbus_slave_board_get(), &ev);
 }
 
@@ -308,13 +288,16 @@ void ao_modbus_ctor(ao_modbus_t* me)
  * Runs inside QActive_start(), before QF_run(): the loaded configurations
  * are published while every channel is already started and subscribed.
  */
-static QState ao_modbus_initial(ao_modbus_t* const me,
-                                void const* const par)
+static QState ao_modbus_initial(ao_modbus_t* const me, void const* const par)
 {
     param_boot_result_t res;
     uint8_t ch;
 
     Q_UNUSED_PAR(par);
+
+    /* Subscriptions live in the initial transition (QP/C example style). */
+    QActive_subscribe(Q_ACTIVE_UPCAST(me), MEASURE_SIG);
+    QActive_subscribe(Q_ACTIVE_UPCAST(me), CJC_SIG);
 
     param_boot_load(&res);
 
@@ -326,7 +309,7 @@ static QState ao_modbus_initial(ao_modbus_t* const me,
         me->load_failed[ch] = res.cfg_load_failed[ch];
         if ( res.cfg_valid[ch] != 0U ) {
             me->cfg_image[ch] = res.cfg[ch];
-            ao_modbus_publish_config(me, (uint8_t)(ch + 1U), &res.cfg[ch]);
+            publish_config(me, (uint8_t)(ch + 1U), &res.cfg[ch]);
         }
     }
 
@@ -336,8 +319,7 @@ static QState ao_modbus_initial(ao_modbus_t* const me,
 /**
  * @brief Serving: the resident service state after the core starts.
  */
-static QState ao_modbus_serving(ao_modbus_t* const me,
-                                QEvt const* const e)
+static QState ao_modbus_serving(ao_modbus_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -350,22 +332,22 @@ static QState ao_modbus_serving(ao_modbus_t* const me,
             status = Q_HANDLED();
             break;
         }
-        case SIG_FRAME: {
+        case FRAME_SIG: {
             (void)modbus_slave_advance(modbus_slave_board_get());
             status = Q_HANDLED();
             break;
         }
-        case SIG_TX_DONE: {
+        case TX_DONE_SIG: {
             ++me->tx_done_cnt;
             status = Q_HANDLED();
             break;
         }
-        case SIG_TX_TIMEOUT: {
+        case TX_TIMEOUT_SIG: {
             ++me->tx_timeout_cnt;
             status = Q_HANDLED();
             break;
         }
-        case SIG_MEASURE: {
+        case MEASURE_SIG: {
             measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
             me->value[m->ch - 1U]  = m->value;
@@ -373,7 +355,7 @@ static QState ao_modbus_serving(ao_modbus_t* const me,
             status = Q_HANDLED();
             break;
         }
-        case SIG_CJC: {
+        case CJC_SIG: {
             cjc_evt_t const* cjc = Q_EVT_CAST(cjc_evt_t);
 
             me->cjc_temp  = cjc->temp_c;

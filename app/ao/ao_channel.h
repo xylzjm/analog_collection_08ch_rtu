@@ -31,10 +31,9 @@ typedef struct {
     QTimeEvt te_sample; /**< Sampling period timer. */
     QTimeEvt te_settle; /**< Settle / check deadline timer. */
     QTimeEvt te_break;  /**< Wire break window timer. */
-    QEvt     applyEvt;  /**< Static SIG_APPLY event (reconfiguration). */
     analog_input_t* input;   /**< Board channel object (borrowed). */
     ch_config_t     cfg;     /**< Effective configuration. */
-    ch_config_t     pending; /**< Configuration awaiting SIG_APPLY. */
+    ch_config_t     pending; /**< Configuration awaiting APPLY_SIG. */
     float    cjc_temp;    /**< Cached cold junction temperature. */
     float    last_value;  /**< Latest published value (frozen on faults). */
     uint32_t settle_ms;   /**< Delay for the next Settling entry. */

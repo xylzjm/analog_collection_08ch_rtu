@@ -5,10 +5,14 @@
 
 #include "analog_input.h"
 #include "sig24131.h"
+#include "sig24131_board.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** @brief Number of analog input channels on this board (one per SIG24131). */
+#define ANALOG_INPUT_BOARD_CHANNEL_COUNT SIG24131_BOARD_INSTANCE_COUNT
 
 /** @brief Burden resistor for the 4-20 mA input. */
 #define ANALOG_INPUT_BOARD_SHUNT_OHMS 200.0f

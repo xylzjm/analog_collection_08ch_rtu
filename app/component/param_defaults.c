@@ -12,30 +12,30 @@
 #include "reg_map.h"
 
 /** @brief Factory default channel configuration: TC type K, 10 Hz. */
-static ch_config_t default_ch_cfg = {
+static const ch_config_t default_ch_cfg = {
     (uint8_t)CH_TYPE_TC,     /**< type */
     (uint8_t)CH_TC_TYPE_K,   /**< tc_type */
     2U,                      /**< rate_code: 10 Hz */
     0.0f,                    /**< linear_min (unused for TC) */
     0.0f,                    /**< linear_max (unused for TC) */
     0.0f,                    /**< offset */
-    1.0f                     /**< gain */
+    1.0f,                    /**< gain */
 };
 
 /** @brief Factory default Modbus slave address. */
-static uint16_t default_dev_addr = REG_MAP_DEV_ADDR_MIN;
+static const uint16_t default_dev_addr = REG_MAP_DEV_ADDR_MIN;
 
 /** @brief Default KV nodes: one per persisted parameter. */
 static struct fdb_default_kv_node default_kv_nodes[] = {
-    { "cfg/ch1", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch2", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch3", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch4", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch5", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch6", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch7", &default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch8", &default_ch_cfg, sizeof(ch_config_t) },
-    { "dev/addr", &default_dev_addr, sizeof(uint16_t) }
+    { "cfg/ch1", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch2", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch3", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch4", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch5", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch6", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch7", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "cfg/ch8", (void*)&default_ch_cfg, sizeof(ch_config_t) },
+    { "dev/addr", (void*)&default_dev_addr, sizeof(uint16_t) },
 };
 
 /** @brief The factory default table for fdb_kvdb_init(). */

@@ -1,9 +1,9 @@
 #include <stdio.h>
 
-#include "board.h"
-#include "qpc.h"
 #include "SEGGER_RTT.h"
+#include "board.h"
 #include "elog.h"
+#include "qpc.h"
 
 #include "ao_channel.h"
 #include "ao_cold_junction.h"
@@ -11,9 +11,7 @@
 #include "ao_modbus.h"
 
 /** @brief Route EasyLogger assertions to the project error handler. */
-static void elog_assert_handler(char const* expr,
-                                char const* func,
-                                size_t line)
+static void elog_assert_handler(char const* expr, char const* func, size_t line)
 {
     (void)expr;
     (void)func;
@@ -46,19 +44,18 @@ static void log_init(void)
 /* Composition root                                                           */
 /*----------------------------------------------------------------------------*/
 
-static ao_channel_t l_channel[CH_CONFIG_CHANNEL_COUNT];
-static ao_cold_junction_t l_cold_junction;
-static ao_modbus_t l_modbus;
+static ao_channel_t channels[CH_CONFIG_CHANNEL_COUNT];
+static ao_cold_junction_t cold_junction;
+static ao_modbus_t modbus;
 
-static QEvtPtr l_ch_queue[CH_CONFIG_CHANNEL_COUNT][AO_CHANNEL_QUEUE_LEN];
-static QEvtPtr l_cjc_queue[AO_COLD_JUNCTION_QUEUE_LEN];
-static QEvtPtr l_modbus_queue[AO_MODBUS_QUEUE_LEN];
+static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][AO_CHANNEL_QUEUE_LEN];
+static QEvtPtr cjc_queue[AO_COLD_JUNCTION_QUEUE_LEN];
+static QEvtPtr modbus_queue[AO_MODBUS_QUEUE_LEN];
 
-static QSubscrList l_subscrSto[MAX_SIG];
+static QSubscrList subscrSto[MAX_SIG];
 
-/* Pool blocks must stay aligned for the event headers. */
-static uint32_t l_pool_a[(APP_POOL_A_EVT_SIZE * APP_POOL_A_BLOCK_NUM) / 4U];
-static uint32_t l_pool_b[(APP_POOL_B_EVT_SIZE * APP_POOL_B_BLOCK_NUM) / 4U];
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
 int main(void)
 {
@@ -68,39 +65,30 @@ int main(void)
     board_init();
 
     QF_init();
-    QActive_psInit(l_subscrSto, MAX_SIG);
-    QF_poolInit(l_pool_a, sizeof(l_pool_a), APP_POOL_A_EVT_SIZE);
-    QF_poolInit(l_pool_b, sizeof(l_pool_b), APP_POOL_B_EVT_SIZE);
+    QActive_psInit(subscrSto, MAX_SIG);
+    QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
+    QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        ao_channel_ctor(&l_channel[i], (uint8_t)(i + 1U));
+        ao_channel_ctor(&channels[i], (uint8_t)(i + 1U));
     }
-    ao_cold_junction_ctor(&l_cold_junction);
-    ao_modbus_ctor(&l_modbus);
+    ao_cold_junction_ctor(&cold_junction);
+    ao_modbus_ctor(&modbus);
 
     /*
-     * Subscribers before publishers: every channel is started and subscribed
-     * before AoModbus runs its boot load, which publishes SIG_CONFIG_SET.
-     * QActive_subscribe() requires the AO to be registered already, so each
-     * subscription follows its own start.
+     * Start order: channels first, then AoModbus (its boot load publishes
+     * CONFIG_SET_SIG to the channels), then AoColdJunction so its first CJC_SIG
+     * reaches every subscriber. Every active object subscribes inside its own
+     * state-machine initial transition (QP/C example style; QActive_start()
+     * registers the AO before QASM_INIT).
      */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        QActive_start(&l_channel[i].super, Q_PRIO((uint8_t)(2U + i), 0U),
-                      l_ch_queue[i], AO_CHANNEL_QUEUE_LEN,
-                      (void*)0, 0U, (void*)0);
-        QActive_subscribe(&l_channel[i].super, SIG_CONFIG_SET);
-        QActive_subscribe(&l_channel[i].super, SIG_CJC);
+        QActive_start(Q_ACTIVE_UPCAST(&channels[i]), Q_PRIO((uint8_t)(2U + i), 0U), ch_queue[i], AO_CHANNEL_QUEUE_LEN, (void*)0, 0U, (void*)0);
     }
 
-    QActive_start(&l_cold_junction.super, Q_PRIO(10U, 0U),
-                  l_cjc_queue, AO_COLD_JUNCTION_QUEUE_LEN,
-                  (void*)0, 0U, (void*)0);
+    QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(11U, 0U), modbus_queue, AO_MODBUS_QUEUE_LEN, (void*)0, 0U, (void*)0);
 
-    QActive_start(&l_modbus.super, Q_PRIO(11U, 0U),
-                  l_modbus_queue, AO_MODBUS_QUEUE_LEN,
-                  (void*)0, 0U, (void*)0);
-    QActive_subscribe(&l_modbus.super, SIG_MEASURE);
-    QActive_subscribe(&l_modbus.super, SIG_CJC);
+    QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(10U, 0U), cjc_queue, AO_COLD_JUNCTION_QUEUE_LEN, (void*)0, 0U, (void*)0);
 
     return QF_run();
 }

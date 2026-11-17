@@ -13,7 +13,7 @@
  * table itself. Holding: 8 channel configuration blocks at 16n + device
  * register 128. Input: 8 channel telemetry blocks at 8n + system block 64.
  */
-static const reg_span_t reg_map_spans[] = {
+static const reg_span_t spans[] = {
     { REG_SPACE_HOLDING, 0U,   REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
     { REG_SPACE_HOLDING, 16U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
     { REG_SPACE_HOLDING, 32U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
@@ -37,8 +37,7 @@ static const reg_span_t reg_map_spans[] = {
 /**
  * @brief Write one big-endian float32 as two registers (high word first).
  */
-static void reg_map_put_float(uint8_t* buf,
-                              float value)
+static void put_float(uint8_t* buf, float value)
 {
     uint32_t bits;
 
@@ -50,7 +49,7 @@ static void reg_map_put_float(uint8_t* buf,
 /**
  * @brief Read one big-endian float32 from two registers (high word first).
  */
-static float reg_map_get_float(const uint8_t* buf)
+static float get_float(const uint8_t* buf)
 {
     uint32_t bits;
     float value;
@@ -73,10 +72,20 @@ const reg_span_t* reg_map_find(reg_space_t space,
     }
     end = (uint32_t)start + (uint32_t)count;
 
-    for ( i = 0U; i < (sizeof(reg_map_spans) / sizeof(reg_map_spans[0])); ++i ) {
-        const reg_span_t* span = &reg_map_spans[i];
+    for ( i = 0U; i < (sizeof(spans) / sizeof(spans[0])); ++i ) {
+        const reg_span_t* span = &spans[i];
 
         if ( span->space != space ) {
+            continue;
+        }
+        /* Unpopulated channel positions are not part of the map: the table
+         * describes the 8-position board, the SKU population filters it. */
+        if ( (span->kind == REG_SPAN_CH_CFG)
+             && ((span->base / REG_MAP_CH_CFG_STRIDE) >= CH_CONFIG_CHANNEL_COUNT) ) {
+            continue;
+        }
+        if ( (span->kind == REG_SPAN_CH_IN)
+             && ((span->base / REG_MAP_CH_IN_STRIDE) >= CH_CONFIG_CHANNEL_COUNT) ) {
             continue;
         }
         if ( ((uint32_t)span->base <= (uint32_t)start)
@@ -96,8 +105,8 @@ modbus_slave_exception_t reg_map_check(reg_space_t space,
     bool space_mapped = false;
     size_t i;
 
-    for ( i = 0U; i < (sizeof(reg_map_spans) / sizeof(reg_map_spans[0])); ++i ) {
-        if ( reg_map_spans[i].space == space ) {
+    for ( i = 0U; i < (sizeof(spans) / sizeof(spans[0])); ++i ) {
+        if ( spans[i].space == space ) {
             space_mapped = true;
             break;
         }
@@ -141,10 +150,10 @@ void reg_map_ch_encode(const ch_config_t* cfg,
 
     modbus_slave_put_u16(&buf[0], code);
     modbus_slave_put_u16(&buf[2], cfg->rate_code);
-    reg_map_put_float(&buf[4], cfg->linear_min);
-    reg_map_put_float(&buf[8], cfg->linear_max);
-    reg_map_put_float(&buf[12], cfg->offset);
-    reg_map_put_float(&buf[16], cfg->gain);
+    put_float(&buf[4], cfg->linear_min);
+    put_float(&buf[8], cfg->linear_max);
+    put_float(&buf[12], cfg->offset);
+    put_float(&buf[16], cfg->gain);
 }
 
 void reg_map_ch_decode(const uint8_t* buf,
@@ -153,10 +162,10 @@ void reg_map_ch_decode(const uint8_t* buf,
     uint16_t code = modbus_slave_get_u16(&buf[0]);
 
     cfg->rate_code  = modbus_slave_get_u16(&buf[2]);
-    cfg->linear_min = reg_map_get_float(&buf[4]);
-    cfg->linear_max = reg_map_get_float(&buf[8]);
-    cfg->offset     = reg_map_get_float(&buf[12]);
-    cfg->gain       = reg_map_get_float(&buf[16]);
+    cfg->linear_min = get_float(&buf[4]);
+    cfg->linear_max = get_float(&buf[8]);
+    cfg->offset     = get_float(&buf[12]);
+    cfg->gain       = get_float(&buf[16]);
 
     if ( code < 8U ) {
         cfg->type    = (uint8_t)CH_TYPE_TC;

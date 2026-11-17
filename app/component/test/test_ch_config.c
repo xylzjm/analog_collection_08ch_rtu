@@ -41,7 +41,7 @@ static ch_config_t make_cfg(uint8_t type,
 static void test_layout(void)
 {
     CHECK(sizeof(ch_config_t) == 20U);
-    CHECK(CH_CONFIG_CHANNEL_COUNT == 8U);
+    CHECK(CH_CONFIG_CHANNEL_COUNT == ANALOG_INPUT_BOARD_CHANNEL_COUNT);
     CHECK(CH_CONFIG_RATE_CODE_COUNT == 13U);
 }
 

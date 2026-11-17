@@ -24,9 +24,6 @@ extern "C" {
 /** @brief AoModbus active object. */
 typedef struct {
     QActive super;    /**< Active object base. */
-    QEvt frameEvt;    /**< Static SIG_FRAME event. */
-    QEvt txDoneEvt;   /**< Static SIG_TX_DONE event. */
-    QEvt txTimeoutEvt; /**< Static SIG_TX_TIMEOUT event. */
     ch_config_t cfg_image[CH_CONFIG_CHANNEL_COUNT]; /**< Effective configs. */
     float       value[CH_CONFIG_CHANNEL_COUNT];     /**< Latest values. */
     uint16_t    status[CH_CONFIG_CHANNEL_COUNT];    /**< Channel status codes. */

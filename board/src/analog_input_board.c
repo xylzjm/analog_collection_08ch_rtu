@@ -1,6 +1,6 @@
 #include "analog_input_board.h"
 
-#include "sig24131_board.h"
+#include "at32f421_wk_config.h"
 #include "wk_system.h"
 
 static analog_input_status_t map_status(sig24131_status_t status)
@@ -552,7 +552,7 @@ analog_input_status_t analog_input_board_ctor_all(void)
 
 uint8_t analog_input_board_count(void)
 {
-    return (uint8_t)SIG24131_BOARD_INSTANCE_COUNT;
+    return (uint8_t)ANALOG_INPUT_BOARD_CHANNEL_COUNT;
 }
 
 analog_input_t* analog_input_board_get(uint8_t channel)

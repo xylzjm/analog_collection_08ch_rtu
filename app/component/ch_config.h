@@ -5,23 +5,26 @@
  * @file ch_config.h
  * @brief Channel configuration model, validation and rate tables.
  *
- * Pure logic, no dependencies beyond the C standard library. Shared by the
- * Modbus write pipeline (reg_map / AoModbus), the parameter store (param) and
- * the channel active object.
+ * Pure logic; the only board dependency is the hardware channel count
+ * (ANALOG_INPUT_BOARD_CHANNEL_COUNT). Shared by the Modbus write pipeline
+ * (reg_map / AoModbus), the parameter store (param) and the channel active
+ * object.
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "analog_input_board.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Number of measurement channels in this product. */
-#define CH_CONFIG_CHANNEL_COUNT 8U
+/** @brief Number of measurement channels (board hardware fact, not an app choice). */
+#define CH_CONFIG_CHANNEL_COUNT ANALOG_INPUT_BOARD_CHANNEL_COUNT
 
 /** @brief Highest valid rate code (inclusive); 0..CH_CONFIG_RATE_CODE_MAX. */
-#define CH_CONFIG_RATE_CODE_MAX 12U
+#define CH_CONFIG_RATE_CODE_MAX CH_RATE_100_HZ
 
 /** @brief Number of entries in the sample rate tables. */
 #define CH_CONFIG_RATE_CODE_COUNT (CH_CONFIG_RATE_CODE_MAX + 1U)
