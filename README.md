@@ -20,7 +20,7 @@ tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
 
-应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`，每个活动对象的独立设计文档见 `docs/ao/`（`channel_ao.md` ×8 实例、`cold_junction_ao.md`、`modbus_ao.md`），被动组件见 `docs/component/`（`param.md`、`reg_map.md`）；本文只描述板级、驱动与移植。应用层已按设计实现（10 个活动对象 + `ch_config`/`reg_map`/`param` 被动组件，宿主测试见 `app/component/test/`），板上行为（时序、固化、断线码）尚待硬件验证。
+应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`，每个活动对象的独立设计文档见 `docs/ao/`（`channel_ao.md` ×8 实例、`cold_junction_ao.md`、`modbus_ao.md`），被动组件见 `docs/component/`（`param.md`、`reg_map.md`、`modbus_image.md`）；本文只描述板级、驱动与移植。应用层已按设计实现（10 个活动对象 + `ch_config`/`reg_map`/`modbus_image`/`param` 被动组件，宿主测试见 `app/component/test/` 与 `tests/`），板上行为（时序、固化、断线码）尚待硬件验证。
 
 ## 启动顺序
 

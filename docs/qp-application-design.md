@@ -101,7 +101,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AoChannel` ×8 | 该通道采集全生命周期：配置应用、采样换算、校准、断线检测循环、通道故障状态；不变量：测量/断线硬件模式互斥，任一时刻其一 | 本通道 `analog_input_board_t`（含 SIG24131 片选与前端开关） | QHsm | `CONFIG_SET_SIG` `CJC_SIG` `SAMPLE_SIG` `SETTLE_SIG` `BREAK_WINDOW_SIG` | `MEASURE_SIG` | 2..9（ch1..ch8） | ≤ 1 ms | 8 路互相独立、各有速率/模式/故障生命周期，各自队列+定时器 |
 | `AoColdJunction` | 冷端温度供给与有效性；不变量：CJC_SIG 每 1 s 心跳（含失败时的 invalid） | TMP75 + `i2c_soft` 总线 | QHsm | `TICK_SIG` | `CJC_SIG` | 10 | ≤ 3 ms | 整板唯一 TMP75/唯一 I2C 主；多 TC 通道共享一个冷端源 |
-| `AoModbus` | 协议终结、遥测寄存器映像、故障锁存与参数固化（经 `param` 组件）；不变量：镜像=生效配置+各事件最近状态；写帧=生效+固化一体 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、`param` 组件（`fdb_kvdb`/FAL） | QHsm | `FRAME_SIG/TX_DONE/TX_TIMEOUT` `MEASURE_SIG` `CJC_SIG` | `CONFIG_SET_SIG` | 11 | ≤ 30 ms（写帧含同步固化）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR，需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
+| `AoModbus` | 协议终结、遥测/镜像的 QP 路由与发布、参数固化调度（经 `param` 组件）；不变量：镜像=生效配置+各事件最近状态（镜像与写事务由 `modbus_image` 组件承载，见下表）；写帧=生效+固化一体 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、`modbus_image` 组件、`param` 组件（`fdb_kvdb`/FAL） | QHsm | `FRAME_SIG/TX_DONE/TX_TIMEOUT` `MEASURE_SIG` `CJC_SIG` | `CONFIG_SET_SIG` | 11 | ≤ 30 ms（写帧含同步固化）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR，需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
 
 ### 不建独立活动对象的候选
 
@@ -109,12 +109,14 @@
 | --- | --- | --- | --- |
 | 寄存器编解码（`reg_map`） | `AoModbus` 回调内联调用 | 纯函数无状态 | `app/component/src/reg_map.c`（设计见 `docs/component/reg_map.md`），宿主 `CHECK` 测试 |
 | 配置校验/归一化（`ch_config`） | Modbus 写回调、param 启动加载 | 纯函数无状态 | `app/component/src/ch_config.c`，宿主 `CHECK` 测试 |
-| 设备故障位域合成 | `AoModbus` 内部 | 是寄存器映像的一部分 | `AoModbus` 随各事件更新 |
-| 参数持久化（`param` 组件） | `AoModbus` 执行上下文 | 无自主行为/独立时限；EX 04 语义要求固化在写回调返回前完成 | `AoModbus` 初始转换与写回调直接调用 |
+| 类型化镜像与写事务（`modbus_image`） | `AoModbus` 执行上下文（modbus 核心以镜像为 ctx 直调四个数据空间回调） | 无自主行为/独立时限；写事务的原子性纪律（校验→固化→镜像→通知）与数据空间读写同体 | `app/component/src/modbus_image.c`（设计见 `docs/component/modbus_image.md`），宿主 `CHECK` 测试直接驱动回调 |
+| 设备故障位域合成 | `modbus_image` 内部 | 是寄存器映像的一部分 | `modbus_image` 随各事件与锁存更新 |
+| 参数持久化（`param` 组件） | `AoModbus` 执行上下文 | 无自主行为/独立时限；EX 04 语义要求固化在写回调返回前完成 | `AoModbus` 初始转换与 `modbus_image` 写事务直接调用 |
 | flash 掉电恢复 | `param`（AoModbus 初始转换） | FlashDB 内部机制 | `fdb_kvdb_init()` |
 
-纯函数组件（`ch_config`/`reg_map`/`param`）**不使用 QP 工具宏**（保持宿主测试零 QP 依赖）；
-`QF_MPOOL_EL`/`QEVT_INITIALIZER`/`Q_ACTIVE_UPCAST` 等只用于 AO 侧代码。
+纯函数组件（`ch_config`/`reg_map`/`modbus_image`/`param`）**不使用 QP 工具宏**（保持宿主测试零 QP 依赖）；
+`QF_MPOOL_EL`/`QEVT_INITIALIZER`/`Q_ACTIVE_UPCAST` 等只用于 AO 侧代码。配置提交经
+`modbus_image` 的普通函数指针通知器回流 `AoModbus`，由 AO 折算成 `CONFIG_SET_SIG` 发布。
 
 ## 4. 事件契约总表
 

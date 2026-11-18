@@ -38,13 +38,13 @@
 static int checks;
 static int failures;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        ++checks;                                                       \
-        if ( !(cond) ) {                                                \
-            ++failures;                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);     \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        ++checks;                                                  \
+        if ( !(cond) ) {                                           \
+            ++failures;                                            \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        }                                                          \
     } while ( 0 )
 
 static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
@@ -89,7 +89,7 @@ static void tick(uint32_t n)
 
 static void drain_all(void)
 {
-    for (;;) {
+    for ( ;; ) {
         uint8_t i;
         uint8_t dispatched = 0U;
 
@@ -143,10 +143,10 @@ static void unregister_all(void)
     if ( modbus_started != 0U ) {
         QActive_unregister_(Q_ACTIVE_UPCAST(&modbus));
     }
-    ch_started    = 0U;
-    cjc_started   = 0U;
+    ch_started     = 0U;
+    cjc_started    = 0U;
     modbus_started = 0U;
-    all_count     = 0U;
+    all_count      = 0U;
 }
 
 /**
@@ -166,7 +166,7 @@ static void boot_scenario(uint8_t fail_ch)
 
     param_stub_reset();
     if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
-        param_stub.boot.cfg_valid[fail_ch] = 0U;
+        param_stub.boot.cfg_valid[fail_ch]       = 0U;
         param_stub.boot.cfg_load_failed[fail_ch] = 1U;
     }
     modbus_port_fake_init(&port);
@@ -184,7 +184,7 @@ static void boot_scenario(uint8_t fail_ch)
         all_aos[i] = Q_ACTIVE_UPCAST(&channels[i]);
     }
     ch_started = 1U;
-    all_count = CH_CONFIG_CHANNEL_COUNT;
+    all_count  = CH_CONFIG_CHANNEL_COUNT;
 
     /* AoModbus: its boot load publishes CONFIG_SET_SIG to the channels. */
     modbus_ao_ctor(&modbus);
@@ -202,7 +202,7 @@ static void boot_scenario(uint8_t fail_ch)
     modbus_ao_attach(&modbus, &slave);
     QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(11U, 0U),
                   modbus_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
-    modbus_started = 1U;
+    modbus_started     = 1U;
     all_aos[all_count] = Q_ACTIVE_UPCAST(&modbus);
     ++all_count;
 
@@ -210,7 +210,7 @@ static void boot_scenario(uint8_t fail_ch)
     cold_junction_ao_ctor(&cold_junction, &cjc_dev);
     QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(10U, 0U),
                   cjc_queue, COLD_JUNCTION_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
-    cjc_started = 1U;
+    cjc_started        = 1U;
     all_aos[all_count] = Q_ACTIVE_UPCAST(&cold_junction);
     ++all_count;
 }
@@ -248,16 +248,17 @@ static void test_full_boot(void)
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         CHECK(channels[ch].cjc_valid != 0U);
         CHECK(analog_input_fake_count(&inputs[ch],
-                                      (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE) >= 5U);
+                                      (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE)
+              >= 5U);
     }
 
     /* The mirror holds the telemetry of every channel. */
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        CHECK(modbus.value[ch] == 25.0f);
-        CHECK(modbus.status[ch] == (uint16_t)REG_MAP_STATUS_OK);
+        CHECK(modbus.image.value[ch] == 25.0f);
+        CHECK(modbus.image.status[ch] == (uint16_t)REG_MAP_STATUS_OK);
     }
-    CHECK(modbus.cjc_valid != 0U);
-    CHECK(modbus.cjc_temp == 25.0f);
+    CHECK(modbus.image.cjc_valid != 0U);
+    CHECK(modbus.image.cjc_temp == 25.0f);
 
     /* Pools fully recycled: both pools have every block back. */
     drain_all();
@@ -275,15 +276,16 @@ static void test_failed_channel_stays_down(void)
 
     run_ticks(1200U);
 
-    CHECK(modbus.load_failed[2] != 0U);
-    CHECK(modbus.status[2] == (uint16_t)REG_MAP_STATUS_UNCONFIGURED);
+    CHECK(modbus.image.load_failed[2] != 0U);
+    CHECK(modbus.image.status[2] == (uint16_t)REG_MAP_STATUS_UNCONFIGURED);
     CHECK(analog_input_fake_count(&inputs[2],
-                                  (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE) == 0U);
+                                  (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE)
+          == 0U);
 
     /* Every other channel still runs. */
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
-            CHECK(modbus.value[ch] == 25.0f);
+            CHECK(modbus.image.value[ch] == 25.0f);
         }
     }
 }
@@ -298,11 +300,9 @@ int main(int argc, char* argv[])
 
     if ( (argc == 2) && (argv[1][0] == '2') ) {
         test_failed_channel_stays_down();
-    }
-    else if ( (argc == 2) && (argv[1][0] == '1') ) {
+    } else if ( (argc == 2) && (argv[1][0] == '1') ) {
         test_full_boot();
-    }
-    else {
+    } else {
         printf("usage: test_boot <scenario>  (1 full boot, 2 failed channel)\n");
         return 2;
     }

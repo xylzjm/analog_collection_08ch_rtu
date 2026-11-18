@@ -76,7 +76,11 @@ before `../middleware/EasyLogger/easylogger/inc`, otherwise the template
 
 The QP/C application layer from `docs/` is implemented: 10 active objects
 (8x AoChannel at prio 2..9, AoColdJunction 10, AoModbus 11) plus the passive
-components `ch_config` / `reg_map` / `param` (+ `param_defaults.c`). The
+components `ch_config` / `reg_map` / `modbus_image` / `param`
+(+ `param_defaults.c`). The typed Modbus mirror and the write transaction
+live in `modbus_image` (QP-free, host-tested directly through the
+data-space callbacks); AoModbus keeps only routing, boot publishing and
+commit-to-publish conversion through the image's notifier callback. The
 active objects take their device objects by constructor injection (no board
 singletons inside `app/ao/`): main.c passes the board singletons to the
 channel and cold-junction constructors, and composes the Modbus slave from

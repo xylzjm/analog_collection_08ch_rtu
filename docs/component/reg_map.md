@@ -105,9 +105,9 @@ EX 01 的口径：空间整体不存在 = 函数不支持（比 EX 02 诚实—�
 | `coils`/`discrete_inputs` | 转发 `reg_map_check` | 本产品段为空 → 恒 EX 01 |
 | `input_registers` | `reg_map_check` + `reg_map_input_encode` | 只读 |
 | `holding_registers` | 读：`reg_map_check` + encode；写：写管线（下） | 读写 |
-| `address` | `AoModbus` 镜像 | 1..247 |
+| `address` | `modbus_image` 镜像 | 1..247 |
 
-写管线（原子性全部所在，与 `modbus_ao.md` §6 同源）：
+写管线（原子性全部所在，由 `modbus_image` 组件承载，与 `docs/component/modbus_image.md` 同源）：
 
 ```text
 holding 写回调：

@@ -114,6 +114,7 @@ virtualFolder:
       files:
         - path: app/main.c
         - path: app/component/src/ch_config.c
+        - path: app/component/src/modbus_image.c
         - path: app/component/src/reg_map.c
         - path: app/component/src/param.c
         - path: app/component/src/param_defaults.c

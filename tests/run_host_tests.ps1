@@ -88,6 +88,15 @@ $tests = @(
         Extra = @()
     },
     @{
+        Name = 'test_modbus_image'
+        Sources = @('app/component/test/test_modbus_image.c',
+                    'app/component/src/modbus_image.c',
+                    'app/component/src/reg_map.c',
+                    'app/component/src/ch_config.c',
+                    'tests/stubs/param_stub.c') + $modbusSources
+        Extra = @()
+    },
+    @{
         Name = 'test_analog_input_convert'
         Sources = @('tests/app/test_analog_input_convert.c',
                     'board/src/analog_input_convert.c',
@@ -98,8 +107,10 @@ $tests = @(
         Name = 'test_channel_ao'
         Sources = @('tests/app/test_channel_ao.c',
                     'app/ao/src/channel_ao.c',
+                    'app/component/src/modbus_image.c',
                     'app/component/src/reg_map.c',
                     'app/component/src/ch_config.c',
+                    'tests/stubs/param_stub.c',
                     'tests/stubs/analog_input_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
@@ -108,6 +119,7 @@ $tests = @(
         Name = 'test_modbus_ao'
         Sources = @('tests/app/test_modbus_ao.c',
                     'app/ao/src/modbus_ao.c',
+                    'app/component/src/modbus_image.c',
                     'app/component/src/reg_map.c',
                     'app/component/src/ch_config.c',
                     'tests/stubs/modbus_port_fake.c',
@@ -121,6 +133,7 @@ $tests = @(
                     'app/ao/src/channel_ao.c',
                     'app/ao/src/cold_junction_ao.c',
                     'app/ao/src/modbus_ao.c',
+                    'app/component/src/modbus_image.c',
                     'app/component/src/reg_map.c',
                     'app/component/src/ch_config.c',
                     '../library/device/tmp75/src/tmp75.c',

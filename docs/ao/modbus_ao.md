@@ -30,7 +30,8 @@
 3. **从站地址语义**：地址寄存器（128）同路径同步固化；成功后新地址对**下一帧**生效
    （本帧应答照常完成），失败回 04 且地址不变；`callbacks.address` 返回镜像。
 4. **映像不变量**：保持寄存器镜像 = 当前**生效**配置（仅固化成功后更新）；输入寄存器
-   镜像 = 各生产者事件的最近状态；故障锁存位（b1/b2/b3）在本 AO 直接维护（§5）。
+   镜像 = 各生产者事件的最近状态；故障锁存位（b1/b2/b3）随镜像在 `modbus_image`
+   组件维护（§5），本 AO 仅转发 MEASURE/CJC 事件与发布提交结果。
 5. **同步可读**：寄存器回调在 `modbus_slave_advance()`（本 AO RTC）内同步执行，
    从事件之外无共享数据旁路。
 6. 帧事件用静态事件：modbus 核心在 CAPTURED 期间丢弃字节，`on_frame_received` 至多
@@ -166,6 +167,11 @@ AoModbus (top, 初始 → Serving)
 （`modbus_slave_rtu_rx_byte`），只有 `advance()` 复位会话后才可能捕获下一帧。
 
 ### 保持寄存器写回调（FC06/FC16 同路径）
+
+> 实现归属：本管线随类型化镜像一起落在 `modbus_image` 组件
+> （`app/component/src/modbus_image.c`，设计见 `docs/component/modbus_image.md`），
+> 由 modbus 核心在 `AoModbus` 的执行上下文内直调；`AoModbus` 只把提交结果
+> 折算成 `CONFIG_SET_SIG` 发布。行为不变，路径如下：
 
 ```text
 地址检查 start/count 全部 ∈ 有效映射区（某通道块 +0..+9 或设备寄存器 128）

@@ -28,13 +28,13 @@
 static int checks;
 static int failures;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        ++checks;                                                       \
-        if ( !(cond) ) {                                                \
-            ++failures;                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);     \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        ++checks;                                                  \
+        if ( !(cond) ) {                                           \
+            ++failures;                                            \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        }                                                          \
     } while ( 0 )
 
 /** @brief Buffers the core requires; caller-owned, core-owned content. */
@@ -83,8 +83,7 @@ static uint16_t crc16(const uint8_t* data,
         for ( shift = 0U; shift < 8U; ++shift ) {
             if ( (crc & 0x0001U) != 0U ) {
                 crc = (uint16_t)((crc >> 1) ^ 0xA001U);
-            }
-            else {
+            } else {
                 crc = (uint16_t)(crc >> 1);
             }
         }
@@ -102,10 +101,10 @@ static void build_frame(uint8_t* out,
 
     out[0] = addr;
     memcpy(&out[1], pdu, pdu_len);
-    crc = crc16(out, (uint16_t)(pdu_len + 1U));
+    crc               = crc16(out, (uint16_t)(pdu_len + 1U));
     out[pdu_len + 1U] = (uint8_t)(crc & 0xFFU);
     out[pdu_len + 2U] = (uint8_t)(crc >> 8);
-    *len = (uint16_t)(pdu_len + 3U);
+    *len              = (uint16_t)(pdu_len + 3U);
 }
 
 static void feed_frame(const uint8_t* frame,
@@ -217,10 +216,10 @@ static void scenario_begin_ex(const param_boot_result_t* boot)
 
     modbus_ao_ctor(&ao);
 
-    cfg.baudrate   = 9600U;
-    cfg.rx_buffer  = rx_buffer;
+    cfg.baudrate    = 9600U;
+    cfg.rx_buffer   = rx_buffer;
     cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
-    cfg.tx_buffer  = tx_buffer;
+    cfg.tx_buffer   = tx_buffer;
     cfg.tx_capacity = (uint16_t)sizeof(tx_buffer);
     modbus_port_fake_line(&port, &cfg.line);
     modbus_port_fake_timer(&port, &cfg.timer);
@@ -275,11 +274,10 @@ static void test_boot_load_publishes(void)
     uint16_t reply_len;
     uint8_t frame[8];
     uint16_t frame_len;
-    uint8_t pdu[5] = { 0x03U, 0x00U, 0x00U, 0x00U, 0x05U };
+    uint8_t pdu[5]                  = {0x03U, 0x00U, 0x00U, 0x00U, 0x05U};
     static const uint8_t expected[] = {
         0x01U, 0x03U, 0x0AU, 0x00U, 0x03U, 0x00U, 0x02U,
-        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U
-    };
+        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
     uint8_t full[sizeof(expected) + 2U];
     uint16_t crc;
 
@@ -302,7 +300,7 @@ static void test_boot_load_publishes(void)
     pump_tx();
 
     memcpy(full, expected, sizeof(expected));
-    crc = crc16(full, (uint16_t)sizeof(expected));
+    crc                         = crc16(full, (uint16_t)sizeof(expected));
     full[sizeof(expected)]      = (uint8_t)(crc & 0xFFU);
     full[sizeof(expected) + 1U] = (uint8_t)(crc >> 8);
 
@@ -333,13 +331,15 @@ static void test_fc16_write_pipeline(void)
     next.linear_min = 4.0f;
     next.linear_max = 20.0f;
     next.offset     = 0.5f;
-    next.gain        = 2.0f;
+    next.gain       = 2.0f;
     reg_map_ch_encode(&next, block);
 
     pdu[0] = 0x10U;
-    pdu[1] = 0x00U; pdu[2] = 0x00U; /* start 0 */
-    pdu[3] = 0x00U; pdu[4] = 0x0AU; /* 10 registers */
-    pdu[5] = 20U;                    /* byte count */
+    pdu[1] = 0x00U;
+    pdu[2] = 0x00U; /* start 0 */
+    pdu[3] = 0x00U;
+    pdu[4] = 0x0AU; /* 10 registers */
+    pdu[5] = 20U;   /* byte count */
     for ( i = 0U; i < 20U; ++i ) {
         pdu[6U + i] = block[i];
     }
@@ -350,12 +350,12 @@ static void test_fc16_write_pipeline(void)
 
     /* EX 00 reply: addr, FC16, start, quantity. */
     {
-        static const uint8_t head[] = { 0x01U, 0x10U, 0x00U, 0x00U, 0x00U, 0x0AU };
+        static const uint8_t head[] = {0x01U, 0x10U, 0x00U, 0x00U, 0x00U, 0x0AU};
         uint8_t full[8];
         uint16_t crc;
 
         memcpy(full, head, sizeof(head));
-        crc = crc16(full, (uint16_t)sizeof(head));
+        crc     = crc16(full, (uint16_t)sizeof(head));
         full[6] = (uint8_t)(crc & 0xFFU);
         full[7] = (uint8_t)(crc >> 8);
 
@@ -370,8 +370,8 @@ static void test_fc16_write_pipeline(void)
     CHECK(param_stub.last_cfg.type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(param_stub.last_cfg.rate_code == 9U);
     CHECK(param_stub.last_cfg.linear_max == 20.0f);
-    CHECK(ao.cfg_image[0].type == (uint8_t)CH_TYPE_4_20MA);
-    CHECK(ao.cfg_image[0].gain == 2.0f);
+    CHECK(ao.image.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
+    CHECK(ao.image.cfg[0].gain == 2.0f);
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     CHECK(published[boot_publish_count].ch == 1U);
@@ -404,8 +404,10 @@ static void test_invalid_write_rejected(void)
     reg_map_ch_encode(&bad, block);
 
     pdu[0] = 0x10U;
-    pdu[1] = 0x00U; pdu[2] = 0x00U;
-    pdu[3] = 0x00U; pdu[4] = 0x0AU;
+    pdu[1] = 0x00U;
+    pdu[2] = 0x00U;
+    pdu[3] = 0x00U;
+    pdu[4] = 0x0AU;
     pdu[5] = 20U;
     for ( i = 0U; i < 20U; ++i ) {
         pdu[6U + i] = block[i];
@@ -416,12 +418,12 @@ static void test_invalid_write_rejected(void)
     pump_tx();
 
     {
-        static const uint8_t head[] = { 0x01U, 0x90U, 0x03U };
+        static const uint8_t head[] = {0x01U, 0x90U, 0x03U};
         uint8_t full[5];
         uint16_t crc;
 
         memcpy(full, head, sizeof(head));
-        crc = crc16(full, (uint16_t)sizeof(head));
+        crc     = crc16(full, (uint16_t)sizeof(head));
         full[3] = (uint8_t)(crc & 0xFFU);
         full[4] = (uint8_t)(crc >> 8);
 
@@ -431,7 +433,7 @@ static void test_invalid_write_rejected(void)
     }
 
     CHECK(param_stub.save_cfg_calls == 0U);
-    CHECK(ao.cfg_image[0].type == (uint8_t)CH_TYPE_TC);
+    CHECK(ao.image.cfg[0].type == (uint8_t)CH_TYPE_TC);
     rec_collect();
     CHECK(published_count == boot_publish_count);
     scenario_end();
@@ -444,8 +446,8 @@ static void test_address_change(void)
     uint16_t reply_len;
     uint8_t frame[8];
     uint16_t frame_len;
-    uint8_t pdu_set[5] = { 0x06U, 0x00U, 0x80U, 0x00U, 0xF7U };
-    uint8_t pdu_read[5] = { 0x03U, 0x00U, 0x80U, 0x00U, 0x01U };
+    uint8_t pdu_set[5]  = {0x06U, 0x00U, 0x80U, 0x00U, 0xF7U};
+    uint8_t pdu_read[5] = {0x03U, 0x00U, 0x80U, 0x00U, 0x01U};
 
     scenario_begin();
 
@@ -457,7 +459,7 @@ static void test_address_change(void)
     reply_len = tx_take(reply, sizeof(reply));
     CHECK(reply_len == 8U);
     CHECK(param_stub.save_addr_calls == 1U);
-    CHECK(ao.addr_image == 247U);
+    CHECK(ao.image.addr_image == 247U);
     CHECK(modbus_slave_get_address(&slave) == 247U);
 
     /* The old address no longer answers. */
@@ -487,8 +489,8 @@ static void test_commit_failure_latches(void)
     uint16_t reply_len;
     uint8_t frame[8];
     uint16_t frame_len;
-    uint8_t pdu_set[5] = { 0x06U, 0x00U, 0x80U, 0x00U, 0xC8U }; /* 200 */
-    uint8_t pdu_fault[5] = { 0x04U, 0x00U, 0x44U, 0x00U, 0x01U }; /* reg 68 */
+    uint8_t pdu_set[5]   = {0x06U, 0x00U, 0x80U, 0x00U, 0xC8U}; /* 200 */
+    uint8_t pdu_fault[5] = {0x04U, 0x00U, 0x44U, 0x00U, 0x01U}; /* reg 68 */
 
     scenario_begin();
     param_stub_set_save(PARAM_ERR_WRITE, PARAM_ERR_WRITE);
@@ -499,12 +501,12 @@ static void test_commit_failure_latches(void)
     pump_tx();
 
     {
-        static const uint8_t head[] = { 0x01U, 0x86U, 0x04U };
+        static const uint8_t head[] = {0x01U, 0x86U, 0x04U};
         uint8_t full[5];
         uint16_t crc;
 
         memcpy(full, head, sizeof(head));
-        crc = crc16(full, (uint16_t)sizeof(head));
+        crc     = crc16(full, (uint16_t)sizeof(head));
         full[3] = (uint8_t)(crc & 0xFFU);
         full[4] = (uint8_t)(crc >> 8);
 
@@ -512,8 +514,8 @@ static void test_commit_failure_latches(void)
         CHECK(reply_len == 5U);
         CHECK(memcmp(reply, full, 5U) == 0);
     }
-    CHECK(ao.addr_image == REG_MAP_DEV_ADDR_MIN); /* not adopted */
-    CHECK(ao.b1 != 0U);
+    CHECK(ao.image.addr_image == REG_MAP_DEV_ADDR_MIN); /* not adopted */
+    CHECK(ao.image.b1 != 0U);
 
     /* The fault word exposes the latch through the input area; b0 is also
      * set because no CJC heartbeat has arrived yet in this scenario. */
@@ -537,7 +539,7 @@ static void test_silence_paths(void)
     uint8_t reply[64];
     uint8_t frame[8];
     uint16_t frame_len;
-    uint8_t pdu[5] = { 0x06U, 0x00U, 0x80U, 0x00U, 0x96U }; /* 150 */
+    uint8_t pdu[5] = {0x06U, 0x00U, 0x80U, 0x00U, 0x96U}; /* 150 */
 
     scenario_begin();
 
@@ -556,7 +558,7 @@ static void test_silence_paths(void)
     pump_tx();
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
     CHECK(param_stub.save_addr_calls == 1U);
-    CHECK(ao.addr_image == 150U);
+    CHECK(ao.image.addr_image == 150U);
     scenario_end();
 }
 
@@ -566,12 +568,12 @@ static void test_boot_failures_latch(void)
     param_boot_result_t boot;
 
     memset(&boot, 0, sizeof(boot));
-    boot.db_ok = 0U; /* FlashDB init failed: b3, no configuration published */
+    boot.db_ok    = 0U;                   /* FlashDB init failed: b3, no configuration published */
     boot.dev_addr = REG_MAP_DEV_ADDR_MIN; /* param.c guarantees the default */
 
     scenario_begin_ex(&boot);
 
-    CHECK(ao.fdb_init_failed != 0U);
+    CHECK(ao.image.fdb_init_failed != 0U);
     rec_collect();
     CHECK(published_count == 0U);
 
@@ -580,7 +582,7 @@ static void test_boot_failures_latch(void)
         uint16_t reply_len;
         uint8_t frame[8];
         uint16_t frame_len;
-        uint8_t pdu_fault[5] = { 0x04U, 0x00U, 0x44U, 0x00U, 0x01U };
+        uint8_t pdu_fault[5] = {0x04U, 0x00U, 0x44U, 0x00U, 0x01U};
 
         build_frame(frame, &frame_len, 1U, pdu_fault, 5U);
         feed_frame(frame, frame_len);
@@ -601,20 +603,20 @@ static void test_measure_mirror(void)
     uint16_t reply_len;
     uint8_t frame[8];
     uint16_t frame_len;
-    uint8_t pdu[5] = { 0x04U, 0x00U, 0x08U, 0x00U, 0x03U }; /* ch2: value, status */
+    uint8_t pdu[5] = {0x04U, 0x00U, 0x08U, 0x00U, 0x03U}; /* ch2: value, status */
     measure_evt_t* e;
 
     scenario_begin();
 
-    e = Q_NEW(measure_evt_t, MEASURE_SIG);
+    e         = Q_NEW(measure_evt_t, MEASURE_SIG);
     e->ch     = 2U;
     e->value  = 42.5f;
     e->status = (uint16_t)REG_MAP_STATUS_OK;
     QACTIVE_PUBLISH(&e->super, (void*)0);
     drain();
 
-    CHECK(ao.value[1] == 42.5f);
-    CHECK(ao.status[1] == (uint16_t)REG_MAP_STATUS_OK);
+    CHECK(ao.image.value[1] == 42.5f);
+    CHECK(ao.image.status[1] == (uint16_t)REG_MAP_STATUS_OK);
 
     build_frame(frame, &frame_len, 1U, pdu, 5U);
     feed_frame(frame, frame_len);
