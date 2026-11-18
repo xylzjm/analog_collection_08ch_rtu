@@ -208,4 +208,6 @@ void board_init(void)
         elog_error("board", "analog_input_board_ctor_all failed (%d)",
                    (int)analog_status);
     }
+
+    wk_delay_ms(300U);
 }

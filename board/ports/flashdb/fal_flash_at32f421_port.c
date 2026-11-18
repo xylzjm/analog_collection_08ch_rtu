@@ -1,5 +1,9 @@
 #include <string.h>
 
+/* fdb_cfg.h before fal.h: elog's log_* arrive first and FAL overrides them
+ * silently (fal_def.h undefines before redefining), like the middleware TUs. */
+#include "fdb_cfg.h"
+
 #include "fal.h"
 
 #include "at32f421_flash.h"
@@ -47,7 +51,7 @@ static int write(long offset, const uint8_t* buf, size_t size)
     }
     addr = at32f421_onchip_flash.addr + (uint32_t)offset;
 
-    /* Byte programming must stay in step with FDB_WRITE_GRAN/write_gran. */
+    /* Byte programming must match the gran the KV layout assumes. */
     flash_unlock();
     for ( i = 0; i < size; ++i ) {
         if ( flash_byte_program(addr + (uint32_t)i, buf[i])
@@ -99,5 +103,6 @@ const struct fal_flash_dev at32f421_onchip_flash = {
     .len        = 64 * 1024,
     .blk_size   = 1024,
     .ops        = {init, read, write, erase},
-    .write_gran = 8
+    /* Single source: byte programming must stay in step with the KV layout. */
+    .write_gran = FDB_WRITE_GRAN
 };

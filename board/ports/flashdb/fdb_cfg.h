@@ -17,7 +17,7 @@
 #define FDB_USING_FAL_MODE
 
 #ifdef FDB_USING_FAL_MODE
-/** @brief Must match fal_flash_dev.write_gran; a mismatch corrupts the KV layout. */
+/** @brief Write granularity; the FAL port consumes this, so it is the single source (a mismatch corrupts the KV layout). */
 #define FDB_WRITE_GRAN                8
 #endif
 

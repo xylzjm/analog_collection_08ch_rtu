@@ -43,11 +43,11 @@ extern "C" {
 /** @brief Base address of the system block (input). */
 #define REG_MAP_SYS_BASE 64U
 
-/** @brief Lowest legal Modbus slave address. */
-#define REG_MAP_DEV_ADDR_MIN 1U
+/** @brief Lowest legal Modbus slave address (single source: the core). */
+#define REG_MAP_DEV_ADDR_MIN MODBUS_SLAVE_ADDRESS_MIN
 
-/** @brief Highest legal Modbus slave address. */
-#define REG_MAP_DEV_ADDR_MAX 247U
+/** @brief Highest legal Modbus slave address (single source: the core). */
+#define REG_MAP_DEV_ADDR_MAX MODBUS_SLAVE_ADDRESS_MAX
 
 /*----------------------------------------------------------------------------*/
 /* Data spaces and spans                                                      */

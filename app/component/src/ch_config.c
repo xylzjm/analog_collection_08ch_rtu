@@ -8,21 +8,23 @@
 #include <float.h>
 #include <string.h>
 
-/** @brief Sample rates of the rate codes, in mHz (mirrors ANALOG_INPUT_BOARD_RATE_*). */
+#include "analog_input_board.h"
+
+/** @brief Sample rates of the rate codes, in mHz (the board's tier list, in rate-code order). */
 static const uint32_t rate_millihz_table[CH_CONFIG_RATE_CODE_COUNT] = {
-    2500U,   /* 2.5 Hz  */
-    5000U,   /* 5 Hz    */
-    10000U,  /* 10 Hz   */
-    12500U,  /* 12.5 Hz */
-    15000U,  /* 15 Hz   */
-    20000U,  /* 20 Hz   */
-    25000U,  /* 25 Hz   */
-    30000U,  /* 30 Hz   */
-    40000U,  /* 40 Hz   */
-    50000U,  /* 50 Hz   */
-    60000U,  /* 60 Hz   */
-    80000U,  /* 80 Hz   */
-    100000U  /* 100 Hz  */
+    ANALOG_INPUT_BOARD_RATE_2_5_HZ,
+    ANALOG_INPUT_BOARD_RATE_5_HZ,
+    ANALOG_INPUT_BOARD_RATE_10_HZ,
+    ANALOG_INPUT_BOARD_RATE_12_5_HZ,
+    ANALOG_INPUT_BOARD_RATE_15_HZ,
+    ANALOG_INPUT_BOARD_RATE_20_HZ,
+    ANALOG_INPUT_BOARD_RATE_25_HZ,
+    ANALOG_INPUT_BOARD_RATE_30_HZ,
+    ANALOG_INPUT_BOARD_RATE_40_HZ,
+    ANALOG_INPUT_BOARD_RATE_50_HZ,
+    ANALOG_INPUT_BOARD_RATE_60_HZ,
+    ANALOG_INPUT_BOARD_RATE_80_HZ,
+    ANALOG_INPUT_BOARD_RATE_100_HZ,
 };
 
 /** @brief Sample period of the rate codes in 1 ms ticks: ceil(1e6 / rate_mhz). */

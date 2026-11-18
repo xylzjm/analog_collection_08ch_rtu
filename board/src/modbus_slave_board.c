@@ -152,7 +152,7 @@ modbus_slave_status_t modbus_slave_board_ctor(
         return MODBUS_SLAVE_ERR_ARG;
     }
 
-    config.baudrate       = 9600;
+    config.baudrate       = BOARD_MODBUS_BAUDRATE;
     config.rx_buffer      = rx_buffer;
     config.rx_capacity    = (uint16_t)MB_BUFFER_SIZE;
     config.tx_buffer      = tx_buffer;

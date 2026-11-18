@@ -100,10 +100,12 @@ unverified on hardware.
   local nesting counter; contract violations trap in `Q_onError` with 110/111.
 - Assertions use `Q_ASSERT`/`Q_onError`; `Q_onError` writes raw RTT and is safe
   from ISRs. FlashDB and EasyLogger asserts already bridge to it.
-- `FDB_WRITE_GRAN` (8) must equal `fal_flash_dev.write_gran` (8); a mismatch
-  corrupts the KV layout silently.
-- USART1 runs 9600 8N1 (`wk_usart.c` and `modbus_slave_board.c`); changing the
-  baud rate means editing both places.
+- `FDB_WRITE_GRAN` (8) is the single source: the FAL port builds
+  `fal_flash_dev.write_gran` from it; a hand-edited divergence corrupts the
+  KV layout silently.
+- USART1 runs 9600 8N1. `modbus_slave_board.c` feeds the core from
+  `BOARD_MODBUS_BAUDRATE` (`board_config.h`, the single home of the core's
+  baud); the generated `wk_usart.c` init literal must stay in step with it.
 - USART1 and TMR14 share preemption priority 5 and must not preempt each other.
   Modbus RX/TX buffers are 256 B each; TMR14 counts 10 us ticks.
 

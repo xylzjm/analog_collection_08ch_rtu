@@ -26,7 +26,7 @@ tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 
 ```c
 log_init();     /* SEGGER RTT + EasyLogger */
-board_init();   /* 时钟、外设、板级设备 */
+board_init();   /* 时钟、外设、板级设备；末尾等 TMP75 首次转换（12-bit 最坏 300 ms） */
 ```
 
 `board_init()` 只负责板级硬件：
@@ -65,9 +65,9 @@ elog_* / FDB_PRINT / printf
 - 片内 Flash：64 KB，1 KB 扇区，支持字节编程。
 - 参数分区：`fdb_kvdb`，`0x0800F000..0x0800FFFF`，偏移 60 KB，长度 4 KB。
 - 固件 ROM 区域为 `0x08000000..0x0800EFFF`（60 KB）。
-- FAL 设备：`at32f421_onchip`，`blk_size = 1024`，`write_gran = 8`。
+- FAL 设备：`at32f421_onchip`，`blk_size = 1024`，`write_gran = FDB_WRITE_GRAN`（单源：FAL 端口直接消费 `fdb_cfg.h` 的值）。
 - FlashDB：`FDB_USING_KVDB`、`FDB_USING_FAL_MODE`、`FDB_WRITE_GRAN = 8`。
-- `FDB_WRITE_GRAN` 必须与 `fal_flash_dev.write_gran` 一致；错误值会静默破坏 KV 格式。
+- `FDB_WRITE_GRAN` 是唯一来源：FAL 端口用它的值构造 `fal_flash_dev.write_gran`；手工改动分叉会静默破坏 KV 格式。
 - `FAL_PART_HAS_TABLE_CFG` 使用静态分区表和缓存，不依赖 malloc。
 - FAL 端口对读写擦做溢出安全的范围检查；擦除要求 offset 和 size 都按 1 KB 对齐。
 - 写操作逐字节调用 `flash_byte_program()` 并回读校验。
@@ -103,7 +103,7 @@ elog_* / FDB_PRINT / printf
 ### TMP75
 
 - 单片 TMP75，地址 0x48（A2–A0 接地），ALERT 未接，不处理。
-- 按上电默认配置运行：9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C（冷端补偿已接受该量化），应用层不写配置寄存器。将来需要更高分辨率时在板级初始化调用 `tmp75_write_config()`，写后延时 ≥ `tmp75_conversion_time_ms()` 再返回——板级契约：`board_init()` 返回时 TMP75 至少已完成一次转换（首读不会读到上电 0 °C 假值）。
+- 按上电默认配置运行：9-bit 分辨率、连续转换、比较器模式，实际步进 0.5 °C（冷端补偿已接受该量化），应用层不写配置寄存器。首次转换完成前的读数是上电 0 °C 假值；板级契约：`board_init()` 末尾显式等待 `TMP75_SETTLE_WAIT_MS`（300 ms，覆盖 12-bit 最坏转换时间，不依赖 SIG24131 的 43 ms 等待），返回时 TMP75 至少已完成一次转换（首读不会读到上电 0 °C 假值）。将来需要更高分辨率时在板级初始化调用 `tmp75_write_config()`，写后延时 ≥ `tmp75_conversion_time_ms()` 再返回。
 - 启动时只对 0x48 做一次 `i2c_soft_probe()`：NACK 只说明地址/接线问题，不表示温度可读。
 - 读取方式：`tmp75_board_get_device()` 取设备对象，再调用 `tmp75_read_temperature()`。
 - 板级 `transfer` 把所有 I2C 失败统一映射为 `TMP75_ERR_IO`；启动 probe 直接调用 `i2c_soft_probe()` 以保留原始状态码。
@@ -127,7 +127,7 @@ elog_* / FDB_PRINT / printf
 
 ### Modbus RTU
 
-- USART1：TX PA9，RX PA10，9600 8N1。
+- USART1：TX PA9，RX PA10，9600 8N1。核心侧波特率单源：`BOARD_MODBUS_BAUDRATE`（`board_config.h`，`modbus_slave_board.c` 消费，T3.5 与 TX 看门狗由此推导）；`wk_usart.c` 的生成初始化字面量须与其保持一致。
 - RS485 DE：PA11，高电平驱动总线。
 - T3.5 / TX 看门狗：TMR14。
 - RX/TX 缓冲区各 256 B。

@@ -32,6 +32,18 @@ Q_ASSERT_STATIC((int)CH_TYPE_PT100 == (int)ANALOG_INPUT_TYPE_PT100);
 Q_ASSERT_STATIC((int)CH_TYPE_4_20MA == (int)ANALOG_INPUT_TYPE_4_20MA);
 Q_ASSERT_STATIC((int)CH_TYPE_0_10V == (int)ANALOG_INPUT_TYPE_0_10V);
 
+/* The thermocouple type codes must match the driver encoding as well.
+ * The "none" sentinels differ on purpose (CH_TC_TYPE_NONE is the register
+ * encoding's 0xFF, the driver uses -1) and apply_pending() converts. */
+Q_ASSERT_STATIC((int)CH_TC_TYPE_B == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_B);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_E == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_E);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_J == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_J);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_K == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_K);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_N == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_N);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_R == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_R);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_S == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_S);
+Q_ASSERT_STATIC((int)CH_TC_TYPE_T == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_T);
+
 static QState channel_ao_initial(channel_ao_t* const me, void const* const par);
 static QState channel_ao_root(channel_ao_t* const me, QEvt const* const e);
 static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const e);
