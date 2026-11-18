@@ -213,5 +213,5 @@ boot 首拍与 configure 失败落点毒化等缺陷，补全需计数器，违�
 | 冷端失效 | TMP75 断开 | TC 状态 5、值冻结；恢复自愈 | 拔线实验 |
 | 速率档位 | 逐档写速率 | 实测频率 = 表定周期倒数（恒 ≤ 标称，误差见 §6 表）；无抖动 | 脉冲计数 |
 | 改配竞态 | Detecting 中写新配置（含同一窗口连写两次、背压 30 ms） | 迟到事件全落 Unconfigured 被忽略；无提前检查、无挂死 | 轨迹 + 断言 |
-| 竞态穷举 | host FIFO 模拟器穷举 CONFIG/到期/背压交错 | 迟到事件永不达处理态；四条结构纪律成立；旧顺序反例必现 | `test_reconfig_race` |
+| 竞态穷举 | host 事件注入穷举 CONFIG/到期/背压交错（真实 dispatch + tick 注入） | 迟到事件被旧态消耗或在 Unconfigured 被忽略；新代际截止时间得到遵守；连续改配合并为一次 configure | `tests/app/test_channel_ao.c`（`tests/run_host_tests.ps1`） |
 | 样本率压测 | 8×100 Hz 30 min | `do_sample` RTC 低水位、队列 `getQueueMin` ≥ 5 | 日志 |

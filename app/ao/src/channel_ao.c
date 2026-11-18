@@ -11,8 +11,6 @@
 
 #include "channel_ao.h"
 
-#include "analog_input_board.h"
-
 #include "app_events.h"
 #include "elog.h"
 #include "reg_map.h"
@@ -136,14 +134,15 @@ static bool apply_pending(channel_ao_t* me)
 }
 
 void channel_ao_ctor(channel_ao_t* me,
-                     uint8_t ch)
+                     uint8_t ch,
+                     analog_input_t* input)
 {
     QActive_ctor(&me->super, Q_STATE_CAST(&channel_ao_initial));
     QTimeEvt_ctorX(&me->te_sample, Q_ACTIVE_UPCAST(me), SAMPLE_SIG, 0U);
     QTimeEvt_ctorX(&me->te_settle, Q_ACTIVE_UPCAST(me), SETTLE_SIG, 0U);
     QTimeEvt_ctorX(&me->te_break, Q_ACTIVE_UPCAST(me), BREAK_WINDOW_SIG, 0U);
 
-    me->input = analog_input_board_get(ch);
+    me->input = input;
     Q_ASSERT(me->input != NULL);
 
     me->ch        = ch;

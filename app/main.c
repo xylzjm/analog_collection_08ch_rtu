@@ -5,10 +5,13 @@
 #include "elog.h"
 #include "qpc.h"
 
+#include "analog_input_board.h"
+#include "app_events.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
-#include "app_events.h"
 #include "modbus_ao.h"
+#include "modbus_slave_board.h"
+#include "tmp75_board.h"
 
 /** @brief Route EasyLogger assertions to the project error handler. */
 static void elog_assert_handler(char const* expr, char const* func, size_t line)
@@ -70,10 +73,18 @@ int main(void)
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        channel_ao_ctor(&channels[i], (uint8_t)(i + 1U));
+        channel_ao_ctor(&channels[i], (uint8_t)(i + 1U),
+                        analog_input_board_get((uint8_t)(i + 1U)));
     }
-    cold_junction_ao_ctor(&cold_junction);
+    cold_junction_ao_ctor(&cold_junction, tmp75_board_get_device());
+
+    /*
+     * The slave is composed from the AO's data-space callbacks (the mirror
+     * lives in the AO), then attached so its ISR events route back into it.
+     */
     modbus_ao_ctor(&modbus);
+    (void)modbus_slave_board_ctor(modbus_ao_callbacks(&modbus), modbus_ao_identity());
+    modbus_ao_attach(&modbus, modbus_slave_board_get());
 
     /*
      * Start order: channels first, then AoModbus (its boot load publishes
@@ -83,12 +94,24 @@ int main(void)
      * registers the AO before QASM_INIT).
      */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        QActive_start(Q_ACTIVE_UPCAST(&channels[i]), Q_PRIO((uint8_t)(2U + i), 0U), ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
+        QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
+                      Q_PRIO((uint8_t)(2U + i), 0U),
+                      ch_queue[i], CHANNEL_AO_QUEUE_LEN,
+                      (void*)0, 0U,
+                      (void*)0);
     }
 
-    QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(11U, 0U), modbus_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
+    QActive_start(Q_ACTIVE_UPCAST(&modbus),
+                  Q_PRIO(11U, 0U),
+                  modbus_queue, MODBUS_AO_QUEUE_LEN,
+                  (void*)0, 0U,
+                  (void*)0);
 
-    QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(10U, 0U), cjc_queue, COLD_JUNCTION_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
+    QActive_start(Q_ACTIVE_UPCAST(&cold_junction),
+                  Q_PRIO(10U, 0U),
+                  cjc_queue, COLD_JUNCTION_AO_QUEUE_LEN,
+                  (void*)0, 0U,
+                  (void*)0);
 
     return QF_run();
 }

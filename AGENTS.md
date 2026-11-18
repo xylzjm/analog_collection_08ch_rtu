@@ -73,12 +73,15 @@ before `../middleware/EasyLogger/easylogger/inc`, otherwise the template
 
 The QP/C application layer from `docs/` is implemented: 10 active objects
 (8x AoChannel at prio 2..9, AoColdJunction 10, AoModbus 11) plus the passive
-components `ch_config` / `reg_map` / `param` (+ `param_defaults.c`). Host
-tests live in `app/component/test/` (self-contained `main()` + `CHECK`). The
-composition root is `app/main.c`: it starts subscribers before publishers
-(every active object subscribes inside its own state-machine initial
-transition, QP/C example style; `QActive_start()` registers the AO before
-running the initial transition), and `param_boot_load()` runs
+components `ch_config` / `reg_map` / `param` (+ `param_defaults.c`). The
+active objects take their device objects by constructor injection (no board
+singletons inside `app/ao/`): main.c passes the board singletons to the
+channel and cold-junction constructors, and composes the Modbus slave from
+`modbus_ao_callbacks()`/`modbus_ao_identity()` before `modbus_ao_attach()`.
+The composition root starts subscribers before publishers (every active
+object subscribes inside its own state-machine initial transition, QP/C
+example style; `QActive_start()` registers the AO before running the initial
+transition), and `param_boot_load()` runs
 inside the AoModbus initial transition (`QActive_start()` context, before
 `QF_run()`). `on_frame_received` is routed to `modbus_slave_advance()` via
 FRAME_SIG. Board-level behavior is unchanged except the SysTick tick feed.
@@ -107,7 +110,24 @@ unverified on hardware.
 ## Verifying changes
 
 1. EIDE build must succeed.
-2. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -
+2. The repo's host tests run through `tests/run_host_tests.ps1` (MinGW gcc):
+
+   - `app/component/test/` - pure component tests (self-contained `main()` +
+     `CHECK`), no QP linkage.
+   - `tests/app/` - active-object tests driven by event injection: the real
+     QP/C sources (`../middleware/qp/qpc/src/qf/*` + `qv.c`) link against the
+     host port `tests/stubs/qp_port.h`, which shares the firmware
+     `qp_config.h`, and the dispatch loop replicates the QV triple
+     (`QActive_get_` -> `QASM_DISPATCH` -> `QF_gc`). Fakes exist only at the
+     device edges: `analog_input_fake` (ops vtable with a call log),
+     `tmp75_port_fake` (behind the real `tmp75.c`), `modbus_port_fake`
+     (behind the real slave core), and `param_stub` (scriptable commit
+     results). `test_boot` takes a scenario argument (1, 2): the QP registry
+     is not rebuilt twice inside one process.
+
+   The script prints `N checks, 0 failures` per test. `tests/` and its
+   harness are outside the EIDE build.
+3. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -
    self-contained `main()` plus a `CHECK` macro, excluded from the firmware
    build. Compile with host gcc, for example:
 

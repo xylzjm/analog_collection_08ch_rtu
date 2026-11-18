@@ -1,0 +1,312 @@
+/**
+ * @file test_boot.c
+ * @brief Host integration test of the composition-root startup order.
+ *
+ * Runs all ten active objects (8x AoChannel, AoColdJunction, AoModbus)
+ * with fakes at the device edge and mirrors the main.c startup order:
+ * channels start first (each subscribes inside its initial transition),
+ * then AoModbus (its boot load publishes CONFIG_SET_SIG), then
+ * AoColdJunction (its first CJC_SIG heartbeat). Assertions prove the
+ * docs/qp-application-design.md section 8 invariants: the boot publish
+ * reaches every subscribed channel, no queue runs dry, and telemetry
+ * flows end to end into the Modbus mirror.
+ *
+ * One scenario per process: the QP registry and time-event teardown is
+ * not designed for tearing the world down and rebuilding it inside one
+ * run, so main() takes the scenario number (1 or 2) and the script
+ * starts one process per scenario.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "qpc.h"
+
+#include "analog_input_fake.h"
+#include "app_events.h"
+#include "channel_ao.h"
+#include "cold_junction_ao.h"
+#include "host_support.h"
+#include "modbus_ao.h"
+#include "modbus_port_fake.h"
+#include "param_stub.h"
+#include "reg_map.h"
+#include "tmp75_port_fake.h"
+
+static int checks;
+static int failures;
+
+#define CHECK(cond)                                                     \
+    do {                                                                \
+        ++checks;                                                       \
+        if ( !(cond) ) {                                                \
+            ++failures;                                                 \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);     \
+        }                                                               \
+    } while ( 0 )
+
+static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
+static analog_input_fake_t inputs[CH_CONFIG_CHANNEL_COUNT];
+static cold_junction_ao_t cold_junction;
+static modbus_ao_t modbus;
+static tmp75_t cjc_dev;
+static tmp75_port_fake_t cjc_port;
+
+static uint8_t rx_buffer[256];
+static uint8_t tx_buffer[256];
+static modbus_slave_t slave;
+static modbus_port_fake_t port;
+
+static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
+static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
+static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
+static QSubscrList subscr[MAX_SIG];
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
+
+static uint8_t ch_started;
+static uint8_t cjc_started;
+static uint8_t modbus_started;
+
+/*----------------------------------------------------------------------------*/
+/* Harness                                                                    */
+/*----------------------------------------------------------------------------*/
+
+/** @brief All started AO queues, for the round-robin drain. */
+static QActive* all_aos[CH_CONFIG_CHANNEL_COUNT + 2U];
+static uint8_t all_count;
+
+static void tick(uint32_t n)
+{
+    while ( n != 0U ) {
+        QTIMEEVT_TICK_X(0U, (void*)0);
+        ++g_test_tick;
+        --n;
+    }
+}
+
+static void drain_all(void)
+{
+    for (;;) {
+        uint8_t i;
+        uint8_t dispatched = 0U;
+
+        for ( i = 0U; i < all_count; ++i ) {
+            if ( !QEQueue_isEmpty(&all_aos[i]->eQueue) ) {
+                QEvt const* e = QActive_get_(all_aos[i]);
+
+                QASM_DISPATCH(all_aos[i], e, 0U);
+                QF_gc(e);
+                dispatched = 1U;
+            }
+        }
+        if ( dispatched == 0U ) {
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Advance virtual time with continuous draining, like the QV loop.
+ *
+ * Batching ticks without draining would overflow the 16-deep AoModbus
+ * queue; the target kernel dispatches after every RTC step instead.
+ */
+static void run_ticks(uint32_t n)
+{
+    while ( n != 0U ) {
+        tick(1U);
+        drain_all();
+        --n;
+    }
+}
+
+/** @brief Tear down every started AO so the next scenario can re-register. */
+static void unregister_all(void)
+{
+    uint8_t i;
+
+    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+        if ( ch_started != 0U ) {
+            (void)QTimeEvt_disarm(&channels[i].te_sample);
+            (void)QTimeEvt_disarm(&channels[i].te_settle);
+            (void)QTimeEvt_disarm(&channels[i].te_break);
+            QActive_unregister_(Q_ACTIVE_UPCAST(&channels[i]));
+        }
+    }
+    if ( cjc_started != 0U ) {
+        (void)QTimeEvt_disarm(&cold_junction.te_tick);
+        QActive_unregister_(Q_ACTIVE_UPCAST(&cold_junction));
+    }
+    if ( modbus_started != 0U ) {
+        QActive_unregister_(Q_ACTIVE_UPCAST(&modbus));
+    }
+    ch_started    = 0U;
+    cjc_started   = 0U;
+    modbus_started = 0U;
+    all_count     = 0U;
+}
+
+/**
+ * @brief Mirror the main.c startup order with fakes at the device edge.
+ *
+ * @param fail_ch Zero-based channel that fails to load (255 for none).
+ */
+static void boot_scenario(uint8_t fail_ch)
+{
+    uint8_t i;
+    modbus_slave_config_t cfg;
+    tmp75_port_t cjc_port_if;
+
+    unregister_all();
+    memset(subscr, 0, sizeof(subscr));
+    QActive_psInit(subscr, MAX_SIG);
+
+    param_stub_reset();
+    if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
+        param_stub.boot.cfg_valid[fail_ch] = 0U;
+        param_stub.boot.cfg_load_failed[fail_ch] = 1U;
+    }
+    modbus_port_fake_init(&port);
+    tmp75_port_fake_init(&cjc_port);
+    tmp75_port_fake_port(&cjc_port, &cjc_port_if);
+    CHECK(tmp75_ctor(&cjc_dev, &cjc_port_if, TMP75_ADDRESS_0) == TMP75_OK);
+
+    /* Channels first: every AO subscribes inside its initial transition. */
+    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+        analog_input_fake_init(&inputs[i]);
+        channel_ao_ctor(&channels[i], (uint8_t)(i + 1U), &inputs[i].base);
+        QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
+                      Q_PRIO((uint8_t)(2U + i), 0U),
+                      ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
+        all_aos[i] = Q_ACTIVE_UPCAST(&channels[i]);
+    }
+    ch_started = 1U;
+    all_count = CH_CONFIG_CHANNEL_COUNT;
+
+    /* AoModbus: its boot load publishes CONFIG_SET_SIG to the channels. */
+    modbus_ao_ctor(&modbus);
+    cfg.baudrate    = 9600U;
+    cfg.rx_buffer   = rx_buffer;
+    cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
+    cfg.tx_buffer   = tx_buffer;
+    cfg.tx_capacity = (uint16_t)sizeof(tx_buffer);
+    modbus_port_fake_line(&port, &cfg.line);
+    modbus_port_fake_timer(&port, &cfg.timer);
+    modbus_port_fake_critical(&port, &cfg.critical);
+    cfg.callbacks = *modbus_ao_callbacks(&modbus);
+    cfg.identity  = *modbus_ao_identity();
+    CHECK(modbus_slave_ctor(&slave, &cfg) == MODBUS_SLAVE_OK);
+    modbus_ao_attach(&modbus, &slave);
+    QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(11U, 0U),
+                  modbus_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
+    modbus_started = 1U;
+    all_aos[all_count] = Q_ACTIVE_UPCAST(&modbus);
+    ++all_count;
+
+    /* AoColdJunction last: its first heartbeat reaches every subscriber. */
+    cold_junction_ao_ctor(&cold_junction, &cjc_dev);
+    QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(10U, 0U),
+                  cjc_queue, COLD_JUNCTION_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
+    cjc_started = 1U;
+    all_aos[all_count] = Q_ACTIVE_UPCAST(&cold_junction);
+    ++all_count;
+}
+
+/*----------------------------------------------------------------------------*/
+/* Scenarios                                                                  */
+/*----------------------------------------------------------------------------*/
+
+/** @brief Full boot: the publish reaches every subscriber and telemetry flows. */
+static void test_full_boot(void)
+{
+    uint8_t ch;
+    uint8_t i;
+
+    boot_scenario(255U);
+
+    /* Every channel sees every boot publish (receivers filter by ch) plus
+     * the first CJC heartbeat: 9 of 13 queue slots at the burst peak. */
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        CHECK(QEQueue_getUse(&channels[ch].super.eQueue)
+              == (uint16_t)(CH_CONFIG_CHANNEL_COUNT + 1U));
+    }
+
+    /* The burst fits the capacity budget of docs/qp-application-design.md
+     * section 7: depth 13 covers 8 publishes + 1 heartbeat + margin. */
+    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+        CHECK(QActive_getQueueMin((uint_fast8_t)(2U + i)) >= 3U);
+    }
+    CHECK(QActive_getQueueMin(11U) >= 8U);
+    CHECK(QActive_getQueueMin(10U) >= 1U);
+
+    /* Settle every channel, then sample: 10 Hz needs 100 ms per value. */
+    run_ticks(1200U);
+
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        CHECK(channels[ch].cjc_valid != 0U);
+        CHECK(analog_input_fake_count(&inputs[ch],
+                                      (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE) >= 5U);
+    }
+
+    /* The mirror holds the telemetry of every channel. */
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        CHECK(modbus.value[ch] == 25.0f);
+        CHECK(modbus.status[ch] == (uint16_t)REG_MAP_STATUS_OK);
+    }
+    CHECK(modbus.cjc_valid != 0U);
+    CHECK(modbus.cjc_temp == 25.0f);
+
+    /* Pools fully recycled: both pools have every block back. */
+    drain_all();
+    for ( i = 0U; i < all_count; ++i ) {
+        CHECK(QEQueue_isEmpty(&all_aos[i]->eQueue));
+    }
+}
+
+/** @brief A channel whose parameter load failed never starts measuring. */
+static void test_failed_channel_stays_down(void)
+{
+    uint8_t ch;
+
+    boot_scenario(2U); /* channel 3 (zero-based 2) failed to load */
+
+    run_ticks(1200U);
+
+    CHECK(modbus.load_failed[2] != 0U);
+    CHECK(modbus.status[2] == (uint16_t)REG_MAP_STATUS_UNCONFIGURED);
+    CHECK(analog_input_fake_count(&inputs[2],
+                                  (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE) == 0U);
+
+    /* Every other channel still runs. */
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        if ( ch != 2U ) {
+            CHECK(modbus.value[ch] == 25.0f);
+        }
+    }
+}
+
+/*----------------------------------------------------------------------------*/
+
+int main(int argc, char* argv[])
+{
+    QF_init();
+    QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
+    QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
+
+    if ( (argc == 2) && (argv[1][0] == '2') ) {
+        test_failed_channel_stays_down();
+    }
+    else if ( (argc == 2) && (argv[1][0] == '1') ) {
+        test_full_boot();
+    }
+    else {
+        printf("usage: test_boot <scenario>  (1 full boot, 2 failed channel)\n");
+        return 2;
+    }
+
+    printf("test_boot: %d checks, %d failures\n", checks, failures);
+    return (failures == 0) ? 0 : 1;
+}

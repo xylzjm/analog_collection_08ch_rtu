@@ -11,6 +11,8 @@
 
 #include "qpc.h"
 
+#include "tmp75.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,6 +36,7 @@ extern "C" {
 typedef struct {
     QActive  super;     /**< Active object base. */
     QTimeEvt te_tick;   /**< 1 Hz heartbeat timer. */
+    tmp75_t* dev;       /**< TMP75 driver object; borrowed, must outlive this AO. */
     float    temp_c;    /**< Latest valid temperature. */
     uint8_t  err_cnt;   /**< Consecutive read failures, saturating. */
     uint8_t  have_reading; /**< Non-zero once a reading succeeded. */
@@ -43,8 +46,10 @@ typedef struct {
  * @brief Construct the cold junction active object.
  *
  * @param me Storage owned by the caller.
+ * @param dev TMP75 driver object; borrowed, must outlive this AO.
  */
-void cold_junction_ao_ctor(cold_junction_ao_t* me);
+void cold_junction_ao_ctor(cold_junction_ao_t* me,
+                           tmp75_t* dev);
 
 #ifdef __cplusplus
 }

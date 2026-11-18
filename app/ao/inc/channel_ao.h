@@ -47,9 +47,11 @@ typedef struct {
  *
  * @param me Storage owned by the caller.
  * @param ch One-based board channel (1..8).
+ * @param input Board channel object to own; borrowed, must outlive this AO.
  */
 void channel_ao_ctor(channel_ao_t* me,
-                     uint8_t ch);
+                     uint8_t ch,
+                     analog_input_t* input);
 
 #ifdef __cplusplus
 }

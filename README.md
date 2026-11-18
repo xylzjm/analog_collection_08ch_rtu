@@ -11,9 +11,11 @@ app/                    应用入口、日志服务
 board/inc, board/src    板级硬件与板级设备适配
 board/ports/            中间件移植层
 board/vendor_wk/        WorkBench 生成的外设初始化代码
+tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 ```
 
-- `app/`：组合根（composition root）、日志初始化、共享应用头 `app_events.h`（信号、事件载荷、池容量）与应用对象（活动对象见 `app/ao/`，被动组件见 `app/component/`；两组目录均分 `inc/` 头文件与 `src/` 实现，宿主测试在 `app/component/test/`）。
+- `app/`：组合根（composition root）、日志初始化、共享应用头 `app_events.h`（信号、事件载荷、池容量）与应用对象（活动对象见 `app/ao/`，被动组件见 `app/component/`；两组目录均分 `inc/` 头文件与 `src/` 实现，组件宿主测试在 `app/component/test/`）。
+- `tests/`：活动对象宿主测试（`tests/app/`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器、param 提交结果）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
 - `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。

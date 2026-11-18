@@ -12,7 +12,6 @@
 #include <string.h>
 
 #include "app_events.h"
-#include "modbus_slave_board.h"
 #include "param.h"
 #include "reg_map.h"
 
@@ -234,12 +233,19 @@ static void on_timeout(void* ctx)
 /* Construction                                                               */
 /*----------------------------------------------------------------------------*/
 
+/** @brief Report-Slave-ID payload; no per-instance state. */
+static const uint8_t additional[] = "8CH-AI-RTU";
+
+/** @brief Identity reported by function code 0x11. */
+static const modbus_slave_identity_t identity = {
+    0xFFU,                  /**< slave_id */
+    1U,                     /**< is_running */
+    additional,             /**< additional */
+    (uint16_t)(sizeof(additional) - 1U) /**< additional_length */
+};
+
 void modbus_ao_ctor(modbus_ao_t* me)
 {
-    static const uint8_t additional[] = "8CH-AI-RTU";
-    modbus_slave_callbacks_t cb;
-    modbus_slave_identity_t id;
-    modbus_slave_port_event_t ev;
     uint8_t ch;
 
     QActive_ctor(&me->super, Q_STATE_CAST(&modbus_ao_initial));
@@ -252,6 +258,7 @@ void modbus_ao_ctor(modbus_ao_t* me)
     }
     memset(me->cfg_image, 0, sizeof(me->cfg_image));
 
+    me->slave           = NULL;
     me->cjc_temp        = 0.0f;
     me->cjc_valid       = 0U; /* not ready: b0 until the first CJC_SIG */
     me->addr_image      = REG_MAP_DEV_ADDR_MIN;
@@ -261,25 +268,36 @@ void modbus_ao_ctor(modbus_ao_t* me)
     me->tx_done_cnt     = 0U;
     me->tx_timeout_cnt  = 0U;
 
-    cb.ctx               = me;
-    cb.coils             = coils;
-    cb.discrete_inputs   = discrete;
-    cb.holding_registers = holding;
-    cb.input_registers   = input;
-    cb.address           = address;
+    /* The mirror lives in this AO, so the data-space callbacks do too. */
+    me->cb.ctx               = me;
+    me->cb.coils             = coils;
+    me->cb.discrete_inputs   = discrete;
+    me->cb.holding_registers = holding;
+    me->cb.input_registers   = input;
+    me->cb.address           = address;
+}
 
-    id.slave_id          = 0xFFU;
-    id.is_running        = 1U;
-    id.additional        = additional;
-    id.additional_length = (uint16_t)(sizeof(additional) - 1U);
+const modbus_slave_callbacks_t* modbus_ao_callbacks(const modbus_ao_t* me)
+{
+    return &me->cb;
+}
 
-    (void)modbus_slave_board_ctor(&cb, &id);
+const modbus_slave_identity_t* modbus_ao_identity(void)
+{
+    return &identity;
+}
 
-    ev.ctx              = me;
-    ev.on_frame_received = on_frame;
-    ev.on_frame_sent     = on_sent;
-    ev.on_tx_timeout     = on_timeout;
-    (void)modbus_slave_set_event_port(modbus_slave_board_get(), &ev);
+void modbus_ao_attach(modbus_ao_t* me,
+                      modbus_slave_t* slave)
+{
+    me->slave = slave;
+
+    /* ISR events become AO events; attach requires the stopped state. */
+    me->ev.ctx              = me;
+    me->ev.on_frame_received = on_frame;
+    me->ev.on_frame_sent     = on_sent;
+    me->ev.on_tx_timeout     = on_timeout;
+    (void)modbus_slave_set_event_port(me->slave, &me->ev);
 }
 
 /**
@@ -325,7 +343,7 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
 
     switch ( e->sig ) {
         case Q_ENTRY_SIG: {
-            if ( modbus_slave_start(modbus_slave_board_get()) != MODBUS_SLAVE_OK ) {
+            if ( modbus_slave_start(me->slave) != MODBUS_SLAVE_OK ) {
                 /* Board-level defect; the port was vetted at construction. */
                 Q_ERROR();
             }
@@ -333,7 +351,7 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
             break;
         }
         case FRAME_SIG: {
-            (void)modbus_slave_advance(modbus_slave_board_get());
+            (void)modbus_slave_advance(me->slave);
             status = Q_HANDLED();
             break;
         }

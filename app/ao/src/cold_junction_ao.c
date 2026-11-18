@@ -6,7 +6,6 @@
 #include "cold_junction_ao.h"
 
 #include "app_events.h"
-#include "tmp75_board.h"
 
 Q_DEFINE_THIS_MODULE("cold_junction_ao")
 
@@ -23,13 +22,10 @@ static QState cold_junction_ao_sampling(cold_junction_ao_t* const me, QEvt const
  */
 static void sample(cold_junction_ao_t* me)
 {
-    tmp75_t* dev = tmp75_board_get_device();
     float temp = 0.0f;
     uint8_t valid;
 
-    Q_ASSERT(dev != NULL);
-
-    if ( (tmp75_read_temperature(dev, &temp) == TMP75_OK)
+    if ( (tmp75_read_temperature(me->dev, &temp) == TMP75_OK)
          && (temp >= COLD_JUNCTION_AO_MIN_TEMP_C)
          && (temp <= COLD_JUNCTION_AO_MAX_TEMP_C) ) {
         me->err_cnt      = 0U;
@@ -53,10 +49,13 @@ static void sample(cold_junction_ao_t* me)
     }
 }
 
-void cold_junction_ao_ctor(cold_junction_ao_t* me)
+void cold_junction_ao_ctor(cold_junction_ao_t* me,
+                           tmp75_t* dev)
 {
     QActive_ctor(&me->super, Q_STATE_CAST(&cold_junction_ao_initial));
     QTimeEvt_ctorX(&me->te_tick, Q_ACTIVE_UPCAST(me), TICK_SIG, 0U);
+    me->dev          = dev;
+    Q_ASSERT(me->dev != NULL);
     me->temp_c       = 0.0f;
     me->err_cnt      = 0U;
     me->have_reading = 0U;
