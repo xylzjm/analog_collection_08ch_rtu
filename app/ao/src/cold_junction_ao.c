@@ -1,27 +1,27 @@
 /**
- * @file ao_cold_junction.c
+ * @file cold_junction_ao.c
  * @brief Cold junction temperature active object (TMP75, 1 Hz heartbeat).
  */
 
-#include "ao_cold_junction.h"
+#include "cold_junction_ao.h"
 
-#include "ao_events.h"
+#include "app_events.h"
 #include "tmp75_board.h"
 
-Q_DEFINE_THIS_MODULE("ao_cold_junction")
+Q_DEFINE_THIS_MODULE("cold_junction_ao")
 
-static QState ao_cold_junction_initial(ao_cold_junction_t* const me, void const* const par);
-static QState ao_cold_junction_starting(ao_cold_junction_t* const me, QEvt const* const e);
-static QState ao_cold_junction_sampling(ao_cold_junction_t* const me, QEvt const* const e);
+static QState cold_junction_ao_initial(cold_junction_ao_t* const me, void const* const par);
+static QState cold_junction_ao_starting(cold_junction_ao_t* const me, QEvt const* const e);
+static QState cold_junction_ao_sampling(cold_junction_ao_t* const me, QEvt const* const e);
 
 /**
  * @brief Read the TMP75 once and publish the CJC_SIG heartbeat.
  *
- * Validity follows docs/ao/ao_cold_junction.md section 2: valid requires a
- * successful reading to exist and fewer than AO_COLD_JUNCTION_ERR_LIMIT
+ * Validity follows docs/ao/cold_junction_ao.md section 2: valid requires a
+ * successful reading to exist and fewer than COLD_JUNCTION_AO_ERR_LIMIT
  * consecutive failures.
  */
-static void sample(ao_cold_junction_t* me)
+static void sample(cold_junction_ao_t* me)
 {
     tmp75_t* dev = tmp75_board_get_device();
     float temp = 0.0f;
@@ -30,8 +30,8 @@ static void sample(ao_cold_junction_t* me)
     Q_ASSERT(dev != NULL);
 
     if ( (tmp75_read_temperature(dev, &temp) == TMP75_OK)
-         && (temp >= AO_COLD_JUNCTION_MIN_TEMP_C)
-         && (temp <= AO_COLD_JUNCTION_MAX_TEMP_C) ) {
+         && (temp >= COLD_JUNCTION_AO_MIN_TEMP_C)
+         && (temp <= COLD_JUNCTION_AO_MAX_TEMP_C) ) {
         me->err_cnt      = 0U;
         me->have_reading = 1U;
         me->temp_c       = temp;
@@ -42,7 +42,7 @@ static void sample(ao_cold_junction_t* me)
     }
 
     valid = (uint8_t)((me->have_reading != 0U)
-                      && (me->err_cnt < AO_COLD_JUNCTION_ERR_LIMIT));
+                      && (me->err_cnt < COLD_JUNCTION_AO_ERR_LIMIT));
 
     {
         cjc_evt_t* evt = Q_NEW(cjc_evt_t, CJC_SIG);
@@ -53,9 +53,9 @@ static void sample(ao_cold_junction_t* me)
     }
 }
 
-void ao_cold_junction_ctor(ao_cold_junction_t* me)
+void cold_junction_ao_ctor(cold_junction_ao_t* me)
 {
-    QActive_ctor(&me->super, Q_STATE_CAST(&ao_cold_junction_initial));
+    QActive_ctor(&me->super, Q_STATE_CAST(&cold_junction_ao_initial));
     QTimeEvt_ctorX(&me->te_tick, Q_ACTIVE_UPCAST(me), TICK_SIG, 0U);
     me->temp_c       = 0.0f;
     me->err_cnt      = 0U;
@@ -65,10 +65,10 @@ void ao_cold_junction_ctor(ao_cold_junction_t* me)
 /**
  * @brief Top-most initial transition: boot into the Starting transient.
  */
-static QState ao_cold_junction_initial(ao_cold_junction_t* const me, void const* const par)
+static QState cold_junction_ao_initial(cold_junction_ao_t* const me, void const* const par)
 {
     Q_UNUSED_PAR(par);
-    return Q_TRAN(&ao_cold_junction_starting);
+    return Q_TRAN(&cold_junction_ao_starting);
 }
 
 /**
@@ -77,20 +77,20 @@ static QState ao_cold_junction_initial(ao_cold_junction_t* const me, void const*
  * The nested initial transition into Sampling runs as soon as the entry
  * action completes (QHsm nested initial transition).
  */
-static QState ao_cold_junction_starting(ao_cold_junction_t* const me, QEvt const* const e)
+static QState cold_junction_ao_starting(cold_junction_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
     switch ( e->sig ) {
         case Q_ENTRY_SIG: {
             sample(me);
-            QTimeEvt_armX(&me->te_tick, AO_COLD_JUNCTION_TICK_MS,
-                          AO_COLD_JUNCTION_TICK_MS);
+            QTimeEvt_armX(&me->te_tick, COLD_JUNCTION_AO_TICK_MS,
+                          COLD_JUNCTION_AO_TICK_MS);
             status = Q_HANDLED();
             break;
         }
         case Q_INIT_SIG: {
-            status = Q_TRAN(&ao_cold_junction_sampling);
+            status = Q_TRAN(&cold_junction_ao_sampling);
             break;
         }
         default: {
@@ -104,7 +104,7 @@ static QState ao_cold_junction_starting(ao_cold_junction_t* const me, QEvt const
 /**
  * @brief Sampling: one reading per 1 Hz tick.
  */
-static QState ao_cold_junction_sampling(ao_cold_junction_t* const me, QEvt const* const e)
+static QState cold_junction_ao_sampling(cold_junction_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -116,7 +116,7 @@ static QState ao_cold_junction_sampling(ao_cold_junction_t* const me, QEvt const
         }
         default: {
             /* Starting is the superstate of Sampling (nested initial). */
-            status = Q_SUPER(&ao_cold_junction_starting);
+            status = Q_SUPER(&cold_junction_ao_starting);
             break;
         }
     }

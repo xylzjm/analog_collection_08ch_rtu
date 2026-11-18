@@ -1,13 +1,13 @@
-#ifndef AO_MODBUS_H
-#define AO_MODBUS_H
+#ifndef MODBUS_AO_H
+#define MODBUS_AO_H
 
 /**
- * @file ao_modbus.h
+ * @file modbus_ao.h
  * @brief Modbus RTU slave active object (protocol + register mirror).
  *
  * Terminates the Modbus protocol, owns the register mirrors, the device
  * fault word latches and the param component (synchronous commit inside the
- * write callback). See docs/ao/ao_modbus.md.
+ * write callback). See docs/ao/modbus_ao.md.
  */
 
 #include "qpc.h"
@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 /** @brief Queue depth (telemetry round plus frame plus margin). */
-#define AO_MODBUS_QUEUE_LEN 16U
+#define MODBUS_AO_QUEUE_LEN 16U
 
 /** @brief AoModbus active object. */
 typedef struct {
@@ -36,7 +36,7 @@ typedef struct {
     uint8_t  fdb_init_failed;  /**< Latch: FlashDB init failure (b3). */
     uint16_t tx_done_cnt;    /**< Diagnostic: replies sent. */
     uint16_t tx_timeout_cnt; /**< Diagnostic: TX watchdog events. */
-} ao_modbus_t;
+} modbus_ao_t;
 
 /**
  * @brief Construct the Modbus active object and its slave instance.
@@ -46,7 +46,7 @@ typedef struct {
  *
  * @param me Storage owned by the caller.
  */
-void ao_modbus_ctor(ao_modbus_t* me);
+void modbus_ao_ctor(modbus_ao_t* me);
 
 #ifdef __cplusplus
 }

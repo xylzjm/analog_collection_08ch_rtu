@@ -1,8 +1,8 @@
-#ifndef AO_EVENTS_H
-#define AO_EVENTS_H
+#ifndef APP_EVENTS_H
+#define APP_EVENTS_H
 
 /**
- * @file ao_events.h
+ * @file app_events.h
  * @brief Application signal numbers, dynamic event payloads and pool sizing.
  *
  * Signal set and payload layouts follow docs/qp-application-design.md

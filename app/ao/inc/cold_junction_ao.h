@@ -1,12 +1,12 @@
-#ifndef AO_COLD_JUNCTION_H
-#define AO_COLD_JUNCTION_H
+#ifndef COLD_JUNCTION_AO_H
+#define COLD_JUNCTION_AO_H
 
 /**
- * @file ao_cold_junction.h
+ * @file cold_junction_ao.h
  * @brief Cold junction temperature active object (TMP75).
  *
  * Sole owner of the TMP75 and the shared soft I2C bus; publishes the CJC_SIG
- * heartbeat once per second. See docs/ao/ao_cold_junction.md.
+ * heartbeat once per second. See docs/ao/cold_junction_ao.md.
  */
 
 #include "qpc.h"
@@ -16,19 +16,19 @@ extern "C" {
 #endif
 
 /** @brief Queue depth (1 Hz tick plus margin). */
-#define AO_COLD_JUNCTION_QUEUE_LEN 4U
+#define COLD_JUNCTION_AO_QUEUE_LEN 4U
 
 /** @brief Lowest plausible cold junction temperature. */
-#define AO_COLD_JUNCTION_MIN_TEMP_C (-30.0f)
+#define COLD_JUNCTION_AO_MIN_TEMP_C (-30.0f)
 
 /** @brief Highest plausible cold junction temperature. */
-#define AO_COLD_JUNCTION_MAX_TEMP_C 85.0f
+#define COLD_JUNCTION_AO_MAX_TEMP_C 85.0f
 
 /** @brief Consecutive failures that invalidate the reading. */
-#define AO_COLD_JUNCTION_ERR_LIMIT 3U
+#define COLD_JUNCTION_AO_ERR_LIMIT 3U
 
 /** @brief Cold junction heartbeat period in ticks. */
-#define AO_COLD_JUNCTION_TICK_MS 1000U
+#define COLD_JUNCTION_AO_TICK_MS 1000U
 
 /** @brief AoColdJunction active object. */
 typedef struct {
@@ -37,14 +37,14 @@ typedef struct {
     float    temp_c;    /**< Latest valid temperature. */
     uint8_t  err_cnt;   /**< Consecutive read failures, saturating. */
     uint8_t  have_reading; /**< Non-zero once a reading succeeded. */
-} ao_cold_junction_t;
+} cold_junction_ao_t;
 
 /**
  * @brief Construct the cold junction active object.
  *
  * @param me Storage owned by the caller.
  */
-void ao_cold_junction_ctor(ao_cold_junction_t* me);
+void cold_junction_ao_ctor(cold_junction_ao_t* me);
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,5 @@
 /**
- * @file ao_modbus.c
+ * @file modbus_ao.c
  * @brief Modbus RTU slave active object: protocol, mirrors, write pipeline.
  *
  * The write pipeline (docs/component/reg_map.md section 5) is atomic per
@@ -7,29 +7,29 @@
  * check, and only then touch the mirror or publish CONFIG_SET_SIG.
  */
 
-#include "ao_modbus.h"
+#include "modbus_ao.h"
 
 #include <string.h>
 
-#include "ao_events.h"
+#include "app_events.h"
 #include "modbus_slave_board.h"
 #include "param.h"
 #include "reg_map.h"
 
-Q_DEFINE_THIS_MODULE("ao_modbus")
+Q_DEFINE_THIS_MODULE("modbus_ao")
 
 /* Static events posted from the ISR event port (QEVT_INITIALIZER, ROM). */
 static QEvt const frameEvt     = QEVT_INITIALIZER(FRAME_SIG);
 static QEvt const txDoneEvt    = QEVT_INITIALIZER(TX_DONE_SIG);
 static QEvt const txTimeoutEvt = QEVT_INITIALIZER(TX_TIMEOUT_SIG);
 
-static QState ao_modbus_initial(ao_modbus_t* const me, void const* const par);
-static QState ao_modbus_serving(ao_modbus_t* const me, QEvt const* const e);
+static QState modbus_ao_initial(modbus_ao_t* const me, void const* const par);
+static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e);
 
 /**
  * @brief Publish one CONFIG_SET_SIG event (commit succeeded).
  */
-static void publish_config(ao_modbus_t* me, uint8_t ch, const ch_config_t* cfg)
+static void publish_config(modbus_ao_t* me, uint8_t ch, const ch_config_t* cfg)
 {
     config_set_evt_t* evt = Q_NEW(config_set_evt_t, CONFIG_SET_SIG);
 
@@ -43,7 +43,7 @@ static void publish_config(ao_modbus_t* me, uint8_t ch, const ch_config_t* cfg)
 /**
  * @brief Synthesize the device fault word from mirrors and latches.
  */
-static uint16_t fault_word(const ao_modbus_t* me)
+static uint16_t fault_word(const modbus_ao_t* me)
 {
     uint16_t latched = 0U;
     uint8_t ch;
@@ -91,7 +91,7 @@ static modbus_slave_exception_t discrete(void* ctx, uint16_t start, uint16_t cou
 
 static modbus_slave_exception_t input(void* ctx, uint16_t start, uint16_t count, uint8_t* buffer, modbus_slave_register_mode_t mode)
 {
-    ao_modbus_t* me = (ao_modbus_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
     reg_map_input_image_t image;
     modbus_slave_exception_t ex;
 
@@ -114,7 +114,7 @@ static modbus_slave_exception_t input(void* ctx, uint16_t start, uint16_t count,
 /**
  * @brief Holding register write pipeline: validate, commit, then update.
  */
-static modbus_slave_exception_t holding_write(ao_modbus_t* me, uint16_t start, const reg_span_t* span, uint16_t count, const uint8_t* buffer)
+static modbus_slave_exception_t holding_write(modbus_ao_t* me, uint16_t start, const reg_span_t* span, uint16_t count, const uint8_t* buffer)
 {
     param_status_t st;
 
@@ -169,7 +169,7 @@ static modbus_slave_exception_t holding_write(ao_modbus_t* me, uint16_t start, c
 
 static modbus_slave_exception_t holding(void* ctx, uint16_t start, uint16_t count, uint8_t* buffer, modbus_slave_register_mode_t mode)
 {
-    ao_modbus_t* me = (ao_modbus_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
     const reg_span_t* span = NULL;
     modbus_slave_exception_t ex;
 
@@ -200,7 +200,7 @@ static modbus_slave_exception_t holding(void* ctx, uint16_t start, uint16_t coun
 
 static uint8_t address(void* ctx)
 {
-    ao_modbus_t* me = (ao_modbus_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
 
     return (uint8_t)me->addr_image;
 }
@@ -211,21 +211,21 @@ static uint8_t address(void* ctx)
 
 static void on_frame(void* ctx)
 {
-    ao_modbus_t* me = (ao_modbus_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
 
     QACTIVE_POST(Q_ACTIVE_UPCAST(me), &frameEvt, (void*)0);
 }
 
 static void on_sent(void* ctx)
 {
-    ao_modbus_t* me = (ao_modbus_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
 
     QACTIVE_POST(Q_ACTIVE_UPCAST(me), &txDoneEvt, (void*)0);
 }
 
 static void on_timeout(void* ctx)
 {
-    ao_modbus_t* me = (ao_modbus_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
 
     QACTIVE_POST(Q_ACTIVE_UPCAST(me), &txTimeoutEvt, (void*)0);
 }
@@ -234,7 +234,7 @@ static void on_timeout(void* ctx)
 /* Construction                                                               */
 /*----------------------------------------------------------------------------*/
 
-void ao_modbus_ctor(ao_modbus_t* me)
+void modbus_ao_ctor(modbus_ao_t* me)
 {
     static const uint8_t additional[] = "8CH-AI-RTU";
     modbus_slave_callbacks_t cb;
@@ -242,7 +242,7 @@ void ao_modbus_ctor(ao_modbus_t* me)
     modbus_slave_port_event_t ev;
     uint8_t ch;
 
-    QActive_ctor(&me->super, Q_STATE_CAST(&ao_modbus_initial));
+    QActive_ctor(&me->super, Q_STATE_CAST(&modbus_ao_initial));
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         /* Channels report "unconfigured" until the first MEASURE_SIG. */
@@ -288,7 +288,7 @@ void ao_modbus_ctor(ao_modbus_t* me)
  * Runs inside QActive_start(), before QF_run(): the loaded configurations
  * are published while every channel is already started and subscribed.
  */
-static QState ao_modbus_initial(ao_modbus_t* const me, void const* const par)
+static QState modbus_ao_initial(modbus_ao_t* const me, void const* const par)
 {
     param_boot_result_t res;
     uint8_t ch;
@@ -313,13 +313,13 @@ static QState ao_modbus_initial(ao_modbus_t* const me, void const* const par)
         }
     }
 
-    return Q_TRAN(&ao_modbus_serving);
+    return Q_TRAN(&modbus_ao_serving);
 }
 
 /**
  * @brief Serving: the resident service state after the core starts.
  */
-static QState ao_modbus_serving(ao_modbus_t* const me, QEvt const* const e)
+static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
 {
     QState status;
 

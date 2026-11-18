@@ -113,13 +113,13 @@ virtualFolder:
     - name: app
       files:
         - path: app/main.c
-        - path: app/component/ch_config.c
-        - path: app/component/reg_map.c
-        - path: app/component/param.c
-        - path: app/component/param_defaults.c
-        - path: app/ao/ao_channel.c
-        - path: app/ao/ao_cold_junction.c
-        - path: app/ao/ao_modbus.c
+        - path: app/component/src/ch_config.c
+        - path: app/component/src/reg_map.c
+        - path: app/component/src/param.c
+        - path: app/component/src/param_defaults.c
+        - path: app/ao/src/channel_ao.c
+        - path: app/ao/src/cold_junction_ao.c
+        - path: app/ao/src/modbus_ao.c
       folders: []
     - name: board
       files:
@@ -260,8 +260,9 @@ targets:
         - ../middleware/flashDB/port/fal/inc
         - ../library/device/tmp75/inc
         - ../library/protocol/i2c_soft/inc
-        - app/component
-        - app/ao
+        - app/component/inc
+        - app/ao/inc
+        - app
       libList: []
     excludeList:
       - <virtual_root>/third_party/at32f421_int.c

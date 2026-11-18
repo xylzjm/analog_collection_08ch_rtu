@@ -1,6 +1,6 @@
 /**
  * @file test_reconfig_race.c
- * @brief Host model test for the reconfiguration race (ao_channel.md section 6).
+ * @brief Host model test for the reconfiguration race (channel_ao.md section 6).
  *
  * The model enumerates every interleaving of timer expiry around the
  * CONFIG_SET_SIG handling phases and asserts that a timer event of a
@@ -121,7 +121,7 @@ static int run_cfg(int b1_order, unsigned t0, unsigned t1, unsigned t2, unsigned
     for ( i = 0U; i < t0; ++i ) { tick_expire(); } /* CONFIG queued .. dispatched */
     for ( i = 0U; i < t1; ++i ) { tick_expire(); } /* begin .. first action */
     if ( b1_order != 0 ) {
-        /* Fixed ordering (ao_channel.md section 6): disarm first. */
+        /* Fixed ordering (channel_ao.md section 6): disarm first. */
         armed_gen = 0U;
         for ( i = 0U; i < t2; ++i ) { tick_expire(); } /* disarm .. post */
         post(APPLY_SIG_M, 0U);

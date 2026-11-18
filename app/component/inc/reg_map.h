@@ -8,7 +8,7 @@
  * Pure functions, no state. The typed mirror lives in AoModbus; the write
  * transaction discipline (atomicity, synchronous persistence) is enforced in
  * the AoModbus write pipeline. Data definitions (addresses, encodings, write
- * validation) follow docs/ao/ao_modbus.md section 4.
+ * validation) follow docs/ao/modbus_ao.md section 4.
  */
 
 #include <stdbool.h>
@@ -213,7 +213,7 @@ uint16_t reg_map_fault_word(uint8_t cjc_valid,
                             uint16_t latched);
 
 /*----------------------------------------------------------------------------*/
-/* Channel status codes (register encoding, ao_channel.md section 3)          */
+/* Channel status codes (register encoding, channel_ao.md section 3)          */
 /*----------------------------------------------------------------------------*/
 
 /** @brief Channel status register codes. */

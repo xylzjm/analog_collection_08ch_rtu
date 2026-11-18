@@ -3,7 +3,7 @@
 被动组件（**非活动对象**）：Modbus 四个数据空间的寻址判定与寄存器编解码，经 `AoModbus`
 的寄存器回调在 `modbus_slave` 执行上下文内调用。无状态、无定时器、无自有数据——类型化
 镜像归 `AoModbus`，写事务纪律（原子性/固化）在写管线收口。寄存器**数据定义**（地址/
-编码/写校验）见 `docs/ao/ao_modbus.md` §4，本文是**实现形态**（接口、寻址、编解码、
+编码/写校验）见 `docs/ao/modbus_ao.md` §4，本文是**实现形态**（接口、寻址、编解码、
 异常口径、写管线编排）。总体设计见 `docs/qp-application-design.md`。
 
 > 不建独立 AO 的依据：纯函数无自主行为、无独立响应期限；寄存器访问本身就是
@@ -17,7 +17,7 @@
 | 对手方 | `modbus_slave` 核心区间回调 `(ctx, start, count, buffer, mode)`：缓冲区 = count 个大端 u16（`modbus_slave_get_u16`/`put_u16` 访问），回调返回异常码即应答 |
 | 状态 | 无（全部纯函数）；跨度表为 ROM 常量 |
 | 依赖 | `ch_config.h`（校验/归一化）；写管线经 `AoModbus` 调 `param` 组件 |
-| API | `reg_map_find`/`reg_map_check`/编解码函数（`app/component/reg_map.h`） |
+| API | `reg_map_find`/`reg_map_check`/编解码函数（`app/component/inc/reg_map.h`） |
 
 ## 2. 数据空间与跨度表（地图唯一出处）
 
@@ -86,7 +86,7 @@ EX 01 的口径：空间整体不存在 = 函数不支持（比 EX 02 诚实—�
 
 - **字节序**只在本模块出现一次：u16 经 `modbus_slave_get_u16`/`put_u16`；float32 =
   2 寄存器大端字序（高字在低地址）。
-- **通道块 codec**（布局见 `ao_modbus.md` §4）：
+- **通道块 codec**（布局见 `modbus_ao.md` §4）：
   - `reg_map_ch_encode(cfg, words)`：类型化 → 10 字；
   - `reg_map_ch_decode(words, cfg)`：10 字 → 类型化（只管布局，语义校验归 `ch_config`）；
   - 子块写 = **读-改-写**：`encode(当前) → 帧覆盖 → decode(全块)`——任意单寄存器写
@@ -107,7 +107,7 @@ EX 01 的口径：空间整体不存在 = 函数不支持（比 EX 02 诚实—�
 | `holding_registers` | 读：`reg_map_check` + encode；写：写管线（下） | 读写 |
 | `address` | `AoModbus` 镜像 | 1..247 |
 
-写管线（原子性全部所在，与 `ao_modbus.md` §6 同源）：
+写管线（原子性全部所在，与 `modbus_ao.md` §6 同源）：
 
 ```text
 holding 写回调：

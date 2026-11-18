@@ -1,23 +1,23 @@
 /**
- * @file ao_channel.c
+ * @file channel_ao.c
  * @brief Channel acquisition active object state machine (QHsm, hand coded).
  *
- * Reconfiguration is structurally isolated (docs/ao/ao_channel.md section 6):
+ * Reconfiguration is structurally isolated (docs/ao/channel_ao.md section 6):
  * CONFIG_SET_SIG disarms the timers first, caches the pending configuration,
  * posts APPLY_SIG and leaves for Unconfigured; the real configure() runs on
  * the next dispatch, so every late timer event lands in Unconfigured and is
  * ignored there.
  */
 
-#include "ao_channel.h"
+#include "channel_ao.h"
 
 #include "analog_input_board.h"
 
-#include "ao_events.h"
+#include "app_events.h"
 #include "elog.h"
 #include "reg_map.h"
 
-Q_DEFINE_THIS_MODULE("ao_channel")
+Q_DEFINE_THIS_MODULE("channel_ao")
 
 /** @brief Reconfiguration re-entry event; shared by all eight instances. */
 static QEvt const applyEvt = QEVT_INITIALIZER(APPLY_SIG);
@@ -34,18 +34,18 @@ Q_ASSERT_STATIC((int)CH_TYPE_PT100 == (int)ANALOG_INPUT_TYPE_PT100);
 Q_ASSERT_STATIC((int)CH_TYPE_4_20MA == (int)ANALOG_INPUT_TYPE_4_20MA);
 Q_ASSERT_STATIC((int)CH_TYPE_0_10V == (int)ANALOG_INPUT_TYPE_0_10V);
 
-static QState ao_channel_initial(ao_channel_t* const me, void const* const par);
-static QState ao_channel_root(ao_channel_t* const me, QEvt const* const e);
-static QState ao_channel_unconfigured(ao_channel_t* const me, QEvt const* const e);
-static QState ao_channel_working(ao_channel_t* const me, QEvt const* const e);
-static QState ao_channel_detecting(ao_channel_t* const me, QEvt const* const e);
-static QState ao_channel_settling(ao_channel_t* const me, QEvt const* const e);
-static QState ao_channel_measuring(ao_channel_t* const me, QEvt const* const e);
+static QState channel_ao_initial(channel_ao_t* const me, void const* const par);
+static QState channel_ao_root(channel_ao_t* const me, QEvt const* const e);
+static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const e);
+static QState channel_ao_working(channel_ao_t* const me, QEvt const* const e);
+static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e);
+static QState channel_ao_settling(channel_ao_t* const me, QEvt const* const e);
+static QState channel_ao_measuring(channel_ao_t* const me, QEvt const* const e);
 
 /**
  * @brief Report whether the input type runs the wire break detection loop.
  */
-static bool detectable(const ao_channel_t* me)
+static bool detectable(const channel_ao_t* me)
 {
     return (me->cfg.type == (uint8_t)CH_TYPE_TC)
            || (me->cfg.type == (uint8_t)CH_TYPE_PT100);
@@ -54,7 +54,7 @@ static bool detectable(const ao_channel_t* me)
 /**
  * @brief Publish one MEASURE_SIG event (frozen value on fault codes).
  */
-static void publish(ao_channel_t* me, float value, uint16_t status)
+static void publish(channel_ao_t* me, float value, uint16_t status)
 {
     measure_evt_t* evt = Q_NEW(measure_evt_t, MEASURE_SIG);
 
@@ -67,7 +67,7 @@ static void publish(ao_channel_t* me, float value, uint16_t status)
 /**
  * @brief One sampling step: read, convert, calibrate, publish.
  */
-static void do_sample(ao_channel_t* me)
+static void do_sample(channel_ao_t* me)
 {
     analog_input_conversion_context_t ctx;
     int32_t code;
@@ -110,7 +110,7 @@ static void do_sample(ao_channel_t* me)
  *
  * @return true when the driver accepted the configuration.
  */
-static bool apply_pending(ao_channel_t* me)
+static bool apply_pending(channel_ao_t* me)
 {
     analog_input_config_t acfg;
     uint32_t delay = 0U;
@@ -129,16 +129,16 @@ static bool apply_pending(ao_channel_t* me)
 
     me->cfg       = me->pending;
     me->settle_ms = delay;
-    elog_debug("ao_channel", "ch%u configured: type=%u rate=%u",
+    elog_debug("channel_ao", "ch%u configured: type=%u rate=%u",
                (unsigned)me->ch, (unsigned)me->cfg.type,
                (unsigned)me->cfg.rate_code);
     return true;
 }
 
-void ao_channel_ctor(ao_channel_t* me,
+void channel_ao_ctor(channel_ao_t* me,
                      uint8_t ch)
 {
-    QActive_ctor(&me->super, Q_STATE_CAST(&ao_channel_initial));
+    QActive_ctor(&me->super, Q_STATE_CAST(&channel_ao_initial));
     QTimeEvt_ctorX(&me->te_sample, Q_ACTIVE_UPCAST(me), SAMPLE_SIG, 0U);
     QTimeEvt_ctorX(&me->te_settle, Q_ACTIVE_UPCAST(me), SETTLE_SIG, 0U);
     QTimeEvt_ctorX(&me->te_break, Q_ACTIVE_UPCAST(me), BREAK_WINDOW_SIG, 0U);
@@ -169,9 +169,9 @@ void ao_channel_ctor(ao_channel_t* me,
  *
  * No status-1 report here: the boot publish would precede the AoModbus
  * subscription and be dropped. The mirror initial value (status = 1) is the
- * mechanism (docs/ao/ao_channel.md).
+ * mechanism (docs/ao/channel_ao.md).
  */
-static QState ao_channel_initial(ao_channel_t* const me, void const* const par)
+static QState channel_ao_initial(channel_ao_t* const me, void const* const par)
 {
     Q_UNUSED_PAR(par);
 
@@ -179,13 +179,13 @@ static QState ao_channel_initial(ao_channel_t* const me, void const* const par)
     QActive_subscribe(Q_ACTIVE_UPCAST(me), CONFIG_SET_SIG);
     QActive_subscribe(Q_ACTIVE_UPCAST(me), CJC_SIG);
 
-    return Q_TRAN(&ao_channel_unconfigured);
+    return Q_TRAN(&channel_ao_unconfigured);
 }
 
 /**
  * @brief Root state: common handling present in every state.
  */
-static QState ao_channel_root(ao_channel_t* const me, QEvt const* const e)
+static QState channel_ao_root(channel_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -210,9 +210,9 @@ static QState ao_channel_root(ao_channel_t* const me, QEvt const* const e)
  * @brief Unconfigured: no effective configuration, the reconfiguration gate.
  *
  * The only exit is APPLY_SIG. No timer is ever armed here, so a late timer
- * event always lands in this state and is ignored (ao_channel.md section 6).
+ * event always lands in this state and is ignored (channel_ao.md section 6).
  */
-static QState ao_channel_unconfigured(ao_channel_t* const me, QEvt const* const e)
+static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -237,7 +237,7 @@ static QState ao_channel_unconfigured(ao_channel_t* const me, QEvt const* const 
         case APPLY_SIG: {
             if ( apply_pending(me) ) {
                 /* Success re-enters the measurement path via Working. */
-                status = Q_TRAN(&ao_channel_working);
+                status = Q_TRAN(&channel_ao_working);
             }
             else {
                 /* Failure: report status 6 (done inside) and wait. */
@@ -246,7 +246,7 @@ static QState ao_channel_unconfigured(ao_channel_t* const me, QEvt const* const 
             break;
         }
         default: {
-            status = Q_SUPER(&ao_channel_root);
+            status = Q_SUPER(&channel_ao_root);
             break;
         }
     }
@@ -256,7 +256,7 @@ static QState ao_channel_unconfigured(ao_channel_t* const me, QEvt const* const 
 /**
  * @brief Working: configured and running; common reconfiguration entry.
  */
-static QState ao_channel_working(ao_channel_t* const me, QEvt const* const e)
+static QState channel_ao_working(channel_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -264,8 +264,8 @@ static QState ao_channel_working(ao_channel_t* const me, QEvt const* const e)
         case Q_INIT_SIG: {
             /* Initial target is decided by the configured input type. */
             status = detectable(me)
-                ? Q_TRAN(&ao_channel_detecting)
-                : Q_TRAN(&ao_channel_settling);
+                ? Q_TRAN(&channel_ao_detecting)
+                : Q_TRAN(&channel_ao_settling);
             break;
         }
         case CONFIG_SET_SIG: {
@@ -274,14 +274,14 @@ static QState ao_channel_working(ao_channel_t* const me, QEvt const* const e)
                  * Reconfiguration isolation. Disarm before posting APPLY_SIG:
                  * a tick landing between post and disarm could queue a late
                  * SETTLE behind APPLY_SIG and reach the re-entered leaf
-                 * (ao_channel.md section 6).
+                 * (channel_ao.md section 6).
                  */
                 (void)QTimeEvt_disarm(&me->te_sample);
                 (void)QTimeEvt_disarm(&me->te_settle);
                 (void)QTimeEvt_disarm(&me->te_break);
                 me->pending = Q_EVT_CAST(config_set_evt_t)->cfg;
                 QACTIVE_POST(Q_ACTIVE_UPCAST(me), &applyEvt, Q_ACTIVE_UPCAST(me));
-                status = Q_TRAN(&ao_channel_unconfigured);
+                status = Q_TRAN(&channel_ao_unconfigured);
             }
             else {
                 status = Q_HANDLED();
@@ -289,7 +289,7 @@ static QState ao_channel_working(ao_channel_t* const me, QEvt const* const e)
             break;
         }
         default: {
-            status = Q_SUPER(&ao_channel_root);
+            status = Q_SUPER(&channel_ao_root);
             break;
         }
     }
@@ -299,7 +299,7 @@ static QState ao_channel_working(ao_channel_t* const me, QEvt const* const e)
 /**
  * @brief Detecting: hardware in wire break detection mode, value frozen.
  */
-static QState ao_channel_detecting(ao_channel_t* const me, QEvt const* const e)
+static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -330,7 +330,7 @@ static QState ao_channel_detecting(ao_channel_t* const me, QEvt const* const e)
                 if ( code != (uint16_t)REG_MAP_STATUS_OK ) {
                     /* A break is revealed the moment the check completes. */
                     publish(me, me->last_value, code);
-                    elog_debug("ao_channel", "ch%u wire break: %u",
+                    elog_debug("channel_ao", "ch%u wire break: %u",
                                (unsigned)me->ch, (unsigned)code);
                 }
                 /* Intact: status 0 travels with the first measurement. */
@@ -342,11 +342,11 @@ static QState ao_channel_detecting(ao_channel_t* const me, QEvt const* const e)
 
             (void)analog_input_disable_break_detection(me->input, &delay);
             me->settle_ms = delay;
-            status = Q_TRAN(&ao_channel_settling);
+            status = Q_TRAN(&channel_ao_settling);
             break;
         }
         default: {
-            status = Q_SUPER(&ao_channel_working);
+            status = Q_SUPER(&channel_ao_working);
             break;
         }
     }
@@ -356,7 +356,7 @@ static QState ao_channel_detecting(ao_channel_t* const me, QEvt const* const e)
 /**
  * @brief Settling: measurement mode, waiting for the first valid conversion.
  */
-static QState ao_channel_settling(ao_channel_t* const me, QEvt const* const e)
+static QState channel_ao_settling(channel_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -375,11 +375,11 @@ static QState ao_channel_settling(ao_channel_t* const me, QEvt const* const e)
         case SETTLE_SIG: {
             /* The first sample lands exactly on the settle point. */
             do_sample(me);
-            status = Q_TRAN(&ao_channel_measuring);
+            status = Q_TRAN(&channel_ao_measuring);
             break;
         }
         default: {
-            status = Q_SUPER(&ao_channel_working);
+            status = Q_SUPER(&channel_ao_working);
             break;
         }
     }
@@ -389,7 +389,7 @@ static QState ao_channel_settling(ao_channel_t* const me, QEvt const* const e)
 /**
  * @brief Measuring: periodic sampling, plus the 3 s wire break window.
  */
-static QState ao_channel_measuring(ao_channel_t* const me, QEvt const* const e)
+static QState channel_ao_measuring(channel_ao_t* const me, QEvt const* const e)
 {
     QState status;
 
@@ -399,8 +399,8 @@ static QState ao_channel_measuring(ao_channel_t* const me, QEvt const* const e)
 
             QTimeEvt_armX(&me->te_sample, ticks, ticks);
             if ( detectable(me) ) {
-                QTimeEvt_armX(&me->te_break, AO_CHANNEL_BREAK_WINDOW_MS,
-                              AO_CHANNEL_BREAK_WINDOW_MS);
+                QTimeEvt_armX(&me->te_break, CHANNEL_AO_BREAK_WINDOW_MS,
+                              CHANNEL_AO_BREAK_WINDOW_MS);
             }
             status = Q_HANDLED();
             break;
@@ -419,11 +419,11 @@ static QState ao_channel_measuring(ao_channel_t* const me, QEvt const* const e)
         }
         case BREAK_WINDOW_SIG: {
             /* Mode switch happens in Detecting's entry action. */
-            status = Q_TRAN(&ao_channel_detecting);
+            status = Q_TRAN(&channel_ao_detecting);
             break;
         }
         default: {
-            status = Q_SUPER(&ao_channel_working);
+            status = Q_SUPER(&channel_ao_working);
             break;
         }
     }

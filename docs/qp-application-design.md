@@ -6,9 +6,9 @@
 
 | 文档 | 对象 |
 | --- | --- |
-| `docs/ao/ao_channel.md` | `AoChannel` 通道采集 AO（同一类 ×8 实例） |
-| `docs/ao/ao_cold_junction.md` | `AoColdJunction` 冷端温度 AO（TMP75） |
-| `docs/ao/ao_modbus.md` | `AoModbus` Modbus 从站 AO（含寄存器映射与设备故障位域） |
+| `docs/ao/channel_ao.md` | `AoChannel` 通道采集 AO（同一类 ×8 实例） |
+| `docs/ao/cold_junction_ao.md` | `AoColdJunction` 冷端温度 AO（TMP75） |
+| `docs/ao/modbus_ao.md` | `AoModbus` Modbus 从站 AO（含寄存器映射与设备故障位域） |
 | `docs/component/param.md` | `param` 参数存储组件（FlashDB 托管，AoModbus 执行上下文，非活动对象） |
 | `docs/component/reg_map.md` | `reg_map` 数据空间映射组件（寻址/编解码，纯函数，非活动对象） |
 
@@ -46,7 +46,7 @@
    运维约束 = 校准参数上位机留档 + 禁全片擦除（README）。
 7. **定时器竞态结构规避（方案 B）**：改配经 Unconfigured 隔离 + `APPLY_SIG` 延迟一代
    重入，定时器迟到事件经 FIFO 必落无人认领态——零守卫、零旗标、零计数
-   （定理与纪律见 `ao_channel.md` §6）；PSiCC2 §7.7.3 `QTimeEvt_wasDisarmed` 守卫
+   （定理与纪律见 `channel_ao.md` §6）；PSiCC2 §7.7.3 `QTimeEvt_wasDisarmed` 守卫
    弃用（锁存覆盖/boot 陷阱，失败模式为静默挂死）。
 
 ## 2. 需求与可度量约束
@@ -107,8 +107,8 @@
 
 | 状态机/行为 | 所属执行上下文 | 不独立成 AO 的理由 | 初始化/分派/通知责任 |
 | --- | --- | --- | --- |
-| 寄存器编解码（`reg_map`） | `AoModbus` 回调内联调用 | 纯函数无状态 | `app/component/reg_map.c`（设计见 `docs/component/reg_map.md`），宿主 `CHECK` 测试 |
-| 配置校验/归一化（`ch_config`） | Modbus 写回调、param 启动加载 | 纯函数无状态 | `app/component/ch_config.c`，宿主 `CHECK` 测试 |
+| 寄存器编解码（`reg_map`） | `AoModbus` 回调内联调用 | 纯函数无状态 | `app/component/src/reg_map.c`（设计见 `docs/component/reg_map.md`），宿主 `CHECK` 测试 |
+| 配置校验/归一化（`ch_config`） | Modbus 写回调、param 启动加载 | 纯函数无状态 | `app/component/src/ch_config.c`，宿主 `CHECK` 测试 |
 | 设备故障位域合成 | `AoModbus` 内部 | 是寄存器映像的一部分 | `AoModbus` 随各事件更新 |
 | 参数持久化（`param` 组件） | `AoModbus` 执行上下文 | 无自主行为/独立时限；EX 04 语义要求固化在写回调返回前完成 | `AoModbus` 初始转换与写回调直接调用 |
 | flash 掉电恢复 | `param`（AoModbus 初始转换） | FlashDB 内部机制 | `fdb_kvdb_init()` |
@@ -122,11 +122,11 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `FRAME_SIG` | 无参 | TMR14/USART ISR（`on_frame_received`）→ `AoModbus` | 直接 FIFO | 静态（`QEVT_INITIALIZER`） | 无动态寿命 | 每帧一次；`advance()` 返回 NONE 时显式忽略 | ≤1 在途（核心在 CAPTURED 期丢弃字节，天然互斥） |
 | `TX_DONE_SIG` / `TX_TIMEOUT_SIG` | 无参 | TX ISR → `AoModbus` | 直接 FIFO | 静态 | — | 仅诊断计数 | ≤1 在途 |
-| `SAMPLE_SIG` | 无参 | 时间事件（周期） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 固定周期（表定 tick 数）；无须陈旧防护（见 ao_channel §6） | 100 Hz/通道 |
-| `SETTLE_SIG` | 无参 | 时间事件（one-shot） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 语义随状态（检查就绪/转换就绪）；迟到事件结构上不可达（ao_channel §6） | ≤1 次/模式切换 |
+| `SAMPLE_SIG` | 无参 | 时间事件（周期） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 固定周期（表定 tick 数）；无须陈旧防护（见 channel_ao §6） | 100 Hz/通道 |
+| `SETTLE_SIG` | 无参 | 时间事件（one-shot） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 语义随状态（检查就绪/转换就绪）；迟到事件结构上不可达（channel_ao §6） | ≤1 次/模式切换 |
 | `BREAK_WINDOW_SIG` | 无参 | 时间事件（周期 3000 ms） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 仅 Measuring 有效，他态显式忽略 | 1/3 s/通道 |
 | `CONFIG_SET_SIG` | `{uint8_t ch; ch_config_t cfg}`（24 B） | `AoModbus`（启动加载 / 写帧固化成功）→ 8×`AoChannel` | **发布—订阅** FIFO | 动态 池B（32 B 块） | 发布后生产者不得再访问；框架按引用计数回收 | 仅固化成功后发布；接收者按 `ch` 过滤；命中→改配隔离（`pending`+`APPLY_SIG`+转 Unconfigured） | 启动 ≤8 条；写帧 1 条 |
-| `APPLY_SIG` | 无 | `applyEvt` 自投（文件级 `QEvt const`，8 通道共用） | 自投 FIFO | 静态 `QEVT_INITIALIZER` | — | Unconfigured 处理：`configure(pending)`→先检后测重入；改配隔离用（ao_channel §6） | 每次改配 1 条 |
+| `APPLY_SIG` | 无 | `applyEvt` 自投（文件级 `QEvt const`，8 通道共用） | 自投 FIFO | 静态 `QEVT_INITIALIZER` | — | Unconfigured 处理：`configure(pending)`→先检后测重入；改配隔离用（channel_ao §6） | 每次改配 1 条 |
 | `MEASURE_SIG` | `{uint8_t ch; float value; uint16_t status}`（12 B） | `AoChannel` → `AoModbus` | 发布—订阅 FIFO | 动态 池A（20 B 块） | 同上 | 只保留最新；Modbus 映像覆盖写 | 8×100 Hz=800/s |
 | `CJC_SIG` | `{float temp_c; uint8_t valid}` | `AoColdJunction` → 8×`AoChannel`、`AoModbus` | 发布—订阅 FIFO | 动态 池A | 同上 | 心跳 1 Hz；通道缓存最近一条 | 1 Hz + 启动 1 条 |
 
@@ -140,11 +140,11 @@
   不保存事件指针。
 - 不使用 defer/recall；配置写不排队积压，`param` 的差异检查吸收重复。
 - 静态时间事件各通道 3 个实例（`te_sample/te_settle/te_break`），构造一次信号不变；
-  另每通道 1 个静态 `APPLY_SIG` 事件（改配善后，ao_channel §6）。
+  另每通道 1 个静态 `APPLY_SIG` 事件（改配善后，channel_ao §6）。
 
 ## 5. 数据与配置模型
 
-### 通道配置 `ch_config_t`（`app/component/ch_config.h`）
+### 通道配置 `ch_config_t`（`app/component/inc/ch_config.h`）
 
 | 字段 | 类型 | 语义 | 校验/归一化 |
 | --- | --- | --- | --- |
@@ -162,7 +162,7 @@
 `type=TC, tc_type=code`；8/9/10 → `type=PT100/4-20MA/0-10V, tc_type=0xFF`。
 
 设备级配置：`dev_addr`（u16，1..247，KV `dev/addr`，出厂默认 1）；寄存器位置与
-写入语义见 `ao_modbus.md` §4，固化路径与通道配置相同。
+写入语义见 `modbus_ao.md` §4，固化路径与通道配置相同。
 
 ### 持久化格式（代码内不管理版本）
 
@@ -180,7 +180,7 @@ KV 键 `cfg/ch1`..`cfg/ch8`，值 = `ch_config_t` 本体（20 B，无版本头�
 ### 寄存器映射
 
 完整映射（保持寄存器 = 通道配置 8×10 分块按 16 步进分隔 + 设备级 128，块间空档回 02；
-输入寄存器 0..71 遥测区连续、16 bit 设备故障位域）定义在 `docs/ao/ao_modbus.md` §4，本文不重复。数值编码：float32
+输入寄存器 0..71 遥测区连续、16 bit 设备故障位域）定义在 `docs/ao/modbus_ao.md` §4，本文不重复。数值编码：float32
 占 2 寄存器大端字序，u16 单寄存器。
 
 ## 6. 定时与过期（总表）
@@ -188,12 +188,12 @@ KV 键 `cfg/ch1`..`cfg/ch8`，值 = `ch_config_t` 本体（20 B，无版本头�
 | 时间事件 | 所有者 | 一次性/周期 | arm 时点 | disarm 路径 | 陈旧识别 | 并行实例 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `te_sample` | AoChannel[ch] | 周期（表定 tick 数） | Measuring entry | Measuring exit；CONFIG_SET 重配 | 无须（信号仅 Measuring 处理） | 8 |
-| `te_settle` | AoChannel[ch] | one-shot | Detecting/Settling entry | 两态 exit；重配 | 无须（方案 B 结构规避，ao_channel §6） | 8 |
+| `te_settle` | AoChannel[ch] | one-shot | Detecting/Settling entry | 两态 exit；重配 | 无须（方案 B 结构规避，channel_ao §6） | 8 |
 | `te_break` | AoChannel[ch] | 周期 3000 ms | Measuring entry（可检测型） | Measuring exit；重配 | 无须（同 te_sample） | 8 |
 | `te_tick` | AoColdJunction | 周期 1000 ms | Starting entry | 无（永续） | 无切换场景 | 1 |
 
 tick 分辨率 1 ms（SysTick 1 kHz）；等待 0 tick 至少 arm 1 拍（≥1 tick 原样 arm，`settle_ms` 向上取整）；
-非整毫秒采样周期向上取整为固定 tick 数（速率恒 ≤ 标称，误差表见 `ao_channel.md` §6）。
+非整毫秒采样周期向上取整为固定 tick 数（速率恒 ≤ 标称，误差表见 `channel_ao.md` §6）。
 
 ## 7. 并发与容量预算（总表）
 

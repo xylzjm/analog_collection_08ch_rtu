@@ -1,13 +1,13 @@
-#ifndef AO_CHANNEL_H
-#define AO_CHANNEL_H
+#ifndef CHANNEL_AO_H
+#define CHANNEL_AO_H
 
 /**
- * @file ao_channel.h
+ * @file channel_ao.h
  * @brief Channel acquisition active object (one instance per channel).
  *
  * Owns the whole acquisition life cycle of one channel: configuration
  * application, sampling, calibration, the wire break detection loop and the
- * channel status. See docs/ao/ao_channel.md.
+ * channel status. See docs/ao/channel_ao.md.
  */
 
 #include "analog_input.h"
@@ -20,10 +20,10 @@ extern "C" {
 #endif
 
 /** @brief Queue depth (boot burst plus tick events plus margin). */
-#define AO_CHANNEL_QUEUE_LEN 13U
+#define CHANNEL_AO_QUEUE_LEN 13U
 
 /** @brief Wire break check period in ticks (3 s). */
-#define AO_CHANNEL_BREAK_WINDOW_MS 3000U
+#define CHANNEL_AO_BREAK_WINDOW_MS 3000U
 
 /** @brief AoChannel active object. */
 typedef struct {
@@ -40,7 +40,7 @@ typedef struct {
     uint8_t  cjc_valid;   /**< Cached cold junction validity. */
     uint8_t  wire;        /**< analog_input_wire_status_t of the last check. */
     uint8_t  ch;          /**< One-based board channel. */
-} ao_channel_t;
+} channel_ao_t;
 
 /**
  * @brief Construct one channel active object.
@@ -48,7 +48,7 @@ typedef struct {
  * @param me Storage owned by the caller.
  * @param ch One-based board channel (1..8).
  */
-void ao_channel_ctor(ao_channel_t* me,
+void channel_ao_ctor(channel_ao_t* me,
                      uint8_t ch);
 
 #ifdef __cplusplus
