@@ -94,11 +94,11 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 
 | 键 | 值（blob） | 说明 |
 | --- | --- | --- |
-| `cfg/ch1` .. `cfg/ch8` | `ch_config_t` 本体（20 B，无版本头） | 每通道独立键：单通道写不牵动他通道 |
+| `cfg/ch0` .. `cfg/ch7` | `ch_config_t` 本体（20 B，无版本头） | 每通道独立键：单通道写不牵动他通道 |
 | `dev/addr` | `u16` 本体（2 B） | 从站地址；校验 1..247 |
 
 出厂默认参数由 **FlashDB 默认表**承载：`param_defaults.c` 提供唯一的默认数据源
-（`fdb_kv_pair_t` 表：`cfg/ch1..8` 与 `dev/addr`，值为参数本体），传给
+（`fdb_kv_pair_t` 表：`cfg/ch0..7` 与 `dev/addr`，值为参数本体），传给
 `fdb_kvdb_init()`。键集是**底板 8 位置布局**：装配数（`CH_CONFIG_CHANNEL_COUNT`）少于 8
 的 SKU，未装配通道的键仍由默认表物化但不被加载/使用（加载循环以装配数为界）。空 flash（全扇区头坏）时 `_fdb_kv_load()` 走 `fdb_kv_set_default()`
 把全部默认键物化，加载即有效值——**出厂首启不报故障**。

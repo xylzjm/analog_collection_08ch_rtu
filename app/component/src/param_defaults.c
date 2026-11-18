@@ -25,8 +25,9 @@ static const ch_config_t default_ch_cfg = {
 /** @brief Factory default Modbus slave address. */
 static const uint16_t default_dev_addr = REG_MAP_DEV_ADDR_MIN;
 
-/** @brief Default KV nodes: one per persisted parameter. */
+/** @brief Default KV nodes: one per persisted parameter (zero-based index). */
 static struct fdb_default_kv_node default_kv_nodes[] = {
+    { "cfg/ch0", (void*)&default_ch_cfg, sizeof(ch_config_t) },
     { "cfg/ch1", (void*)&default_ch_cfg, sizeof(ch_config_t) },
     { "cfg/ch2", (void*)&default_ch_cfg, sizeof(ch_config_t) },
     { "cfg/ch3", (void*)&default_ch_cfg, sizeof(ch_config_t) },
@@ -34,7 +35,6 @@ static struct fdb_default_kv_node default_kv_nodes[] = {
     { "cfg/ch5", (void*)&default_ch_cfg, sizeof(ch_config_t) },
     { "cfg/ch6", (void*)&default_ch_cfg, sizeof(ch_config_t) },
     { "cfg/ch7", (void*)&default_ch_cfg, sizeof(ch_config_t) },
-    { "cfg/ch8", (void*)&default_ch_cfg, sizeof(ch_config_t) },
     { "dev/addr", (void*)&default_dev_addr, sizeof(uint16_t) },
 };
 

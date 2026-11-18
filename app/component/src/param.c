@@ -22,10 +22,10 @@
 /** @brief The single KV database instance owned by this module. */
 static struct fdb_kvdb kvdb;
 
-/** @brief KV keys of the per-channel configurations. */
+/** @brief KV keys of the per-channel configurations (zero-based index). */
 static const char* const cfg_keys[] = {
-    "cfg/ch1", "cfg/ch2", "cfg/ch3", "cfg/ch4",
-    "cfg/ch5", "cfg/ch6", "cfg/ch7", "cfg/ch8"
+    "cfg/ch0", "cfg/ch1", "cfg/ch2", "cfg/ch3",
+    "cfg/ch4", "cfg/ch5", "cfg/ch6", "cfg/ch7"
 };
 
 /** @brief Last committed configuration per channel (change check base). */

@@ -168,13 +168,13 @@
 
 ### 持久化格式（代码内不管理版本）
 
-KV 键 `cfg/ch1`..`cfg/ch8`，值 = `ch_config_t` 本体（20 B，无版本头）；`dev/addr`，值 =
+KV 键 `cfg/ch0`..`cfg/ch7`，值 = `ch_config_t` 本体（20 B，无版本头）；`dev/addr`，值 =
 `u16` 地址（2 B）。加载侧唯一防线是 `ch_config_validate()` 语义校验（拒绝即加载失败：
 不顶替、不下发、置 b2）。固件出厂即固定、无在线升级，KV 布局仅在开发期演进（全片擦除/
 恢复出厂/重下发即足），不做版本管理。详细策略见 `param.md`。
 
 出厂默认参数由 FlashDB 默认表承载（`param_defaults.c` 的 `fdb_kv_pair_t` 表，含
-`cfg/ch1..8` 与 `dev/addr`）：空 flash 首启由 FlashDB 物化全部默认键、不报故障；
+`cfg/ch0..7` 与 `dev/addr`）：空 flash 首启由 FlashDB 物化全部默认键、不报故障；
 `FDB_KV_AUTO_UPDATE` 保持关闭，已用 DB 上缺失/损坏键如实报码 2 且**不下发**
 （对应通道不投入运行，绝不默认顶替；仅 `dev/addr` 允许默认地址兜底）；
 恢复出厂 = `fdb_kv_set_default()`。
