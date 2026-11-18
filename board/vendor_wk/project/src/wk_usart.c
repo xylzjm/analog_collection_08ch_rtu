@@ -79,7 +79,7 @@ void wk_usart1_init(void)
     usart_interrupt_enable(USART1, USART_ERR_INT, TRUE);
 
     /* add user code begin usart1_init 2 */
-    usart_receiver_enable(USART1, FALSE);
+
     /* add user code end usart1_init 2 */
 
     usart_enable(USART1, TRUE);

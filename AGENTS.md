@@ -60,8 +60,11 @@ before `../middleware/EasyLogger/easylogger/inc`, otherwise the template
 - `board/vendor_wk/project/` is AT32 WorkBench output driven by
   `board/vendor_wk/vendor_wk.ATWP`; `.pack/` is the AT32F421 device pack. Keep
   their copyright and generated comments and their MS-style formatting.
-- `wk_gpio.c` / `wk_usart.c` already carry hand edits (DE pin, USART setup).
-  Regenerating from the `.ATWP` can silently drop them - diff before accepting.
+- No file under `board/vendor_wk/project/` carries hand edits: the DE pin,
+  USART1, TMR14 and the TMR6 delay time base all live in the `.ATWP`, so
+  regenerating from it is safe by construction. The board port owns its
+  peripheral preconditions regardless of the generated init state
+  (ownership comments in `board/src/modbus_slave_board.c`).
 - Vendor `main.c` and `at32f421_int.c` are excluded from the build. Entry point
   is `app/main.c`; IRQ handlers live in board modules (`SysTick_Handler` in
   `board/src/board.c`, `USART1_IRQHandler` / `TMR14_GLOBAL_IRQHandler` in

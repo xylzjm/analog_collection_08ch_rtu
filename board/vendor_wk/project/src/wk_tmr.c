@@ -61,7 +61,7 @@ void wk_tmr14_init(void)
     tmr_counter_enable(TMR14, TRUE);
 
     /* add user code begin tmr14_init 2 */
-    tmr_counter_enable(TMR14, FALSE);
+
     /* add user code end tmr14_init 2 */
 }
 

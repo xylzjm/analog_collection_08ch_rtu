@@ -46,6 +46,13 @@ static modbus_slave_status_t line_direction(void* ctx,
 {
     const line_ctx_t* b = (const line_ctx_t*)ctx;
 
+    /*
+     * This port owns the reception window regardless of the peripheral
+     * state wk_usart1_init() leaves behind: RDBF stays masked until the
+     * first direction(1, 0), and the core drops every byte while its
+     * session is stopped, so stray line noise before start is harmless.
+     */
+
     if ( rx != 0U && tx != 0U ) {
         return MODBUS_SLAVE_ERR_ARG;
     }
@@ -99,6 +106,12 @@ static modbus_slave_status_t timer_arm(void* ctx, uint32_t timeout_us)
 {
     const timer_ctx_t* t = (const timer_ctx_t*)ctx;
     uint32_t ticks;
+
+    /*
+     * Same ownership rule for the timer: whatever state wk_tmr14_init()
+     * left (one-cycle mode self-stops the counter), this entry stops and
+     * clears before reprogramming, so no stale expiry can fire.
+     */
 
     /* Clamp to the 16-bit period; the core's timeouts are expected to fit. */
     ticks = (timeout_us + MB_TMR_TICK_US - 1U) / MB_TMR_TICK_US;
