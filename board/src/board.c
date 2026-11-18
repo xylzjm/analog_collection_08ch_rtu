@@ -1,6 +1,6 @@
-#include "qpc.h"
-
 #include "board.h"
+
+#include "qpc.h"
 
 #include "at32f421_wk_config.h"
 #include "wk_gpio.h"
@@ -113,6 +113,9 @@ void SysTick_Handler(void)
 
     /* 1 ms clock tick for the QP time events (rate 0). */
     QTIMEEVT_TICK_X(0U, (void*)0);
+
+    /* Cortex-M4 erratum 838869 workaround: DSB before ISR exit. */
+    QV_ARM_ERRATUM_838869();
 }
 
 /*----------------------------------------------------------------------------*/
@@ -132,6 +135,9 @@ void QF_onCleanup(void)
 
 void QV_onIdle(void)
 {
+    /* Entered with interrupts disabled; the QV kernel re-disables them
+     * right after this callback returns, so it must leave them enabled. */
+    QF_INT_ENABLE();
 }
 
 /*----------------------------------------------------------------------------*/

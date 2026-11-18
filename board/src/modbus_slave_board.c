@@ -4,6 +4,8 @@
 
 #include "board.h"
 
+#include "qpc.h"
+
 /** @brief TMR14 resolution and 16-bit period limit. */
 #define MB_TMR_TICK_US   10U
 #define MB_TMR_MAX_TICKS 65535U
@@ -219,6 +221,9 @@ void USART1_IRQHandler(void)
             usart_flag_clear(USART1, errors);
         }
     }
+
+    /* Cortex-M4 erratum 838869 workaround: DSB before ISR exit. */
+    QV_ARM_ERRATUM_838869();
 }
 
 void TMR14_GLOBAL_IRQHandler(void)
@@ -227,4 +232,7 @@ void TMR14_GLOBAL_IRQHandler(void)
         tmr_flag_clear(TMR14, TMR_OVF_FLAG);
         (void)modbus_slave_timer_expired(&slave);
     }
+
+    /* Cortex-M4 erratum 838869 workaround: DSB before ISR exit. */
+    QV_ARM_ERRATUM_838869();
 }
