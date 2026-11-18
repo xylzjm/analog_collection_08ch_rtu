@@ -10,6 +10,9 @@ extern "C" {
 /* Interrupt mask must match the QP port (PRIMASK or QF_USE_BASEPRI). */
 #include "qp_config.h"
 
+/* Board topology facts (channel count, SKU knob), re-exported for consumers. */
+#include "board_config.h"
+
 /** @brief Bring up the board hardware and board-level device objects. */
 void board_init(void);
 

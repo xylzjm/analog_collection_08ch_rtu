@@ -5,26 +5,14 @@
 
 #include "sig24131.h"
 
+#include "board_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Maximum number of SIG24131 devices on the board. */
-#define SIG24131_BOARD_MAX_INSTANCES 8U
-
-/** @brief Number of populated SIG24131 devices. */
-#ifndef SIG24131_BOARD_INSTANCE_COUNT
-#ifdef SIG24131_BOARD_COUNT
-#define SIG24131_BOARD_INSTANCE_COUNT SIG24131_BOARD_COUNT
-#else
-#define SIG24131_BOARD_INSTANCE_COUNT SIG24131_BOARD_MAX_INSTANCES
-#endif
-#endif
-
-#if ( SIG24131_BOARD_INSTANCE_COUNT < 1U ) \
-    || (SIG24131_BOARD_INSTANCE_COUNT > SIG24131_BOARD_MAX_INSTANCES)
-#error "SIG24131_BOARD_INSTANCE_COUNT must be between 1 and 8"
-#endif
+/** @brief Number of populated SIG24131 devices (one per channel position). */
+#define SIG24131_BOARD_INSTANCE_COUNT BOARD_CHANNEL_COUNT
 
 /**
  * @brief Construct the driver instance of one channel.

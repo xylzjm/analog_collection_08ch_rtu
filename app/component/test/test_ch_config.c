@@ -6,6 +6,9 @@
 
 #include "ch_config.h"
 
+/* The layer agreement CHECK below needs the board adapter's name directly. */
+#include "analog_input_board.h"
+
 static int checks;
 static int failures;
 

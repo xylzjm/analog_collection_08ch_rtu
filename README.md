@@ -87,7 +87,7 @@ elog_* / FDB_PRINT / printf
 - 多片 SIG24131 共用 SPI1，每片独立 GPIO 片选。
 - 构造时释放片选；上电后统一复位，共享一次 43 ms 等待。
 - SPI 传输带超时，超时返回 `SIG24131_ERR_IO`。
-- 板级通道数由 `SIG24131_BOARD_INSTANCE_COUNT` 决定，最大 8。
+- 板级通道数统一在 `board/inc/board_config.h` 定义（`BOARD_CHANNEL_COUNT`，SKU 旋钮 `-DSIG24131_BOARD_COUNT=N`，最大 8）；各层语义名（`SIG24131_BOARD_INSTANCE_COUNT`、`ANALOG_INPUT_BOARD_CHANNEL_COUNT`、`CH_CONFIG_CHANNEL_COUNT`）都从它派生。
 
 ### I2C 软总线
 

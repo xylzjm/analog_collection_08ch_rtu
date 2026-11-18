@@ -6,22 +6,22 @@
  * @brief Channel configuration model, validation and rate tables.
  *
  * Pure logic; the only board dependency is the hardware channel count
- * (ANALOG_INPUT_BOARD_CHANNEL_COUNT). Shared by the Modbus write pipeline
- * (reg_map / AoModbus), the parameter store (param) and the channel active
- * object.
+ * (BOARD_CHANNEL_COUNT, from board_config.h). Shared by the Modbus write
+ * pipeline (reg_map / AoModbus), the parameter store (param) and the channel
+ * active object.
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "analog_input_board.h"
+#include "board_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Number of measurement channels (board hardware fact, not an app choice). */
-#define CH_CONFIG_CHANNEL_COUNT ANALOG_INPUT_BOARD_CHANNEL_COUNT
+#define CH_CONFIG_CHANNEL_COUNT BOARD_CHANNEL_COUNT
 
 /** @brief Highest valid rate code (inclusive); 0..CH_CONFIG_RATE_CODE_MAX. */
 #define CH_CONFIG_RATE_CODE_MAX CH_RATE_100_HZ

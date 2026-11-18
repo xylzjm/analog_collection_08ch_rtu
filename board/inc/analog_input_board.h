@@ -6,6 +6,7 @@
 #include "analog_input.h"
 #include "sig24131.h"
 #include "sig24131_board.h"
+#include "board_config.h"
 
 #ifdef __cplusplus
 extern "C" {

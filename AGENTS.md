@@ -35,7 +35,8 @@ workspace file adds both folders; without them nothing compiles.
   matters; `-O1` is in use.
 - SKU variants fix the channel count at compile time: define
   `SIG24131_BOARD_COUNT=N` (1..8) in the EIDE preprocessor macros
-  (`.eide/eide.yml`). Everything else derives from it: unpopulated channel
+  (`.eide/eide.yml`). The knob resolves in `board/inc/board_config.h`
+  (`BOARD_CHANNEL_COUNT`); every layer name derives from it: unpopulated channel
   positions answer ILLEGAL_DATA_ADDRESS, KV keys stay at the 8-position board
   layout. Host tests model the full 8-position board; a variant build is
   verified by compiling the firmware and the on-target EX 02 checks, not by
