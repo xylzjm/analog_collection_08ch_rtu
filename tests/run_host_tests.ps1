@@ -88,6 +88,13 @@ $tests = @(
         Extra = @()
     },
     @{
+        Name = 'test_analog_input_convert'
+        Sources = @('tests/app/test_analog_input_convert.c',
+                    'board/src/analog_input_convert.c',
+                    '../library/interface/analog_input/analog_input_math.c')
+        Extra = @()
+    },
+    @{
         Name = 'test_channel_ao'
         Sources = @('tests/app/test_channel_ao.c',
                     'app/ao/src/channel_ao.c',

@@ -128,7 +128,10 @@ unverified on hardware.
      `tmp75_port_fake` (behind the real `tmp75.c`), `modbus_port_fake`
      (behind the real slave core), and `param_stub` (scriptable commit
      results). `test_boot` takes a scenario argument (1, 2): the QP registry
-     is not rebuilt twice inside one process.
+     is not rebuilt twice inside one process. `test_analog_input_convert`
+     instead tests the pure board conversion module
+     (`board/src/analog_input_convert.c`, split out of the register-bound
+     TU) against hand-derived electrical anchors, with no QP linkage.
 
    The script prints `N checks, 0 failures` per test. `tests/` and its
    harness are outside the EIDE build.

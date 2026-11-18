@@ -124,6 +124,7 @@ virtualFolder:
     - name: board
       files:
         - path: board/src/analog_input_board.c
+        - path: board/src/analog_input_convert.c
         - path: board/src/board.c
         - path: board/src/i2c_soft_board.c
         - path: board/src/tmp75_board.c
