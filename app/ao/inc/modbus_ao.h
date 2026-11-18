@@ -20,6 +20,7 @@ typedef struct {
     modbus_slave_port_event_t ev; /**< ISR event port routed into this AO. */
     uint16_t tx_done_cnt;         /**< Diagnostic: replies sent. */
     uint16_t tx_timeout_cnt;      /**< Diagnostic: TX watchdog events. */
+    uint16_t diag_ctr;            /**< CJC heartbeats since the last water-level report. */
 } modbus_ao_t;
 
 /**

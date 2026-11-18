@@ -12,7 +12,7 @@
 | 协议 | Modbus RTU 9600 8N1；FC03/FC06/FC16 保持寄存器、FC04 输入寄存器、FC17 报告 ID；FC01/02/05/15 无数据空间（回 01） |
 | 数值编码 | **float32（IEEE-754），2 寄存器，大端字序（高字在低地址）**；u16 单寄存器 |
 | 独占资源 | `modbus_slave_board_get()` 实例、RX/TX 缓冲（板级 256 B 各）、`param` 组件（`fdb_kvdb`/FAL/参数分区，经本 AO 调用） |
-| 扩展变量 | `cfg_image[8]`、`value/status[8]`、`cjc {temp,valid}`、故障锁存 `b1/b2/b3` 与 `load_failed[]`（清除依据，见 param §5） |
+| 扩展变量 | 镜像整体在 `modbus_image` 组件（`cfg[]`、`value/status[]`、`cjc_temp/cjc_valid`、故障锁存 `b1/b2/b3` 与 `load_failed[]`，见 `docs/component/modbus_image.md`）；本 AO 仅持 `slave` 指针、ISR 事件端口与 TX 诊断计数 |
 | 假设 | 从站地址经保持寄存器 128 可写（1..247），并作为设备级参数固化 flash（KV `dev/addr`，出厂默认 1）；波特率可配置列为扩展（保留寄存器已裁撤，届时在设备级块新增定义） |
 
 ## 2. 职责与不变量
@@ -141,7 +141,8 @@
   （`ch_config_validate()` 拒绝）。
 
 通道故障**不在**本位域：各通道健康度由其状态寄存器（§4 通道块 +2）独立上报。
-合成在读回调内联计算（镜像足够，无额外事件）；锁存状态保存在本 AO 扩展变量。
+合成在读回调内联计算（镜像足够，无额外事件）；锁存状态随镜像保存在 `modbus_image`
+组件。
 
 ## 6. 状态机与回调行为
 
@@ -190,7 +191,7 @@ AoModbus (top, 初始 → Serving)
 
 ### 读回调
 
-- 保持寄存器读：`cfg_image` → 大端缓冲（float 按字序拆分）。
+- 保持寄存器读：`modbus_image` 的 `cfg[ch]` → 大端缓冲（float 按字序拆分）。
 - 输入寄存器读：通道值/状态 + 系统块 + 设备故障位域（现场合成）。
 - coils/discrete：恒回 EX 01。
 
@@ -198,7 +199,7 @@ AoModbus (top, 初始 → Serving)
 
 | 项目 | 数值 | 依据 |
 | --- | --- | --- |
-| 队列 | 16 | QV 协作 + 本 AO 最高优先级：写回调 30 ms 内他人不运行、无发布积压（时间事件只进通道队列）；峰值 ≈ 一轮发布（≤8×MEASURE+1×CJC）+1×FRAME ≈ 10 + 裕量 |
+| 队列 | 16 | QV 抽干性质 + 发布收敛：本 AO 最高优先级（11），发布者投递后 QV 立即转回本 AO 抽干（30 ms 写窗口内时间事件只进通道队列，与本队列无关）；峰值 ≈ 单次 RTC 扇出（≤8×MEASURE+1×CJC）+1×FRAME ≈ 10 + 裕量。论证勘误与失效条件见总体设计 §7；水位证据经 `QActive_getQueueMin()` 低水位上报（Serving 的 CJC 分支每 60 个心跳输出一次全部 AO 的水位） |
 | RTC（写帧处理，含同步固化） | ≤30 ms | advance + 校验 + 1 次 KV 固化 + 写后读回校验（写帧限单块）——本 AO 最长 RTC |
 | RTC（普通帧/遥测事件） | ≤0.5 ms | advance + 镜像覆盖写 |
 | 应答延迟 | ≤30 ms 最坏 | 仅写帧含同步固化；读帧 ≤1 ms；对典型 1 s 主站超时裕量充足 |

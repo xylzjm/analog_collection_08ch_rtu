@@ -127,9 +127,9 @@
 | `SAMPLE_SIG` | 无参 | 时间事件（周期） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 固定周期（表定 tick 数）；无须陈旧防护（见 channel_ao §6） | 100 Hz/通道 |
 | `SETTLE_SIG` | 无参 | 时间事件（one-shot） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 语义随状态（检查就绪/转换就绪）；迟到事件结构上不可达（channel_ao §6） | ≤1 次/模式切换 |
 | `BREAK_WINDOW_SIG` | 无参 | 时间事件（周期 3000 ms） | 自投 FIFO | 静态 `QTimeEvt`/通道 | — | 仅 Measuring 有效，他态显式忽略 | 1/3 s/通道 |
-| `CONFIG_SET_SIG` | `{uint8_t ch; ch_config_t cfg}`（24 B） | `AoModbus`（启动加载 / 写帧固化成功）→ 8×`AoChannel` | **发布—订阅** FIFO | 动态 池B（32 B 块） | 发布后生产者不得再访问；框架按引用计数回收 | 仅固化成功后发布；接收者按 `ch` 过滤；命中→改配隔离（`pending`+`APPLY_SIG`+转 Unconfigured） | 启动 ≤8 条；写帧 1 条 |
+| `CONFIG_SET_SIG` | `{uint8_t ch; ch_config_t cfg}`（24 B，`ch` 为 **0 基**索引，与镜像/KV/寄存器块同基） | `AoModbus`（启动加载 / 写帧固化成功）→ 8×`AoChannel` | **发布—订阅** FIFO | 动态 池B（32 B 块） | 发布后生产者不得再访问；框架按引用计数回收 | 仅固化成功后发布；接收者按 `ch` 过滤；命中→改配隔离（`pending`+`APPLY_SIG`+转 Unconfigured） | 启动 ≤8 条；写帧 1 条 |
 | `APPLY_SIG` | 无 | `applyEvt` 自投（文件级 `QEvt const`，8 通道共用） | 自投 FIFO | 静态 `QEVT_INITIALIZER` | — | Unconfigured 处理：`configure(pending)`→先检后测重入；改配隔离用（channel_ao §6） | 每次改配 1 条 |
-| `MEASURE_SIG` | `{uint8_t ch; float value; uint16_t status}`（12 B） | `AoChannel` → `AoModbus` | 发布—订阅 FIFO | 动态 池A（20 B 块） | 同上 | 只保留最新；Modbus 映像覆盖写 | 8×100 Hz=800/s |
+| `MEASURE_SIG` | `{uint8_t ch; float value; uint16_t status}`（12 B，`ch` 0 基） | `AoChannel` → `AoModbus` | 发布—订阅 FIFO | 动态 池A（20 B 块） | 同上 | 只保留最新；Modbus 映像覆盖写 | 8×100 Hz=800/s |
 | `CJC_SIG` | `{float temp_c; uint8_t valid}` | `AoColdJunction` → 8×`AoChannel`、`AoModbus` | 发布—订阅 FIFO | 动态 池A | 同上 | 心跳 1 Hz；通道缓存最近一条 | 1 Hz + 启动 1 条 |
 
 ### 所有权补充
@@ -206,7 +206,15 @@ QV 协作内核：AO 之间不抢占，故任一 AO 的响应窗口 W = 他人�
 | --- | --- | --- | --- |
 | AoChannel[ch] ×8 | 13 | 启动 8×CONFIG_SET + 1×CJC + ≤3 tick + 1×APPLY | 416 B |
 | AoColdJunction | 4 | 1 Hz tick + 余量 | 16 B |
-| AoModbus | 16 | QV 协作 + 本 AO 最高优先级：写回调 30 ms 内他人不运行、无发布积压；峰值 ≈ 一轮发布（≤8×MEASURE+1×CJC）+1×FRAME ≈ 10 + 余量 | 64 B |
+| AoModbus | 16 | QV 抽干性质 + 发布收敛：本 AO 最高优先级（11），任何发布者投递后 QV 立即转回来抽干，故队列峰值 ≈ 单次 RTC 内的扇出（≤8×MEASURE+1×CJC）+1×FRAME ≈ 10 + 余量 | 64 B |
+
+> **论证勘误（2026-11，复评审发现）**：本行早期版本把 AoModbus 队列安全归因于
+> "写回调 30 ms 内他人不运行、无发布积压"——该理由不成立：30 ms 窗口内各通道的
+> 时间事件照样在**各自**队列累积。队列真正安全依赖两条**调度性质**：QV 每次激活
+> 只派发一条事件（一次 RTC 结束即重新按最高就绪优先级调度），以及 AoModbus 优先级
+> 11 高于全部发布者（2..10）——发布事件刚入队它就被激活、立刻抽干。**改优先级或
+> 新增高于 11 的发布者会让此论证静默失效**，届时须重新核算。各 AO 队列的实际水位
+> 由 `QActive_getQueueMin()` 低水位上报取证（见 §9 与 AoModbus 诊断路径）。
 
 | 事件池 | 块尺寸 | 块数 | 依据 | RAM |
 | --- | --- | --- | --- | --- |
@@ -272,7 +280,7 @@ QF_run();                         /* QV 调度器接管 */
 | --- | --- | --- |
 | 通道状态机轨迹 | `elog` 在 entry/转换点打状态名与关键出参（限 DEBUG 级） | 核对先检后测、3 s 循环 |
 | RTC 长度 | GPIO 翻转 + 逻辑分析仪，或 DWT 循环计数打日志 | 收紧 §7 预算 |
-| 队列/池余量 | `QActive_getQueueMin()` 周期上报（DEBUG 构建） | 低水位证据 |
+| 队列/池余量 | `QActive_getQueueMin()` 周期上报（AoModbus 诊断，见下）+ 宿主 `test_boot` 断言 | 低水位证据 |
 | 配置固化 | param 每次固化打 key/结果 | 掉电测试对账 |
 | 异常现场 | `Q_onError` RTT 直写 | ISR 可用 |
 

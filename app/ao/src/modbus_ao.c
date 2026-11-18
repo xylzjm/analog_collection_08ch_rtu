@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "app_events.h"
+#include "elog.h"
 #include "modbus_image.h"
 #include "param.h"
 
@@ -28,22 +29,49 @@ static QEvt const txTimeoutEvt = QEVT_INITIALIZER(TX_TIMEOUT_SIG);
 static QState modbus_ao_initial(modbus_ao_t* const me, void const* const par);
 static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e);
 
+/** @brief CJC heartbeats between two queue water-level diagnostics. */
+#define MODBUS_AO_DIAG_PERIOD_HEARTBEATS 60U
+
+/**
+ * @brief Report the low-water mark of every started AO's event queue.
+ *
+ * The capacity argument of docs/qp-application-design.md section 7 rests
+ * on scheduling properties (QV dispatches one event per activation and
+ * AoModbus is the highest-priority subscriber), not on queue headroom;
+ * this diagnostic turns that argument into measured evidence. getQueueMin
+ * reports the smallest free space seen since start - the boot burst and
+ * the 8x100 Hz soak both leave their footprint in one number per AO.
+ */
+static void report_queue_watermarks(void)
+{
+    uint8_t prio;
+
+    for ( prio = 2U; prio <= 11U; ++prio ) {
+        uint16_t const min_free = QActive_getQueueMin(prio);
+
+        if ( min_free != 0xFFFFU ) { /* unstarted AOs report sentinel */
+            elog_debug("modbus_ao", "qmin prio=%u free=%u",
+                       (unsigned)prio, (unsigned)min_free);
+        }
+    }
+}
+
 /**
  * @brief Publish one CONFIG_SET_SIG event after a committed write.
  *
- * Registered as the image's commit notifier; the zero-based image
- * channel becomes the one-based channel of the event payload.
+ * Registered as the image's commit notifier; the image channel index
+ * (zero-based, same base as the event payload) passes through directly.
  */
 static void on_cfg_committed(void* ctx,
                              uint8_t ch,
                              const ch_config_t* cfg)
 {
-    modbus_ao_t* me       = (modbus_ao_t*)ctx;
+    modbus_ao_t* me = (modbus_ao_t*)ctx;
     config_set_evt_t* evt = Q_NEW(config_set_evt_t, CONFIG_SET_SIG);
 
     (void)me; /* the publish sender; referenced only in Q_SPY builds */
 
-    evt->ch  = (uint8_t)(ch + 1U);
+    evt->ch  = ch;
     evt->cfg = *cfg;
     QACTIVE_PUBLISH(&evt->super, Q_ACTIVE_UPCAST(me));
 }
@@ -109,6 +137,7 @@ void modbus_ao_ctor(modbus_ao_t* me)
     me->slave          = NULL;
     me->tx_done_cnt    = 0U;
     me->tx_timeout_cnt = 0U;
+    me->diag_ctr       = 0U;
 
     /* The mirror lives in the image component; so do the callbacks. */
     modbus_image_set_cfg_notifier(&me->image, &on_cfg_committed, me);
@@ -159,7 +188,7 @@ static QState modbus_ao_initial(modbus_ao_t* const me, void const* const par)
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         if ( res.cfg_valid[ch] != 0U ) {
-            publish_boot_config(me, (uint8_t)(ch + 1U), &res.cfg[ch]);
+            publish_boot_config(me, ch, &res.cfg[ch]);
         }
     }
 
@@ -200,8 +229,7 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
         case MEASURE_SIG: {
             measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
-            modbus_image_set_measure(&me->image, (uint8_t)(m->ch - 1U),
-                                     m->value, m->status);
+            modbus_image_set_measure(&me->image, m->ch, m->value, m->status);
             status = Q_HANDLED();
             break;
         }
@@ -209,6 +237,13 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
             cjc_evt_t const* cjc = Q_EVT_CAST(cjc_evt_t);
 
             modbus_image_set_cjc(&me->image, cjc->temp_c, cjc->valid);
+
+            /* The 1 Hz heartbeat doubles as the diagnostic cadence. */
+            ++me->diag_ctr;
+            if ( me->diag_ctr >= MODBUS_AO_DIAG_PERIOD_HEARTBEATS ) {
+                me->diag_ctr = 0U;
+                report_queue_watermarks();
+            }
             status = Q_HANDLED();
             break;
         }
