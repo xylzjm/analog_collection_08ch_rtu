@@ -338,7 +338,6 @@ static void test_telemetry(void)
     modbus_image_set_measure(&img, 1U, 42.5f,
                              (uint16_t)REG_MAP_STATUS_OK);
     modbus_image_set_cjc(&img, 25.0f, 1U);
-
     CHECK(img.status[1] == (uint16_t)REG_MAP_STATUS_OK);
     CHECK(img.cjc_valid == 1U);
 

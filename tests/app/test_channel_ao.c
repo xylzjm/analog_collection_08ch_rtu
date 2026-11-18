@@ -164,7 +164,7 @@ static void scenario_begin(void)
     analog_input_fake_init(&fake);
     analog_input_fake_reset_log(&fake);
 
-    channel_ao_ctor(&ao, 1U, &fake.base);
+    channel_ao_ctor(&ao, 0U, &fake.base);
     QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(2U, 0U),
                   ao_queue, CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     ao_started = 1U;
@@ -183,7 +183,7 @@ static void publish_config(uint8_t type,
 {
     config_set_evt_t* e = Q_NEW(config_set_evt_t, CONFIG_SET_SIG);
 
-    e->ch          = 1U;
+    e->ch          = 0U;
     e->cfg.type    = type;
     e->cfg.tc_type = tc_type;
     e->cfg.rate_code = rate_code;

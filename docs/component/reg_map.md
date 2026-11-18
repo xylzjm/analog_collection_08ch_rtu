@@ -112,7 +112,7 @@ EX 01 的口径：空间整体不存在 = 函数不支持（比 EX 02 诚实—�
 ```text
 holding 写回调：
     reg_map_check                       缺席 → EX 02
-    CH_CFG：encode(cfg_image[ch]) → 帧覆盖 → decode → ch_config_validate（含归一化）
+    CH_CFG：encode(cfg[ch]) → 帧覆盖 → decode → ch_config_validate（含归一化）
     DEV：  校验 1..247（非法 → EX 03）
     param_save_*（同步固化 + 写后读回）
         读回=下发值 → 提交类型化镜像（通道块发布 CONFIG_SET_SIG）→ EX 00

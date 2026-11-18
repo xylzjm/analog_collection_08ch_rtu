@@ -73,7 +73,7 @@ int main(void)
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        channel_ao_ctor(&channels[i], (uint8_t)(i + 1U),
+        channel_ao_ctor(&channels[i], (uint8_t)i,
                         analog_input_board_get((uint8_t)(i + 1U)));
     }
     cold_junction_ao_ctor(&cold_junction, tmp75_board_get_device());

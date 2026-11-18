@@ -39,14 +39,16 @@ typedef struct {
     uint32_t settle_ms;   /**< Delay for the next Settling entry. */
     uint8_t  cjc_valid;   /**< Cached cold junction validity. */
     uint8_t  wire;        /**< analog_input_wire_status_t of the last check. */
-    uint8_t  ch;          /**< One-based board channel. */
+    uint8_t  ch;          /**< Zero-based channel index (0..COUNT-1); the
+                               same base as the event payloads and the
+                               mirror/KV storage. */
 } channel_ao_t;
 
 /**
  * @brief Construct one channel active object.
  *
  * @param me Storage owned by the caller.
- * @param ch One-based board channel (1..8).
+ * @param ch Zero-based channel index (0..CH_CONFIG_CHANNEL_COUNT-1).
  * @param input Board channel object to own; borrowed, must outlive this AO.
  */
 void channel_ao_ctor(channel_ao_t* me,

@@ -38,14 +38,14 @@ typedef enum {
 /** @brief CONFIG_SET_SIG payload (pool B). */
 typedef struct {
     QEvt        super; /**< Event header. */
-    uint8_t     ch;    /**< One-based channel number. */
+    uint8_t     ch;    /**< Zero-based channel index. */
     ch_config_t cfg;   /**< New effective configuration. */
 } config_set_evt_t;
 
 /** @brief MEASURE_SIG payload (pool A). */
 typedef struct {
     QEvt     super;  /**< Event header. */
-    uint8_t  ch;     /**< One-based channel number. */
+    uint8_t  ch;     /**< Zero-based channel index. */
     float    value;  /**< Calibrated engineering value (frozen on faults). */
     uint16_t status; /**< Channel status code (reg_map_status_t). */
 } measure_evt_t;

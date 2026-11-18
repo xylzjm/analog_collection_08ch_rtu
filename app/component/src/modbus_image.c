@@ -278,9 +278,6 @@ void modbus_image_set_measure(modbus_image_t* img,
                               float value,
                               uint16_t status)
 {
-    if ( ch >= CH_CONFIG_CHANNEL_COUNT ) {
-        return;
-    }
     img->value[ch]  = value;
     img->status[ch] = status;
 }

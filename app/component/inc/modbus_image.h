@@ -101,7 +101,7 @@ void modbus_image_set_cfg_notifier(modbus_image_t* img,
  * @brief Record one measurement into the telemetry mirror.
  *
  * @param img Image to update.
- * @param ch Zero-based channel.
+ * @param ch Zero-based channel index, the same base as the event payload.
  * @param value Calibrated engineering value.
  * @param status Channel status code (reg_map_status_t).
  */
@@ -109,7 +109,6 @@ void modbus_image_set_measure(modbus_image_t* img,
                               uint8_t ch,
                               float value,
                               uint16_t status);
-
 /**
  * @brief Record one cold junction heartbeat.
  *

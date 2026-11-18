@@ -287,7 +287,7 @@ static void test_boot_load_publishes(void)
         uint8_t ch;
 
         for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-            CHECK(published[ch].ch == (uint8_t)(ch + 1U));
+            CHECK(published[ch].ch == ch);
             CHECK(published[ch].cfg.type == (uint8_t)CH_TYPE_TC);
             CHECK(published[ch].cfg.rate_code == 2U);
         }
@@ -374,7 +374,7 @@ static void test_fc16_write_pipeline(void)
     CHECK(ao.image.cfg[0].gain == 2.0f);
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
-    CHECK(published[boot_publish_count].ch == 1U);
+    CHECK(published[boot_publish_count].ch == 0U);
     CHECK(published[boot_publish_count].cfg.type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(published[boot_publish_count].cfg.rate_code == 9U);
     scenario_end();
@@ -609,7 +609,7 @@ static void test_measure_mirror(void)
     scenario_begin();
 
     e         = Q_NEW(measure_evt_t, MEASURE_SIG);
-    e->ch     = 2U;
+    e->ch     = 1U;
     e->value  = 42.5f;
     e->status = (uint16_t)REG_MAP_STATUS_OK;
     QACTIVE_PUBLISH(&e->super, (void*)0);

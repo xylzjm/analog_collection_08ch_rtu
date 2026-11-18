@@ -177,7 +177,7 @@ static void boot_scenario(uint8_t fail_ch)
     /* Channels first: every AO subscribes inside its initial transition. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         analog_input_fake_init(&inputs[i]);
-        channel_ao_ctor(&channels[i], (uint8_t)(i + 1U), &inputs[i].base);
+        channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base);
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
                       Q_PRIO((uint8_t)(2U + i), 0U),
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);

@@ -26,7 +26,7 @@ Modbus 数据空间的类型化镜像（保持/输入寄存器背后的真实数
 | `modbus_image_boot` | 采纳 `param_boot_load()` 结果：有效项成为生效配置，失败项成为锁存位 |
 | `modbus_image_callbacks` | 返回绑定本镜像的数据空间回调表（逐实例存储，ctx=镜像），供 `modbus_slave_board_ctor()`/`modbus_slave_ctor()` 使用 |
 | `modbus_image_set_cfg_notifier` | 注册通道配置提交通知器（可 NULL 关闭） |
-| `modbus_image_set_measure` | MEASURE_SIG 到达时写入遥测镜像（ch 为 0 基） |
+| `modbus_image_set_measure` | MEASURE_SIG 到达时写入遥测镜像（ch 0 基，事件线与镜像同基） |
 | `modbus_image_set_cjc` | CJC_SIG 到达时写入冷端镜像（b0 源） |
 
 ## 3. 写事务（原子性全部所在）

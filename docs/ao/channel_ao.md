@@ -9,7 +9,7 @@
 | --- | --- |
 | 需求 | 按配置（TC/PT100/4-20 mA/0-10 V）周期采样并输出校准后工程量；TC/PT100 断线检测与测量互斥、3 s 周期切换；**先检后测**（上电/改配后先断线检查再出首值）；上报通道状态 |
 | 状态机 | QHsm 手写（`QStateHandler` + `Q_TRAN`/`Q_SUPER`），一状态一处理函数 |
-| 独占资源 | `analog_input_board_t` 实例（`analog_input_board_get(ch)`）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
+| 独占资源 | `analog_input_t` 实例（构造注入，组合根经 `analog_input_board_get(ch)` 接线）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
 | 依赖接口 | `analog_input.h` 六操作：`configure / read_sample / convert / enable_break_detection / disable_break_detection / check_wire_break`（全部非阻塞，延迟经出参返回） |
 | 扩展变量 | `cfg`（生效配置）、`cjc`（冷端缓存）、`wire`（断线结果）、`last_value`、`settle_ms` |
 | 假设 | `convert()` 需要的冷端/线性上下文由本对象按 `cfg` 组装；偏移/增益校准在 `convert()` 之后由本对象应用（不进驱动） |
@@ -33,13 +33,13 @@
 
 | 信号 | 参数 | 来源 → 本 AO | 路由/存储 | 处理与过期 |
 | --- | --- | --- | --- | --- |
-| `CONFIG_SET_SIG` | `{ch, cfg}` | 发布（AoModbus：启动加载 / 写帧固化成功） | 池B 动态 | `ch != me` 显式忽略；命中→改配隔离（`pending=cfg` + post `APPLY_SIG` + 转 Unconfigured，§6） |
+| `CONFIG_SET_SIG` | `{ch, cfg}`（`ch` 0 基，与镜像/KV 同基；构造入参 `ch` 亦为 0 基索引） | 发布（AoModbus：启动加载 / 写帧固化成功） | 池B 动态 | `ch != me` 显式忽略；命中→改配隔离（`pending=cfg` + post `APPLY_SIG` + 转 Unconfigured，§6） |
 | `APPLY_SIG` | 无 | `applyEvt` 静态自投（改配善后） | 静态 | 仅 Unconfigured 响应：`configure(pending)`→重入先检后测；该态唯一出边 |
 | `CJC_SIG` | `{temp_c, valid}` | 发布（ColdJunction 1 Hz） | 池A 动态 | 复制进 `cjc` 缓存；不保存事件指针 |
 | `SAMPLE_SIG` | 无 | `te_sample` 自投 | 静态 | 仅 Measuring 响应；采样一步 |
 | `SETTLE_SIG` | 无 | `te_settle` 自投 | 静态 | Detecting=检查就绪；Settling=转换就绪；迟到事件结构上不可达（§6） |
 | `BREAK_WINDOW_SIG` | 无 | `te_break` 自投 | 静态 | 仅 Measuring 响应→Detecting；他态默认忽略 |
-| 输出 `MEASURE_SIG` | `{ch, value, status}` | 本 AO 发布 | 池A 动态 | 每次采样一条（含冻结分支）；断线检查发现断线即时揭示一条 |
+| 输出 `MEASURE_SIG` | `{ch, value, status}`（`ch` 0 基） | 本 AO 发布 | 池A 动态 | 每次采样一条（含冻结分支）；断线检查发现断线即时揭示一条 |
 
 通道状态码（`status`，u16，与寄存器映射一致）：
 
