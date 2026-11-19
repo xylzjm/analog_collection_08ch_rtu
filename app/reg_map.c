@@ -5,6 +5,7 @@
 
 #include "reg_map.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 /*
@@ -12,29 +13,29 @@
  * space with no spans (coils, discrete inputs) answers "unmapped" from the
  * table itself. Holding: 8 channel configuration blocks at 16n + device
  * register 128. Input: 8 channel telemetry blocks at 8n + system block 64.
+ * The channel rows derive from the board position list in app.h.
  */
 /** @brief Channel field of a span that does not belong to one channel. */
 #define SPAN_NO_CHANNEL 0xFFU
 
+/** @brief Address stride between channel configuration blocks (holding). */
+#define SPAN_HOLDING_STRIDE 16U
+
 static const reg_span_t spans[] = {
-    {REG_SPACE_HOLDING, 0U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 0U},
-    {REG_SPACE_HOLDING, 16U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 1U},
-    {REG_SPACE_HOLDING, 32U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 2U},
-    {REG_SPACE_HOLDING, 48U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 3U},
-    {REG_SPACE_HOLDING, 64U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 4U},
-    {REG_SPACE_HOLDING, 80U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 5U},
-    {REG_SPACE_HOLDING, 96U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 6U},
-    {REG_SPACE_HOLDING, 112U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 7U},
+#define X(pos) {REG_SPACE_HOLDING, (uint16_t)((pos) * SPAN_HOLDING_STRIDE), REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, (uint8_t)(pos)},
+    APP_BOARD_POSITIONS(X)
+#undef X
     {REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV, SPAN_NO_CHANNEL},
-    {REG_SPACE_INPUT, 0U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 0U},
-    {REG_SPACE_INPUT, 8U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 1U},
-    {REG_SPACE_INPUT, 16U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 2U},
-    {REG_SPACE_INPUT, 24U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 3U},
-    {REG_SPACE_INPUT, 32U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 4U},
-    {REG_SPACE_INPUT, 40U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 5U},
-    {REG_SPACE_INPUT, 48U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 6U},
-    {REG_SPACE_INPUT, 56U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 7U},
+#define X(pos) {REG_SPACE_INPUT, (uint16_t)((pos) * REG_MAP_CH_IN_STRIDE), REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, (uint8_t)(pos)},
+    APP_BOARD_POSITIONS(X)
+#undef X
     {REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS, SPAN_NO_CHANNEL}};
+
+/* Compile-time guard: two rows per board position plus the two device rows. */
+typedef char span_count_check[((sizeof(spans) / sizeof(spans[0]))
+                               == (2U * APP_BOARD_POSITION_COUNT + 2U))
+                                  ? 1
+                                  : -1];
 
 /**
  * @brief Write one big-endian float32 as two registers (high word first).
@@ -195,11 +196,6 @@ uint16_t reg_map_dev_decode(const uint8_t* buf)
     return modbus_slave_get_u16(&buf[0]);
 }
 
-bool reg_map_dev_addr_valid(uint16_t addr)
-{
-    return (addr >= REG_MAP_DEV_ADDR_MIN) && (addr <= REG_MAP_DEV_ADDR_MAX);
-}
-
 void reg_map_input_encode(const reg_map_input_image_t* in,
                           uint16_t start,
                           uint16_t count,
@@ -265,29 +261,4 @@ uint16_t reg_map_fault_word(uint8_t cjc_valid,
         word |= REG_MAP_FAULT_CJC;
     }
     return word;
-}
-
-uint16_t reg_map_wire_status_code(uint8_t cfg_type,
-                                  uint8_t wire_status)
-{
-    if ( wire_status == 0U ) {
-        return (uint16_t)REG_MAP_STATUS_OK;
-    }
-
-    if ( cfg_type == (uint8_t)CH_TYPE_TC ) {
-        /* A thermocouple loop cannot report which lead is open. */
-        return (uint16_t)REG_MAP_STATUS_TC_BREAK;
-    }
-
-    if ( cfg_type == (uint8_t)CH_TYPE_PT100 ) {
-        if ( wire_status == 2U ) {
-            return (uint16_t)REG_MAP_STATUS_RTD_LEAD_BREAK;
-        }
-        if ( wire_status == 3U ) {
-            return (uint16_t)REG_MAP_STATUS_RTD_RETURN_BREAK;
-        }
-    }
-
-    /* Unresolvable PT100 break or non-detectable type: front-end violation. */
-    return (uint16_t)REG_MAP_STATUS_HW_ERROR;
 }

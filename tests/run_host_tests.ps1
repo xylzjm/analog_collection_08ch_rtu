@@ -3,8 +3,8 @@
 # The active object tests link the real QP/C framework sources (same files
 # as the firmware build) through the host port in tests/stubs/qp_port.h, so
 # queue, pool, publish and time-event semantics are the real ones. Fakes
-# exist only at the device edges (analog_input ops, TMP75 transfer, Modbus
-# line/timer/critical) and for the param component.
+# exist only at the device edges (analog input ops, TMP75 transfer, Modbus
+# line/timer/critical) and for the KV storage seam (kv_mem).
 #
 # Usage: pwsh tests/run_host_tests.ps1 [-KeepExe]
 
@@ -33,8 +33,6 @@ $common = @('-std=c99', '-Wall', '-Wextra', '-Wno-unused-parameter')
 $inc = @(
     '-Itests/stubs',
     '-Iapp',
-    '-Iapp/ao/inc',
-    '-Iapp/component/inc',
     '-Iboard/inc',
     '-Iboard/ports/qp',
     '-I../middleware/qp/qpc/include',
@@ -65,86 +63,62 @@ $modbusSources = @(
     '../library/protocol/modbus_slave/src/modbus_slave_rtu.c'
 )
 
-# The real param module over the in-memory KV store (target uses the
-# FlashDB adapter in app/component/src/kv_store_flashdb.c).
-$paramSources = @(
-    'app/component/src/param.c',
-    'tests/stubs/kv_store_mem.c'
-)
-
 $tests = @(
     @{
-        Name = 'test_ch_config'
-        Sources = @('app/component/test/test_ch_config.c',
-                    'app/component/src/ch_config.c')
-        Extra = @()
-    },
-    @{
         Name = 'test_reg_map'
-        Sources = @('app/component/test/test_reg_map.c',
-                    'app/component/src/reg_map.c',
-                    'app/component/src/ch_config.c') + $modbusSources
+        Sources = @('tests/test_reg_map.c',
+                    'app/reg_map.c') + $modbusSources
         Extra = @()
     },
     @{
-        Name = 'test_param'
-        Sources = @('app/component/test/test_param.c',
-                    'app/component/src/ch_config.c',
-                    'app/component/src/reg_map.c') + $paramSources + $modbusSources
-        Extra = @()
-    },
-    @{
-        Name = 'test_modbus_image'
-        Sources = @('app/component/test/test_modbus_image.c',
-                    'app/component/src/modbus_image.c',
-                    'app/component/src/reg_map.c',
-                    'app/component/src/ch_config.c') + $paramSources + $modbusSources
-        Extra = @()
-    },
-    @{
-        Name = 'test_analog_input_convert'
-        Sources = @('tests/app/test_analog_input_convert.c',
-                    'board/src/analog_input_convert.c',
-                    '../library/interface/analog_input/analog_input_math.c')
-        Extra = @()
-    },
-    @{
-        Name = 'test_channel_ao'
-        Sources = @('tests/app/test_channel_ao.c',
-                    'app/ao/src/channel_ao.c',
-                    'app/component/src/reg_map.c',
-                    'app/component/src/ch_config.c',
-                    'tests/stubs/analog_input_fake.c',
+        Name = 'test_modbus_data'
+        Sources = @('tests/test_modbus_data.c',
+                    'app/modbus_ao.c',
+                    'app/reg_map.c',
+                    'tests/stubs/kv_mem.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
     },
     @{
+        Name = 'test_channel_ao'
+        Sources = @('tests/test_channel_ao.c',
+                    'app/channel_ao.c',
+                    'tests/stubs/analog_input_fake.c',
+                    'tests/stubs/host_support.c') + $qpSources
+        Extra = @()
+    },
+    @{
         Name = 'test_modbus_ao'
-        Sources = @('tests/app/test_modbus_ao.c',
-                    'app/ao/src/modbus_ao.c',
-                    'app/component/src/modbus_image.c',
-                    'app/component/src/reg_map.c',
-                    'app/component/src/ch_config.c',
+        Sources = @('tests/test_modbus_ao.c',
+                    'app/modbus_ao.c',
+                    'app/reg_map.c',
+                    'tests/stubs/kv_mem.c',
                     'tests/stubs/modbus_port_fake.c',
-                    'tests/stubs/host_support.c') + $paramSources + $qpSources + $modbusSources
+                    'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
     },
     @{
         Name = 'test_boot'
-        Sources = @('tests/app/test_boot.c',
-                    'app/ao/src/channel_ao.c',
-                    'app/ao/src/cold_junction_ao.c',
-                    'app/ao/src/modbus_ao.c',
-                    'app/component/src/modbus_image.c',
-                    'app/component/src/reg_map.c',
-                    'app/component/src/ch_config.c',
+        Sources = @('tests/test_boot.c',
+                    'app/channel_ao.c',
+                    'app/cold_junction_ao.c',
+                    'app/modbus_ao.c',
+                    'app/reg_map.c',
                     '../library/device/tmp75/src/tmp75.c',
                     'tests/stubs/analog_input_fake.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/tmp75_port_fake.c',
-                    'tests/stubs/host_support.c') + $paramSources + $qpSources + $modbusSources
+                    'tests/stubs/kv_mem.c',
+                    'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
         Runs = @('1', '2')
+    },
+    @{
+        Name = 'test_analog_input_convert'
+        Sources = @('tests/test_analog_input_convert.c',
+                    'board/src/analog_input_convert.c',
+                    '../library/interface/analog_input/analog_input_math.c')
+        Extra = @()
     }
 )
 

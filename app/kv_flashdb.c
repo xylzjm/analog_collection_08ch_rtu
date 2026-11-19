@@ -1,18 +1,16 @@
 /**
- * @file kv_store_flashdb.c
- * @brief FlashDB/FAL implementation of the kv_store interface.
+ * @file kv_flashdb.c
+ * @brief FlashDB/FAL implementation of the modbus_kv_ops_t seam.
  *
- * This is the only param-side file that touches FlashDB. The database is
- * opened during param_boot_load() (AoModbus initial transition, before
- * QF_run()) and every access runs in that same RTC context.
+ * This is the only application file that touches FlashDB. The database is
+ * opened during modbus_ao_ctor() (before QActive_start() and QF_run()) and
+ * every access runs in the AoModbus RTC context.
  */
 
-#include "kv_store_flashdb.h"
+#include "modbus_ao.h"
 
 #include "elog.h"
 #include "flashdb.h"
-
-#include "param.h"
 
 /** @brief FAL partition that backs the key-value database. */
 #define KV_STORE_FDB_PATH "fdb_kvdb"
@@ -24,20 +22,20 @@
 static struct fdb_kvdb kvdb;
 
 /** @brief Default nodes handed to fdb_kvdb_init(). */
-static struct fdb_default_kv_node default_nodes[PARAM_DEFAULT_KV_COUNT];
+static struct fdb_default_kv_node default_nodes[APP_BOARD_POSITION_COUNT + 1U];
 
 /** @brief Default table wrapper handed to fdb_kvdb_init(). */
 static struct fdb_default_kv default_kv;
 
 static int flashdb_init(void* ctx,
-                        const kv_default_t* defaults,
+                        const modbus_kv_default_t* defaults,
                         size_t count)
 {
     size_t i;
 
     (void)ctx;
 
-    if ( count > PARAM_DEFAULT_KV_COUNT ) {
+    if ( count > (APP_BOARD_POSITION_COUNT + 1U) ) {
         elog_error("kv_store", "too many defaults (%u)", (unsigned)count);
         return -1;
     }
@@ -97,13 +95,13 @@ static int flashdb_set(void* ctx,
 }
 
 /** @brief The one implementation table; ctx is unused. */
-static const kv_store_ops_t ops = {
+static const modbus_kv_ops_t ops = {
     &flashdb_init,
     &flashdb_get,
     &flashdb_set,
 };
 
-const kv_store_ops_t* kv_store_flashdb_ops(void)
+const modbus_kv_ops_t* kv_flashdb_ops(void)
 {
     return &ops;
 }

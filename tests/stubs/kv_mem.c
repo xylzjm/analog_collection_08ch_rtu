@@ -1,9 +1,9 @@
 /**
- * @file kv_store_mem.c
- * @brief In-memory kv_store implementation for the host tests.
+ * @file kv_mem.c
+ * @brief In-memory modbus_kv_ops_t implementation for the host tests.
  */
 
-#include "kv_store_mem.h"
+#include "kv_mem.h"
 
 #include <string.h>
 
@@ -22,12 +22,12 @@ static void copy_key(char* dst,
 }
 
 /** @brief Find one entry by key; NULL when absent. */
-static kv_store_mem_entry_t* find_entry(kv_store_mem_t* mem,
-                                        const char* key)
+static kv_mem_entry_t* find_entry(kv_mem_t* mem,
+                                  const char* key)
 {
     uint8_t i;
 
-    for ( i = 0U; i < KV_STORE_MEM_MAX_ENTRIES; ++i ) {
+    for ( i = 0U; i < KV_MEM_MAX_ENTRIES; ++i ) {
         if ( (mem->entries[i].used != 0U)
              && (strcmp(mem->entries[i].key, key) == 0) ) {
             return &mem->entries[i];
@@ -37,16 +37,16 @@ static kv_store_mem_entry_t* find_entry(kv_store_mem_t* mem,
 }
 
 /** @brief Insert or overwrite one entry without touching the counters. */
-static void put_entry(kv_store_mem_t* mem,
+static void put_entry(kv_mem_t* mem,
                       const char* key,
                       const void* value,
                       size_t len)
 {
-    kv_store_mem_entry_t* entry = find_entry(mem, key);
+    kv_mem_entry_t* entry = find_entry(mem, key);
     uint8_t i;
 
     if ( entry == NULL ) {
-        for ( i = 0U; i < KV_STORE_MEM_MAX_ENTRIES; ++i ) {
+        for ( i = 0U; i < KV_MEM_MAX_ENTRIES; ++i ) {
             if ( mem->entries[i].used == 0U ) {
                 entry = &mem->entries[i];
                 break;
@@ -70,8 +70,8 @@ static void put_entry(kv_store_mem_t* mem,
 }
 
 /** @brief Materialize every missing default key. */
-static void materialize_defaults(kv_store_mem_t* mem,
-                                 const kv_default_t* defaults,
+static void materialize_defaults(kv_mem_t* mem,
+                                 const modbus_kv_default_t* defaults,
                                  size_t count)
 {
     size_t i;
@@ -84,10 +84,10 @@ static void materialize_defaults(kv_store_mem_t* mem,
 }
 
 static int mem_init(void* ctx,
-                    const kv_default_t* defaults,
+                    const modbus_kv_default_t* defaults,
                     size_t count)
 {
-    kv_store_mem_t* mem = (kv_store_mem_t*)ctx;
+    kv_mem_t* mem = (kv_mem_t*)ctx;
 
     ++mem->init_calls;
     if ( mem->fail_init != 0U ) {
@@ -103,8 +103,8 @@ static int mem_get(void* ctx,
                    void* buf,
                    size_t cap)
 {
-    kv_store_mem_t* mem = (kv_store_mem_t*)ctx;
-    kv_store_mem_entry_t* entry;
+    kv_mem_t* mem = (kv_mem_t*)ctx;
+    kv_mem_entry_t* entry;
     size_t n;
 
     ++mem->get_calls;
@@ -132,7 +132,7 @@ static int mem_set(void* ctx,
                    const void* buf,
                    size_t len)
 {
-    kv_store_mem_t* mem = (kv_store_mem_t*)ctx;
+    kv_mem_t* mem = (kv_mem_t*)ctx;
 
     ++mem->set_calls;
     copy_key(mem->last_key, sizeof(mem->last_key), key);
@@ -153,35 +153,35 @@ static int mem_set(void* ctx,
     return 0;
 }
 
-/** @brief The one implementation table; ctx is the kv_store_mem_t. */
-static const kv_store_ops_t ops = {
+/** @brief The one implementation table; ctx is the kv_mem_t. */
+static const modbus_kv_ops_t ops = {
     &mem_init,
     &mem_get,
     &mem_set,
 };
 
-const kv_store_ops_t* kv_store_mem_ops(void)
+const modbus_kv_ops_t* kv_mem_ops(void)
 {
     return &ops;
 }
 
-void kv_store_mem_reset(kv_store_mem_t* mem)
+void kv_mem_reset(kv_mem_t* mem)
 {
     memset(mem, 0, sizeof(*mem));
 }
 
-void kv_store_mem_put(kv_store_mem_t* mem,
-                      const char* key,
-                      const void* value,
-                      size_t len)
+void kv_mem_put(kv_mem_t* mem,
+                const char* key,
+                const void* value,
+                size_t len)
 {
     put_entry(mem, key, value, len);
 }
 
-void kv_store_mem_erase(kv_store_mem_t* mem,
-                        const char* key)
+void kv_mem_erase(kv_mem_t* mem,
+                  const char* key)
 {
-    kv_store_mem_entry_t* entry = find_entry(mem, key);
+    kv_mem_entry_t* entry = find_entry(mem, key);
 
     if ( entry != NULL ) {
         memset(entry, 0, sizeof(*entry));

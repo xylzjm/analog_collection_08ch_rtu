@@ -6,13 +6,11 @@
 #include "qpc.h"
 
 #include "analog_input_board.h"
-#include "app_events.h"
+#include "app.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
-#include "kv_store_flashdb.h"
 #include "modbus_ao.h"
 #include "modbus_slave_board.h"
-#include "param.h"
 #include "tmp75_board.h"
 
 /** @brief Route EasyLogger assertions to the project error handler. */
@@ -49,6 +47,12 @@ static void log_init(void)
 /* Composition root                                                           */
 /*----------------------------------------------------------------------------*/
 
+/** @brief Pool A block count (MEASURE/CFG_APPLIED/CJC events). */
+#define POOL_A_BLOCKS 16U
+
+/** @brief Pool B block count (CONFIG_SET events). */
+#define POOL_B_BLOCKS 16U
+
 static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
 static cold_junction_ao_t cold_junction;
 static modbus_ao_t modbus;
@@ -59,16 +63,8 @@ static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
 
 static QSubscrList subscrSto[MAX_SIG];
 
-static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
-
-/** @brief Route a channel's apply result into the Modbus image. */
-static void on_channel_applied(void* ctx,
-                               uint8_t ch,
-                               uint8_t ok)
-{
-    modbus_image_set_applied((modbus_image_t*)ctx, ch, ok);
-}
+static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
 
 int main(void)
 {
@@ -82,23 +78,19 @@ int main(void)
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
-    /* Storage backend for param; the DB opens in AoModbus's initial transition. */
-    param_bind_store(kv_store_flashdb_ops(), (void*)0);
-
-    /* Constructed first so the channels can report apply results into its image. */
-    modbus_ao_ctor(&modbus);
+    /* The Modbus AO owns its storage: the KV database opens in the ctor. */
+    modbus_ao_ctor(&modbus, kv_flashdb_ops(), (void*)0);
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         channel_ao_ctor(&channels[i], (uint8_t)i,
-                        analog_input_board_get((uint8_t)(i + 1U)),
-                        on_channel_applied, &modbus.image);
+                        analog_input_board_get((uint8_t)(i + 1U)));
     }
     cold_junction_ao_ctor(&cold_junction, tmp75_board_get_device());
 
     /*
-     * The slave is composed from the AO's data-space callbacks (the mirror
-     * lives in modbus_image), then attached so its ISR events route back
-     * into it.
+     * The slave is composed from the AO's data-space callbacks (the typed
+     * mirror and the write transaction live inside the AO), then attached
+     * so its ISR events route back into it.
      */
     (void)modbus_slave_board_ctor(modbus_ao_callbacks(&modbus), modbus_ao_identity());
     modbus_ao_attach(&modbus, modbus_slave_board_get());

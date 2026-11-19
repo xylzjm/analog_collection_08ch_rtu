@@ -3,13 +3,12 @@
  * @brief Host tests for the AoModbus write pipeline and mirrors.
  *
  * The slave core is the real modbus_slave library driven over fake
- * line/timer/critical ports; the param component is the real module over
- * an in-memory KV store. Frames are fed byte by byte through
- * modbus_slave_rx_byte(), captured by
- * modbus_slave_timer_expired() (which posts FRAME_SIG through the event
- * port) and concluded by the real AO dispatch of advance(). Expected
- * replies are spelled out as literal bytes with an independent bitwise
- * CRC16, not produced by the code under test.
+ * line/timer/critical ports; the persistence code runs over the in-memory
+ * KV store. Frames are fed byte by byte through modbus_slave_rx_byte(),
+ * captured by modbus_slave_timer_expired() (which posts FRAME_SIG through
+ * the event port) and concluded by the real AO dispatch of advance().
+ * Expected replies are spelled out as literal bytes with an independent
+ * bitwise CRC16, not produced by the code under test.
  */
 
 #include <stddef.h>
@@ -19,12 +18,11 @@
 
 #include "qpc.h"
 
-#include "app_events.h"
+#include "app.h"
 #include "host_support.h"
-#include "kv_store_mem.h"
+#include "kv_mem.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
-#include "param.h"
 #include "reg_map.h"
 
 static int checks;
@@ -43,14 +41,17 @@ static int failures;
 static uint8_t rx_buffer[256];
 static uint8_t tx_buffer[256];
 
+#define POOL_A_BLOCKS 16U
+#define POOL_B_BLOCKS 16U
+
 static modbus_ao_t ao;
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
-static kv_store_mem_t kv;
+static kv_mem_t kv;
 static QEvtPtr ao_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
+static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
 
 /* Publish observer for CONFIG_SET_SIG. */
 static QActive recorder;
@@ -189,15 +190,9 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
     return Q_TRAN(&rec_state);
 }
 
-/**
- * @brief Build the slave, attach it and bring the AO up.
- *
- * @param db_fail Non-zero scripts a kv_store init failure (b3 path).
- */
-static void scenario_begin_ex(uint8_t db_fail)
+/** @brief Tear the world down and prepare a fresh KV store and observer. */
+static void world_begin(uint8_t db_fail)
 {
-    modbus_slave_config_t cfg;
-
     if ( ao_started != 0U ) {
         QActive_unregister_(Q_ACTIVE_UPCAST(&ao));
     }
@@ -207,9 +202,8 @@ static void scenario_begin_ex(uint8_t db_fail)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_store_mem_reset(&kv);
+    kv_mem_reset(&kv);
     kv.fail_init = db_fail;
-    param_bind_store(kv_store_mem_ops(), &kv);
     modbus_port_fake_init(&port);
     published_count = 0U;
 
@@ -219,8 +213,34 @@ static void scenario_begin_ex(uint8_t db_fail)
                   rec_queue, 32U, (void*)0, 0U, (void*)0);
     rec_started = 1U;
     QActive_subscribe(&recorder, CONFIG_SET_SIG);
+}
 
-    modbus_ao_ctor(&ao);
+/**
+ * @brief Script one boot load failure: a wrong-length configuration body.
+ *
+ * @param ch Zero-based channel whose key carries the bad body.
+ */
+static void world_preload_cfg_bad(uint8_t ch)
+{
+    uint8_t bad[4] = {0};
+    char key[KV_MEM_MAX_KEY];
+
+    (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
+    kv_mem_put(&kv, key, bad, sizeof(bad));
+}
+
+/** @brief Script one boot load failure: a bad stored slave address. */
+static void world_preload_addr(uint16_t addr)
+{
+    kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
+}
+
+/** @brief Construct the AO and the slave, attach and bring the AO up. */
+static void world_start(void)
+{
+    modbus_slave_config_t cfg;
+
+    modbus_ao_ctor(&ao, kv_mem_ops(), (void*)&kv);
 
     cfg.baudrate    = 9600U;
     cfg.rx_buffer   = rx_buffer;
@@ -251,6 +271,17 @@ static void scenario_begin_ex(uint8_t db_fail)
     (void)modbus_slave_timer_expired(&slave);
     rec_collect();
     boot_publish_count = published_count;
+}
+
+/**
+ * @brief Build the slave and bring the AO up over a fresh store.
+ *
+ * @param db_fail Non-zero scripts a KV init failure (b3 path).
+ */
+static void scenario_begin_ex(uint8_t db_fail)
+{
+    world_begin(db_fail);
+    world_start();
 }
 
 static void scenario_begin(void)
@@ -301,6 +332,8 @@ static void test_boot_load_publishes(void)
 
     scenario_begin();
     CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
+    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr_ok == 1U);
     {
         uint8_t ch;
 
@@ -392,13 +425,34 @@ static void test_fc16_write_pipeline(void)
         CHECK(saved.rate_code == 9U);
         CHECK(saved.linear_max == 20.0f);
     }
-    CHECK(ao.image.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
-    CHECK(ao.image.cfg[0].gain == 2.0f);
+    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
+    CHECK(ao.cfg[0].gain == 2.0f);
+    CHECK(ao.cfg_ok[0] == 1U);
+    CHECK(ao.applied[0] == 0U); /* committed, not yet applied */
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     CHECK(published[boot_publish_count].ch == 0U);
     CHECK(published[boot_publish_count].cfg.type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(published[boot_publish_count].cfg.rate_code == 9U);
+
+    /* The channel acceptance event replaces the old apply callback. */
+    {
+        cfg_applied_evt_t* e = Q_NEW(cfg_applied_evt_t, CFG_APPLIED_SIG);
+
+        e->ch = 0U;
+        QACTIVE_POST(Q_ACTIVE_UPCAST(&ao), &e->super, (void*)0);
+        drain();
+    }
+    CHECK(ao.applied[0] == 1U);
+
+    /* Once applied, the same-value rewrite is a true no-op. */
+    feed_frame(frame, frame_len);
+    drain();
+    pump_tx();
+    (void)tx_take(reply, sizeof(reply)); /* EX 00 echo */
+    CHECK(kv.set_calls == 1U);
+    rec_collect();
+    CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     scenario_end();
 }
 
@@ -455,7 +509,7 @@ static void test_invalid_write_rejected(void)
     }
 
     CHECK(kv.set_calls == 0U);
-    CHECK(ao.image.cfg[0].type == (uint8_t)CH_TYPE_TC);
+    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_TC);
     rec_collect();
     CHECK(published_count == boot_publish_count);
     scenario_end();
@@ -482,7 +536,7 @@ static void test_address_change(void)
     CHECK(reply_len == 8U);
     CHECK(kv.set_calls == 1U);
     CHECK(strcmp(kv.last_key, "dev/addr") == 0);
-    CHECK(ao.image.addr_image == 247U);
+    CHECK(ao.addr == 247U);
     CHECK(modbus_slave_get_address(&slave) == 247U);
 
     /* The old address no longer answers. */
@@ -538,8 +592,8 @@ static void test_commit_failure_latches(void)
         CHECK(reply_len == 5U);
         CHECK(memcmp(reply, full, 5U) == 0);
     }
-    CHECK(ao.image.addr_image == REG_MAP_DEV_ADDR_MIN); /* not adopted */
-    CHECK(ao.image.b1 != 0U);
+    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN); /* not adopted */
+    CHECK(ao.b1 != 0U);
 
     /* The fault word exposes the latch through the input area; b0 is also
      * set because no CJC heartbeat has arrived yet in this scenario. */
@@ -583,7 +637,7 @@ static void test_silence_paths(void)
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
     CHECK(kv.set_calls == 1U);
     CHECK(strcmp(kv.last_key, "dev/addr") == 0);
-    CHECK(ao.image.addr_image == 150U);
+    CHECK(ao.addr == 150U);
     scenario_end();
 }
 
@@ -593,7 +647,7 @@ static void test_boot_failures_latch(void)
     /* KV init fails: b3 is latched and no configuration is published. */
     scenario_begin_ex(1U);
 
-    CHECK(ao.image.fdb_init_failed != 0U);
+    CHECK(ao.db_ok == 0U);
     rec_collect();
     CHECK(published_count == 0U);
 
@@ -616,6 +670,69 @@ static void test_boot_failures_latch(void)
     scenario_end();
 }
 
+/** @brief A wrong-length key fails only that channel (b2, not defaults). */
+static void test_boot_load_failure(void)
+{
+    uint8_t ch;
+
+    world_begin(0U);
+    world_preload_cfg_bad(2U);
+    world_start();
+
+    /* Only the healthy channels are published and adopted. */
+    CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
+    CHECK(ao.cfg_ok[2] == 0U);
+    CHECK(ao.cfg_ok[0] == 1U);
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        if ( ch != 2U ) {
+            CHECK(ao.cfg[ch].type == (uint8_t)CH_TYPE_TC);
+            CHECK(ao.cfg[ch].rate_code == 2U);
+        }
+    }
+
+    /* The fault word shows the load failure (b0: no heartbeat yet). */
+    {
+        const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&ao);
+        uint8_t reply[2];
+
+        CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
+                                  MODBUS_SLAVE_REG_READ)
+              == MODBUS_SLAVE_EX_NONE);
+        CHECK(modbus_slave_get_u16(reply)
+              == (uint16_t)(REG_MAP_FAULT_PARAM_LOAD | REG_MAP_FAULT_CJC));
+    }
+    scenario_end();
+}
+
+/** @brief A bad stored address falls back to 1 and reports the failure. */
+static void test_bad_address(void)
+{
+    world_begin(0U);
+    world_preload_addr(0U);
+    world_start();
+
+    CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
+    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr_ok == 0U);
+    {
+        const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&ao);
+        uint8_t reply[2];
+
+        CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
+                                  MODBUS_SLAVE_REG_READ)
+              == MODBUS_SLAVE_EX_NONE);
+        CHECK(modbus_slave_get_u16(reply)
+              == (uint16_t)(REG_MAP_FAULT_PARAM_LOAD | REG_MAP_FAULT_CJC));
+    }
+    scenario_end();
+
+    /* The next boot is healthy again. */
+    scenario_begin();
+    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr_ok == 1U);
+    scenario_end();
+}
+
 /** @brief MEASURE_SIG telemetry reaches the input register mirror. */
 static void test_measure_mirror(void)
 {
@@ -631,12 +748,12 @@ static void test_measure_mirror(void)
     e         = Q_NEW(measure_evt_t, MEASURE_SIG);
     e->ch     = 1U;
     e->value  = 42.5f;
-    e->status = (uint16_t)REG_MAP_STATUS_OK;
+    e->status = (uint16_t)CH_STATUS_OK;
     QACTIVE_PUBLISH(&e->super, (void*)0);
     drain();
 
-    CHECK(ao.image.value[1] == 42.5f);
-    CHECK(ao.image.status[1] == (uint16_t)REG_MAP_STATUS_OK);
+    CHECK(ao.value[1] == 42.5f);
+    CHECK(ao.status[1] == (uint16_t)CH_STATUS_OK);
 
     build_frame(frame, &frame_len, 1U, pdu, 5U);
     feed_frame(frame, frame_len);
@@ -653,7 +770,7 @@ static void test_measure_mirror(void)
                | (uint32_t)modbus_slave_get_u16(&reply[5]);
         memcpy(&value, &bits, sizeof(value));
         CHECK(value == 42.5f);
-        CHECK(modbus_slave_get_u16(&reply[7]) == (uint16_t)REG_MAP_STATUS_OK);
+        CHECK(modbus_slave_get_u16(&reply[7]) == (uint16_t)CH_STATUS_OK);
     }
     scenario_end();
 }
@@ -673,6 +790,8 @@ int main(void)
     test_commit_failure_latches();
     test_silence_paths();
     test_boot_failures_latch();
+    test_boot_load_failure();
+    test_bad_address();
     test_measure_mirror();
 
     printf("test_modbus_ao: %d checks, %d failures\n", checks, failures);

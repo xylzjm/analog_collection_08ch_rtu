@@ -5,7 +5,7 @@
 
 #include "cold_junction_ao.h"
 
-#include "app_events.h"
+#include "app.h"
 
 Q_DEFINE_THIS_MODULE("cold_junction_ao")
 

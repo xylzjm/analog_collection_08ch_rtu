@@ -8,6 +8,9 @@
  * the interleaving sweep runs against the real state machine, and the fake
  * analog input's call log is the trajectory evidence.
  *
+ * The recorder AO observes MEASURE_SIG and CFG_APPLIED_SIG: the acceptance
+ * event replaces the old apply-result callback.
+ *
  * Host-scope note: the sweep proves the queue-order discipline of
  * docs/ao/channel_ao.md section 6 (a timer event already queued when the
  * reconfiguration is dispatched must be consumed by the old state or
@@ -23,11 +26,11 @@
 
 #include "qpc.h"
 
+#include "analog_input_board.h"
 #include "analog_input_fake.h"
-#include "app_events.h"
+#include "app.h"
 #include "channel_ao.h"
 #include "host_support.h"
-#include "reg_map.h"
 
 static int checks;
 static int failures;
@@ -45,12 +48,15 @@ static int failures;
 /* Harness                                                                    */
 /*----------------------------------------------------------------------------*/
 
+#define POOL_A_BLOCKS 16U
+#define POOL_B_BLOCKS 16U
+
 static channel_ao_t ao;
 static analog_input_fake_t fake;
 static QEvtPtr ao_queue[CHANNEL_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
+static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
 
 /* Publish observer: a plain QActive whose queue the test drains directly. */
 static QActive recorder;
@@ -58,22 +64,20 @@ static QEvtPtr rec_queue[32];
 static uint8_t ao_started;
 static uint8_t rec_started;
 
-/** @brief Last configuration-apply result reported by the AO. */
+/** @brief Acceptance events observed since scenario start (CFG_APPLIED_SIG). */
 static uint16_t applied_count;
 static uint8_t applied_ch;
-static uint8_t applied_ok;
 
-static void on_applied(void* ctx,
-                       uint8_t ch,
-                       uint8_t ok)
+/** @brief Bookkeeping for one non-MEASURE observer event. */
+static void rec_absorb(QEvt const* e)
 {
-    (void)ctx;
-    ++applied_count;
-    applied_ch = ch;
-    applied_ok = ok;
+    if ( e->sig == CFG_APPLIED_SIG ) {
+        ++applied_count;
+        applied_ch = Q_EVT_CAST(cfg_applied_evt_t)->ch;
+    }
 }
 
-/** @brief Drain the recorder queue and return how many events it held. */
+/** @brief Drain the recorder queue and count the MEASURE_SIG events it held. */
 static uint16_t rec_drain(void)
 {
     uint16_t n = 0U;
@@ -81,10 +85,29 @@ static uint16_t rec_drain(void)
     while ( !QEQueue_isEmpty(&recorder.eQueue) ) {
         QEvt const* e = QActive_get_(&recorder);
 
-        ++n;
+        if ( e->sig == MEASURE_SIG ) {
+            ++n;
+        } else {
+            rec_absorb(e);
+        }
         QF_gc(e);
     }
     return n;
+}
+
+/** @brief Pop one MEASURE_SIG event; NULL when the queue holds none. */
+static QEvt const* rec_take(void)
+{
+    while ( !QEQueue_isEmpty(&recorder.eQueue) ) {
+        QEvt const* e = QActive_get_(&recorder);
+
+        if ( e->sig == MEASURE_SIG ) {
+            return e;
+        }
+        rec_absorb(e);
+        QF_gc(e);
+    }
+    return NULL;
 }
 
 static void tick(uint32_t n)
@@ -102,15 +125,6 @@ static void dispatch_one(void)
 
     QASM_DISPATCH(Q_ACTIVE_UPCAST(&ao), e, 0U);
     QF_gc(e);
-}
-
-/** @brief Pop one recorder event; NULL when the queue holds none. */
-static QEvt const* rec_take(void)
-{
-    if ( QEQueue_isEmpty(&recorder.eQueue) ) {
-        return NULL;
-    }
-    return QActive_get_(&recorder);
 }
 
 static void drain(void)
@@ -158,7 +172,7 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
 
 /**
  * @brief Bring the AO up (its initial transition runs inside QActive_start)
- *        and subscribe the recorder to MEASURE_SIG.
+ *        and subscribe the recorder to MEASURE_SIG and CFG_APPLIED_SIG.
  */
 static void scenario_begin(void)
 {
@@ -180,9 +194,8 @@ static void scenario_begin(void)
     analog_input_fake_reset_log(&fake);
     applied_count = 0U;
     applied_ch    = 0xFFU;
-    applied_ok    = 0xFFU;
 
-    channel_ao_ctor(&ao, 0U, &fake.base, on_applied, NULL);
+    channel_ao_ctor(&ao, 0U, &fake.base);
     QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(2U, 0U),
                   ao_queue, CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     ao_started = 1U;
@@ -192,6 +205,19 @@ static void scenario_begin(void)
                   rec_queue, 32U, (void*)0, 0U, (void*)0);
     rec_started = 1U;
     QActive_subscribe(&recorder, MEASURE_SIG);
+    QActive_subscribe(&recorder, CFG_APPLIED_SIG);
+}
+
+/** @brief Expected sample rate of a rate code in mHz (APP_RATE_LIST). */
+static uint32_t rate_mhz_of(uint16_t code)
+{
+    static const uint32_t table[] = {
+#define X(rate_name, millihertz) millihertz,
+        APP_RATE_LIST(X)
+#undef X
+    };
+
+    return (code < (sizeof(table) / sizeof(table[0]))) ? table[code] : 0U;
 }
 
 /** @brief Publish one configuration for channel 1. */
@@ -242,7 +268,7 @@ static void drive_to_measuring(uint8_t type,
 }
 
 /*----------------------------------------------------------------------------*/
-/* Batch 1: the reconfiguration race, swept against the real state machine     */
+/* Batch 1: the reconfiguration race, swept against the real state machine    */
 /*----------------------------------------------------------------------------*/
 
 /** @brief Start states of the sweep, mirroring the deleted model test. */
@@ -333,8 +359,8 @@ static void sweep_run(int start,
     new_cfg_count = 0U;
     for ( i = baseline; i < fake.log_len; ++i ) {
         if ( fake.log[i].op == (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE ) {
-            if ( (fake.log[i].rate == ch_config_rate_millihz(5U))
-                 || (fake.log[i].rate == ch_config_rate_millihz(9U)) ) {
+            if ( (fake.log[i].rate == rate_mhz_of(5U))
+                 || (fake.log[i].rate == rate_mhz_of(9U)) ) {
                 ++new_cfg_count;
             }
         }
@@ -345,7 +371,7 @@ static void sweep_run(int start,
     {
         uint16_t cfg_idx          = 0U;
         uint8_t have_cfg          = 0U;
-        uint32_t const final_rate = ch_config_rate_millihz((uint16_t)(second_cfg ? 9U : 5U));
+        uint32_t const final_rate = rate_mhz_of((uint16_t)(second_cfg ? 9U : 5U));
 
         for ( i = baseline; i < fake.log_len; ++i ) {
             if ( (fake.log[i].op == (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE)
@@ -411,13 +437,15 @@ static void test_reconfig_sweep(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Batch 2: fixed trajectories                                                 */
+/* Batch 2: fixed trajectories                                                */
 /*----------------------------------------------------------------------------*/
 
 /** @brief Check-before-measure: nothing is published before the first check. */
 static void test_first_value_after_check(void)
 {
     scenario_begin();
+    publish_cjc(25.0f, 1U); /* steady state: samples are measurements */
+    drain();
     publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
     drain();
     drain(); /* APPLY dispatched: Detecting entry, nothing published yet */
@@ -430,10 +458,17 @@ static void test_first_value_after_check(void)
     tick(fake.disable_delay_ms + 1U);
     drain(); /* first sample: the reveal travels with the first value */
     {
-        uint16_t n = rec_drain();
+        QEvt const* e = rec_take();
 
-        CHECK(n == 1U);
+        CHECK(e != NULL);
+        if ( e != NULL ) {
+            measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
+
+            CHECK(m->status == (uint16_t)CH_STATUS_OK);
+            QF_gc(e);
+        }
     }
+    CHECK(rec_drain() == 0U);
 }
 
 /** @brief A wire break is revealed when the check completes, then frozen. */
@@ -449,6 +484,7 @@ static void test_wire_break_reveal_and_freeze(void)
     /* Check-before-measure: the first value already carries the break. */
     e = rec_take();
     CHECK(e != NULL);
+    status = (uint16_t)CH_STATUS_OK;
     if ( e != NULL ) {
         measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
@@ -456,7 +492,7 @@ static void test_wire_break_reveal_and_freeze(void)
         CHECK(m->value == 0.0f); /* frozen: no good sample was ever taken */
         QF_gc(e);
     }
-    CHECK(status == (uint16_t)REG_MAP_STATUS_TC_BREAK);
+    CHECK(status == (uint16_t)CH_STATUS_TC_BREAK);
     rec_drain();
 
     /* Every later sample stays frozen on the same status. */
@@ -472,16 +508,131 @@ static void test_wire_break_reveal_and_freeze(void)
             measure_evt_t const* mm;
             QEvt const* ee = QActive_get_(&recorder);
 
-            mm = Q_EVT_CAST(measure_evt_t);
-            if ( mm->status == (uint16_t)REG_MAP_STATUS_TC_BREAK ) {
-                ++frozen;
-            } else {
-                ++other;
+            if ( ee->sig == MEASURE_SIG ) {
+                mm = Q_EVT_CAST(measure_evt_t);
+                if ( mm->status == (uint16_t)CH_STATUS_TC_BREAK ) {
+                    ++frozen;
+                } else {
+                    ++other;
+                }
             }
             QF_gc(ee);
         }
         CHECK(frozen >= 2U);
         CHECK(other == 0U);
+    }
+}
+
+/**
+ * @brief The wire verdict matrix through the detection loop.
+ *
+ * The status mapping (reg_map's old wire_status_code cases) is observable
+ * exactly here: a completed check publishes the verdict immediately.
+ */
+static void test_wire_code_matrix(void)
+{
+    static const struct {
+        uint8_t type;
+        uint8_t tc_type;
+        uint8_t wire;
+        uint16_t expected;
+    } cases[] = {
+        /* An intact circuit publishes nothing before the first sample. */
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 0U, (uint16_t)CH_STATUS_OK},
+        {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 0U, (uint16_t)CH_STATUS_OK},
+        /* Thermocouple: any open loop is status 2 (leads not resolvable). */
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 1U, (uint16_t)CH_STATUS_TC_BREAK},
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U, (uint16_t)CH_STATUS_TC_BREAK},
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 3U, (uint16_t)CH_STATUS_TC_BREAK},
+        /* PT100: resolvable leads report 3 / 4. */
+        {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U, (uint16_t)CH_STATUS_RTD_LEAD_BREAK},
+        {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 3U, (uint16_t)CH_STATUS_RTD_RETURN_BREAK},
+        /* Unresolvable PT100 break: front-end contract violation, status 6. */
+        {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 1U, (uint16_t)CH_STATUS_HW_ERROR},
+        /* Unknown wire codes: status 6. */
+        {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 7U, (uint16_t)CH_STATUS_HW_ERROR}};
+    size_t k;
+
+    for ( k = 0; k < (sizeof(cases) / sizeof(cases[0])); ++k ) {
+        QEvt const* e;
+        uint16_t status;
+
+        scenario_begin();
+        publish_cjc(25.0f, 1U); /* steady state: status 0 is observable */
+        drain();
+        fake.check_wire = (analog_input_wire_status_t)cases[k].wire;
+        drive_to_measuring(cases[k].type, cases[k].tc_type, 2U);
+
+        /* The first published value carries the mapped status: the break
+         * itself at check completion, status 0 with the first sample. */
+        e = rec_take();
+        CHECK(e != NULL);
+        status = (uint16_t)CH_STATUS_OK;
+        if ( e != NULL ) {
+            measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
+
+            status = m->status;
+            QF_gc(e);
+        }
+        CHECK(status == cases[k].expected);
+        rec_drain();
+    }
+}
+
+/**
+ * @brief A frozen verdict on a non-detectable type reports status 6.
+ *
+ * The wire verdict survives reconfiguration and is mapped through the new
+ * type on every frozen sample; a non-detectable type can never run a new
+ * check, so the front-end violation code holds (the old wire status code
+ * matrix rows for 4-20 mA / 0-10 V).
+ */
+static void test_wire_code_frozen_non_detectable(void)
+{
+    static const struct {
+        uint8_t type;
+        uint8_t wire;
+    } cases[] = {
+        {(uint8_t)CH_TYPE_4_20MA, 1U},
+        {(uint8_t)CH_TYPE_0_10V, 2U},
+        {(uint8_t)CH_TYPE_0_10V, 7U}};
+    size_t k;
+
+    for ( k = 0; k < (sizeof(cases) / sizeof(cases[0])); ++k ) {
+        QEvt const* e;
+        uint16_t status;
+
+        scenario_begin();
+
+        /* A PT100 check establishes the verdict; the frozen-wire rule
+         * keeps it across reconfiguration (channel_ao.md). */
+        fake.check_wire = (analog_input_wire_status_t)cases[k].wire;
+        publish_config((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U);
+        drain();
+        drain();
+        tick(fake.enable_delay_ms + 1U);
+        drain();
+        rec_drain();
+
+        publish_config(cases[k].type, CH_TC_TYPE_NONE, 2U);
+        drain();
+        drain();
+        tick(fake.enable_delay_ms + 1U);
+        drain();
+        tick(fake.disable_delay_ms + 1U);
+        drain();
+
+        e = rec_take();
+        CHECK(e != NULL);
+        status = (uint16_t)CH_STATUS_OK;
+        if ( e != NULL ) {
+            measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
+
+            status = m->status;
+            QF_gc(e);
+        }
+        CHECK(status == (uint16_t)CH_STATUS_HW_ERROR);
+        rec_drain();
     }
 }
 
@@ -507,13 +658,14 @@ static void test_cjc_validity_gates_tc_samples(void)
     drain();
     e = rec_take();
     CHECK(e != NULL);
+    status = (uint16_t)CH_STATUS_OK;
     if ( e != NULL ) {
         measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
         status = m->status;
         QF_gc(e);
     }
-    CHECK(status == (uint16_t)REG_MAP_STATUS_NO_CJC);
+    CHECK(status == (uint16_t)CH_STATUS_NO_CJC);
     rec_drain();
 
     publish_cjc(25.0f, 1U);
@@ -522,48 +674,15 @@ static void test_cjc_validity_gates_tc_samples(void)
     drain();
     e = rec_take();
     CHECK(e != NULL);
+    status = (uint16_t)CH_STATUS_HW_ERROR;
     if ( e != NULL ) {
         measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
         status = m->status;
         QF_gc(e);
     }
-    CHECK(status == (uint16_t)REG_MAP_STATUS_OK);
+    CHECK(status == (uint16_t)CH_STATUS_OK);
     rec_drain();
-}
-
-/** @brief PT100 lead, return and unresolvable breaks map to distinct codes. */
-static void test_pt100_wire_codes(void)
-{
-    static const struct {
-        analog_input_wire_status_t wire;
-        uint16_t expected;
-    } cases[] = {
-        {ANALOG_INPUT_WIRE_BROKEN_LEAD, (uint16_t)REG_MAP_STATUS_RTD_LEAD_BREAK},
-        {ANALOG_INPUT_WIRE_BROKEN_RETURN, (uint16_t)REG_MAP_STATUS_RTD_RETURN_BREAK},
-        {ANALOG_INPUT_WIRE_BROKEN, (uint16_t)REG_MAP_STATUS_HW_ERROR}};
-    size_t k;
-
-    for ( k = 0; k < (sizeof(cases) / sizeof(cases[0])); ++k ) {
-        QEvt const* e;
-        uint16_t status;
-
-        scenario_begin();
-        fake.check_wire = cases[k].wire;
-        drive_to_measuring((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U);
-
-        /* The first check inside the drive already carries the verdict. */
-        e = rec_take();
-        CHECK(e != NULL);
-        if ( e != NULL ) {
-            measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
-
-            status = m->status;
-            QF_gc(e);
-        }
-        CHECK(status == cases[k].expected);
-        rec_drain();
-    }
 }
 
 /** @brief A rejected configuration leaves the AO parked and reporting. */
@@ -576,10 +695,7 @@ static void test_configure_failure_parks(void)
     drain();
     drain(); /* APPLY fails: status 6 published, still Unconfigured */
 
-    CHECK(applied_count == 1U);
-    CHECK(applied_ch == 0U);
-    CHECK(applied_ok == 0U);
-
+    /* A failed apply publishes no acceptance event. */
     {
         QEvt const* e = rec_take();
 
@@ -587,10 +703,11 @@ static void test_configure_failure_parks(void)
         if ( e != NULL ) {
             measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
-            CHECK(m->status == (uint16_t)REG_MAP_STATUS_HW_ERROR);
+            CHECK(m->status == (uint16_t)CH_STATUS_HW_ERROR);
             QF_gc(e);
         }
     }
+    CHECK(applied_count == 0U);
     rec_drain();
 
     /* No sampling while parked, but a rewritten configuration recovers. */
@@ -607,8 +724,54 @@ static void test_configure_failure_parks(void)
     tick(fake.disable_delay_ms + 1U);
     drain();
     CHECK(rec_drain() >= 1U);
-    CHECK(applied_count == 2U);
-    CHECK(applied_ok == 1U);
+
+    /* The rewrite produced exactly one acceptance for channel 1. */
+    CHECK(applied_count == 1U);
+    CHECK(applied_ch == 0U);
+}
+
+/**
+ * @brief Every rate code drives the board tier rate and the sample period.
+ */
+static void test_rate_table(void)
+{
+    uint16_t code;
+
+    CHECK(CH_CONFIG_CHANNEL_COUNT == ANALOG_INPUT_BOARD_CHANNEL_COUNT);
+    CHECK(CH_CONFIG_RATE_CODE_COUNT == 13U);
+
+    for ( code = 0U; code < CH_CONFIG_RATE_CODE_COUNT; ++code ) {
+        const analog_input_fake_call_t* c;
+        uint32_t mhz = rate_mhz_of(code);
+        uint32_t ticks;
+        uint8_t have_cfg = 0U;
+        uint16_t i;
+
+        CHECK(mhz != 0U);
+
+        scenario_begin();
+        drive_to_measuring((uint8_t)CH_TYPE_4_20MA, CH_TC_TYPE_NONE, code);
+
+        /* The configure call carries the board tier rate in mHz. */
+        for ( i = 0U; i < fake.log_len; ++i ) {
+            c = analog_input_fake_at(&fake, i);
+            if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE ) {
+                CHECK(c->rate == mhz);
+                have_cfg = 1U;
+            }
+        }
+        CHECK(have_cfg != 0U);
+
+        /* The sampling timer arms the rounded-up period in 1 ms ticks:
+         * realized rate stays at or below nominal and within 4 %. */
+        ticks = ao.te_sample.interval;
+        CHECK(ticks == ((1000000U + mhz - 1U) / mhz));
+        CHECK((mhz * ticks) >= 1000000U);
+        CHECK((mhz * ticks) <= 1041666U);
+
+        /* Recycle every observer event before the next scenario. */
+        drain_all();
+    }
 }
 
 /*----------------------------------------------------------------------------*/
@@ -622,9 +785,11 @@ int main(void)
     test_reconfig_sweep();
     test_first_value_after_check();
     test_wire_break_reveal_and_freeze();
+    test_wire_code_matrix();
+    test_wire_code_frozen_non_detectable();
     test_cjc_validity_gates_tc_samples();
-    test_pt100_wire_codes();
     test_configure_failure_parks();
+    test_rate_table();
 
     printf("test_channel_ao: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

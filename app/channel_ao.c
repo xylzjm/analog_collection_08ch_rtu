@@ -11,16 +11,15 @@
 
 #include "channel_ao.h"
 
-#include "app_events.h"
+#include "analog_input_board.h"
 #include "elog.h"
-#include "reg_map.h"
 
 Q_DEFINE_THIS_MODULE("channel_ao")
 
 /** @brief Reconfiguration re-entry event; shared by all eight instances. */
 static QEvt const applyEvt = QEVT_INITIALIZER(APPLY_SIG);
 
-/* reg_map_wire_status_code() relies on this wire result encoding. */
+/* wire_status_code() relies on this wire result encoding. */
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_NORMAL == 0);
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN == 1);
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN_LEAD == 2);
@@ -44,6 +43,13 @@ Q_ASSERT_STATIC((int)CH_TC_TYPE_R == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_R);
 Q_ASSERT_STATIC((int)CH_TC_TYPE_S == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_S);
 Q_ASSERT_STATIC((int)CH_TC_TYPE_T == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_T);
 
+/** @brief Sample rates of the rate codes, in mHz (the board's tier list). */
+static const uint32_t rate_millihz_table[CH_CONFIG_RATE_CODE_COUNT] = {
+#define X(rate_name, millihertz) millihertz,
+    APP_RATE_LIST(X)
+#undef X
+};
+
 static QState channel_ao_initial(channel_ao_t* const me, void const* const par);
 static QState channel_ao_root(channel_ao_t* const me, QEvt const* const e);
 static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const e);
@@ -61,12 +67,64 @@ static bool detectable(const channel_ao_t* me)
            || (me->cfg.type == (uint8_t)CH_TYPE_PT100);
 }
 
-/** @brief Report one configuration-apply result to the registered sink. */
-static void report_applied(channel_ao_t* me, uint8_t ok)
+/**
+ * @brief Map a wire break check result to the channel status code.
+ *
+ * The wire status argument uses the analog_input_wire_status_t encoding
+ * (0 normal, 1 broken unresolvable, 2 broken lead, 3 broken return).
+ *
+ * @return 0 for normal, 2 for any thermocouple break, 3/4 for a resolvable
+ *         PT100 break, 6 for an unresolvable PT100 break (front-end
+ *         contract violation), a non-detectable type or an unknown wire
+ *         code.
+ */
+static uint16_t wire_status_code(uint8_t cfg_type,
+                                 uint8_t wire_status)
 {
-    if ( me->on_applied != NULL ) {
-        me->on_applied(me->applied_ctx, me->ch, ok);
+    if ( wire_status == 0U ) {
+        return (uint16_t)CH_STATUS_OK;
     }
+
+    if ( cfg_type == (uint8_t)CH_TYPE_TC ) {
+        /* A thermocouple loop cannot report which lead is open. */
+        return (uint16_t)CH_STATUS_TC_BREAK;
+    }
+
+    if ( cfg_type == (uint8_t)CH_TYPE_PT100 ) {
+        if ( wire_status == 2U ) {
+            return (uint16_t)CH_STATUS_RTD_LEAD_BREAK;
+        }
+        if ( wire_status == 3U ) {
+            return (uint16_t)CH_STATUS_RTD_RETURN_BREAK;
+        }
+    }
+
+    /* Unresolvable PT100 break or non-detectable type: front-end violation. */
+    return (uint16_t)CH_STATUS_HW_ERROR;
+}
+
+/** @brief Sample rate of a rate code in millihertz (0 for an invalid code). */
+static uint32_t rate_millihz(uint16_t code)
+{
+    if ( code > CH_CONFIG_RATE_CODE_MAX ) {
+        return 0U;
+    }
+    return rate_millihz_table[code];
+}
+
+/**
+ * @brief Sample period of a rate code in 1 ms ticks: ceil(1e6 / rate_mhz).
+ *
+ * Rounding up keeps the realized rate at or below the nominal rate.
+ */
+static uint32_t rate_ticks(uint16_t code)
+{
+    uint32_t mhz = rate_millihz(code);
+
+    if ( mhz == 0U ) {
+        return 0U;
+    }
+    return (1000000U + mhz - 1U) / mhz;
 }
 
 /**
@@ -83,6 +141,17 @@ static void publish(channel_ao_t* me, float value, uint16_t status)
 }
 
 /**
+ * @brief Publish one CFG_APPLIED_SIG acceptance event for this channel.
+ */
+static void publish_applied(channel_ao_t* me)
+{
+    cfg_applied_evt_t* evt = Q_NEW(cfg_applied_evt_t, CFG_APPLIED_SIG);
+
+    evt->ch = me->ch;
+    QACTIVE_PUBLISH(&evt->super, Q_ACTIVE_UPCAST(me));
+}
+
+/**
  * @brief One sampling step: read, convert, calibrate, publish.
  */
 static void do_sample(channel_ao_t* me)
@@ -94,17 +163,17 @@ static void do_sample(channel_ao_t* me)
     if ( me->wire != (uint8_t)ANALOG_INPUT_WIRE_NORMAL ) {
         /* Frozen value, frozen wire verdict until the next check. */
         publish(me, me->last_value,
-                reg_map_wire_status_code(me->cfg.type, me->wire));
+                wire_status_code(me->cfg.type, me->wire));
         return;
     }
 
     if ( analog_input_read_sample(me->input, &code) != ANALOG_INPUT_OK ) {
-        publish(me, me->last_value, (uint16_t)REG_MAP_STATUS_HW_ERROR);
+        publish(me, me->last_value, (uint16_t)CH_STATUS_HW_ERROR);
         return;
     }
 
     if ( (me->cfg.type == (uint8_t)CH_TYPE_TC) && (me->cjc_valid == 0U) ) {
-        publish(me, me->last_value, (uint16_t)REG_MAP_STATUS_NO_CJC);
+        publish(me, me->last_value, (uint16_t)CH_STATUS_NO_CJC);
         return;
     }
 
@@ -115,12 +184,12 @@ static void do_sample(channel_ao_t* me)
     ctx.offset        = me->cfg.offset;
 
     if ( analog_input_convert(me->input, code, &ctx, &value) != ANALOG_INPUT_OK ) {
-        publish(me, me->last_value, (uint16_t)REG_MAP_STATUS_OUT_OF_RANGE);
+        publish(me, me->last_value, (uint16_t)CH_STATUS_OUT_OF_RANGE);
         return;
     }
 
     me->last_value = value;
-    publish(me, value, (uint16_t)REG_MAP_STATUS_OK);
+    publish(me, value, (uint16_t)CH_STATUS_OK);
 }
 
 /**
@@ -137,18 +206,17 @@ static bool apply_pending(channel_ao_t* me)
     acfg.thermocouple_type   = (me->pending.type == (uint8_t)CH_TYPE_TC)
                                    ? (analog_input_thermocouple_type_t)me->pending.tc_type
                                    : ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE;
-    acfg.sample_rate_millihz = ch_config_rate_millihz(me->pending.rate_code);
+    acfg.sample_rate_millihz = rate_millihz(me->pending.rate_code);
 
     if ( analog_input_configure(me->input, &acfg, &delay) != ANALOG_INPUT_OK ) {
         /* Legal exception: report and stay unconfigured until rewritten. */
-        report_applied(me, 0U);
-        publish(me, me->last_value, (uint16_t)REG_MAP_STATUS_HW_ERROR);
+        publish(me, me->last_value, (uint16_t)CH_STATUS_HW_ERROR);
         return false;
     }
 
     me->cfg       = me->pending;
     me->settle_ms = delay;
-    report_applied(me, 1U);
+    publish_applied(me);
     elog_debug("channel_ao", "ch%u configured: type=%u rate=%u",
                (unsigned)me->ch, (unsigned)me->cfg.type,
                (unsigned)me->cfg.rate_code);
@@ -157,18 +225,14 @@ static bool apply_pending(channel_ao_t* me)
 
 void channel_ao_ctor(channel_ao_t* me,
                      uint8_t ch,
-                     analog_input_t* input,
-                     channel_ao_applied_fn on_applied,
-                     void* applied_ctx)
+                     analog_input_t* input)
 {
     QActive_ctor(&me->super, Q_STATE_CAST(&channel_ao_initial));
     QTimeEvt_ctorX(&me->te_sample, Q_ACTIVE_UPCAST(me), SAMPLE_SIG, 0U);
     QTimeEvt_ctorX(&me->te_settle, Q_ACTIVE_UPCAST(me), SETTLE_SIG, 0U);
     QTimeEvt_ctorX(&me->te_break, Q_ACTIVE_UPCAST(me), BREAK_WINDOW_SIG, 0U);
 
-    me->input       = input;
-    me->on_applied  = on_applied;
-    me->applied_ctx = applied_ctx;
+    me->input = input;
     Q_ASSERT(me->input != NULL);
 
     me->ch = ch;
@@ -350,8 +414,8 @@ static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
                 uint16_t code;
 
                 me->wire = (uint8_t)ws;
-                code     = reg_map_wire_status_code(me->cfg.type, me->wire);
-                if ( code != (uint16_t)REG_MAP_STATUS_OK ) {
+                code     = wire_status_code(me->cfg.type, me->wire);
+                if ( code != (uint16_t)CH_STATUS_OK ) {
                     /* A break is revealed the moment the check completes. */
                     publish(me, me->last_value, code);
                     elog_debug("channel_ao", "ch%u wire break: %u",
@@ -360,7 +424,7 @@ static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
                 /* Intact: status 0 travels with the first measurement. */
             } else {
                 /* IO failure: report and retry on the following beats. */
-                publish(me, me->last_value, (uint16_t)REG_MAP_STATUS_HW_ERROR);
+                publish(me, me->last_value, (uint16_t)CH_STATUS_HW_ERROR);
             }
 
             (void)analog_input_disable_break_detection(me->input, &delay);
@@ -418,7 +482,7 @@ static QState channel_ao_measuring(channel_ao_t* const me, QEvt const* const e)
 
     switch ( e->sig ) {
         case Q_ENTRY_SIG: {
-            uint32_t ticks = ch_config_rate_ticks(me->cfg.rate_code);
+            uint32_t ticks = rate_ticks(me->cfg.rate_code);
 
             QTimeEvt_armX(&me->te_sample, ticks, ticks);
             if ( detectable(me) ) {

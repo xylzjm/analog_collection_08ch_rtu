@@ -65,32 +65,131 @@ static uint32_t float_to_bits(float value)
 
 static void test_roundtrip(void)
 {
+    /* Already-normalized inputs: decode(encode(x)) must reproduce x byte
+     * for byte (semantic normalization runs in modbus_ao.c). */
     static const ch_config_t cases[] = {
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U, 0.0f, 0.0f, 0.0f, 1.0f},
-        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_B, 12U, -3.0f, 9.0f, 0.125f, 0.99f},
-        {(uint8_t)CH_TYPE_PT100, 5U, 0U, -200.0f, 850.0f, -0.5f, 1.005f},
-        {(uint8_t)CH_TYPE_4_20MA, 0xFFU, 7U, 4.0f, 20.0f, 0.0f, 1.0f},
-        {(uint8_t)CH_TYPE_0_10V, 2U, 3U, -10.0f, 10.0f, 1.5f, 2.5f}};
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_B, 12U, 0.0f, 0.0f, 0.125f, 0.99f},
+        {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 0U, 0.0f, 0.0f, -0.5f, 1.005f},
+        {(uint8_t)CH_TYPE_4_20MA, CH_TC_TYPE_NONE, 7U, 4.0f, 20.0f, 0.0f, 1.0f},
+        {(uint8_t)CH_TYPE_0_10V, CH_TC_TYPE_NONE, 3U, -10.0f, 10.0f, 1.5f, 2.5f}};
     size_t i;
 
     for ( i = 0U; i < (sizeof(cases) / sizeof(cases[0])); ++i ) {
-        ch_config_t expected = cases[i];
         ch_config_t decoded;
         uint8_t buf[REG_MAP_CH_CFG_LEN * 2U];
+        uint8_t again[REG_MAP_CH_CFG_LEN * 2U];
 
-        CHECK(ch_config_validate(&expected));
-
-        /* decode(encode(x)) is equivalent to normalize(x). */
         reg_map_ch_encode(&cases[i], buf);
         reg_map_ch_decode(buf, &decoded);
-        CHECK(ch_config_validate(&decoded));
-        CHECK(memcmp(&expected, &decoded, sizeof(decoded)) == 0);
+        CHECK(memcmp(&cases[i], &decoded, sizeof(decoded)) == 0);
 
-        /* A normalized input round trips byte for byte. */
-        reg_map_ch_encode(&expected, buf);
-        reg_map_ch_decode(buf, &decoded);
-        CHECK(memcmp(&expected, &decoded, sizeof(decoded)) == 0);
+        /* A decoded configuration re-encodes to identical wire bytes. */
+        reg_map_ch_encode(&decoded, again);
+        CHECK(memcmp(buf, again, sizeof(buf)) == 0);
     }
+}
+
+/*----------------------------------------------------------------------------*/
+/* Codec word layout                                                          */
+/*----------------------------------------------------------------------------*/
+
+static void test_codec_words(void)
+{
+    ch_config_t cfg;
+    ch_config_t decoded;
+    uint8_t buf[REG_MAP_CH_CFG_LEN * 2U];
+    uint16_t code;
+
+    /* Hand-split words: type code, rate code, then big-endian float pairs. */
+    cfg = make_cfg((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U,
+                   0.0f, 0.0f, 0.0f, 1.0f);
+    reg_map_ch_encode(&cfg, buf);
+    CHECK(modbus_slave_get_u16(&buf[0]) == 3U); /* TC type K */
+    CHECK(modbus_slave_get_u16(&buf[2]) == 2U);
+    CHECK(modbus_slave_get_u16(&buf[4]) == (uint16_t)(float_to_bits(0.0f) >> 16));
+    CHECK(modbus_slave_get_u16(&buf[6]) == (uint16_t)(float_to_bits(0.0f) & 0xFFFFU));
+    CHECK(modbus_slave_get_u16(&buf[16]) == (uint16_t)(float_to_bits(1.0f) >> 16));
+    CHECK(modbus_slave_get_u16(&buf[18]) == (uint16_t)(float_to_bits(1.0f) & 0xFFFFU));
+
+    /* Encode: the composite type code table of the register encoding. */
+    cfg = make_cfg((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 0U, 0.0f, 0.0f, 0.0f, 1.0f);
+    reg_map_ch_encode(&cfg, buf);
+    CHECK(modbus_slave_get_u16(&buf[0]) == 8U);
+    cfg.type = (uint8_t)CH_TYPE_4_20MA;
+    reg_map_ch_encode(&cfg, buf);
+    CHECK(modbus_slave_get_u16(&buf[0]) == 9U);
+    cfg.type = (uint8_t)CH_TYPE_0_10V;
+    reg_map_ch_encode(&cfg, buf);
+    CHECK(modbus_slave_get_u16(&buf[0]) == 10U);
+    cfg.type = 4U; /* no such input type */
+    reg_map_ch_encode(&cfg, buf);
+    CHECK(modbus_slave_get_u16(&buf[0]) == 11U);
+
+    /* Decode: codes 0..7 are thermocouple types, 8..10 the fixed types. */
+    for ( code = 0U; code < 8U; ++code ) {
+        uint8_t raw[REG_MAP_CH_CFG_LEN * 2U] = {0};
+
+        modbus_slave_put_u16(&raw[0], code);
+        modbus_slave_put_u16(&raw[2], 5U);
+        reg_map_ch_decode(raw, &decoded);
+        CHECK(decoded.type == (uint8_t)CH_TYPE_TC);
+        CHECK(decoded.tc_type == (uint8_t)code);
+        CHECK(decoded.rate_code == 5U);
+    }
+    {
+        struct {
+            uint16_t wire;
+            uint8_t type;
+        } fixed[] = {
+            {8U, (uint8_t)CH_TYPE_PT100},
+            {9U, (uint8_t)CH_TYPE_4_20MA},
+            {10U, (uint8_t)CH_TYPE_0_10V}};
+        size_t i;
+
+        for ( i = 0U; i < (sizeof(fixed) / sizeof(fixed[0])); ++i ) {
+            uint8_t raw[REG_MAP_CH_CFG_LEN * 2U] = {0};
+
+            modbus_slave_put_u16(&raw[0], fixed[i].wire);
+            reg_map_ch_decode(raw, &decoded);
+            CHECK(decoded.type == fixed[i].type);
+            CHECK(decoded.tc_type == CH_TC_TYPE_NONE);
+        }
+    }
+
+    /* Unknown composite codes decode to the invalid sentinel (0xFF). */
+    {
+        static const uint16_t unknown[] = {11U, 0x63U, 0xFFFFU};
+        size_t i;
+
+        for ( i = 0U; i < (sizeof(unknown) / sizeof(unknown[0])); ++i ) {
+            uint8_t raw[REG_MAP_CH_CFG_LEN * 2U] = {0};
+
+            modbus_slave_put_u16(&raw[0], unknown[i]);
+            reg_map_ch_decode(raw, &decoded);
+            CHECK(decoded.type == 0xFFU);
+            CHECK(decoded.tc_type == CH_TC_TYPE_NONE);
+        }
+    }
+
+    /* NaN / Inf survive the codec bit for bit (validation rejects them). */
+    reg_map_ch_encode(&cfg, buf);
+    modbus_slave_put_u16(&buf[4], 0x7FC0U);
+    modbus_slave_put_u16(&buf[6], 0x0000U);
+    reg_map_ch_decode(buf, &decoded);
+    CHECK(decoded.linear_min != decoded.linear_min);
+
+    reg_map_ch_encode(&cfg, buf);
+    modbus_slave_put_u16(&buf[12], 0x7F80U);
+    modbus_slave_put_u16(&buf[14], 0x0000U);
+    reg_map_ch_decode(buf, &decoded);
+    CHECK(float_to_bits(decoded.offset) == 0x7F800000U);
+
+    reg_map_ch_encode(&cfg, buf);
+    modbus_slave_put_u16(&buf[16], 0xFF80U);
+    modbus_slave_put_u16(&buf[18], 0x0000U);
+    reg_map_ch_decode(buf, &decoded);
+    CHECK(float_to_bits(decoded.gain) == 0xFF800000U);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -100,10 +199,11 @@ static void test_roundtrip(void)
 /**
  * @brief Overlay one register over an encoded block and decode the result.
  *
- * Mirrors the write pipeline: encode current, overlay frame, decode whole
- * block, validate with normalization. Returns the validation result.
+ * Mirrors the write pipeline's mechanical step: encode current, overlay
+ * frame, decode whole block. Semantic validation runs in modbus_ao.c and
+ * is covered behaviorally in test_modbus_data.
  */
-static bool merge_word(const ch_config_t* base,
+static void merge_word(const ch_config_t* base,
                        uint16_t reg_off,
                        uint16_t word,
                        ch_config_t* out)
@@ -113,13 +213,12 @@ static bool merge_word(const ch_config_t* base,
     reg_map_ch_encode(base, buf);
     modbus_slave_put_u16(&buf[2U * reg_off], word);
     reg_map_ch_decode(buf, out);
-    return ch_config_validate(out);
 }
 
 /**
  * @brief Overlay one float (two registers) over an encoded block.
  */
-static bool merge_float(const ch_config_t* base,
+static void merge_float(const ch_config_t* base,
                         uint16_t reg_off,
                         float value,
                         ch_config_t* out)
@@ -133,7 +232,6 @@ static bool merge_float(const ch_config_t* base,
     modbus_slave_put_u16(&tmp[2], (uint16_t)(bits & 0xFFFFU));
     memcpy(&buf[2U * reg_off], tmp, sizeof(tmp));
     reg_map_ch_decode(buf, out);
-    return ch_config_validate(out);
 }
 
 static void test_subblock_merge(void)
@@ -144,49 +242,41 @@ static void test_subblock_merge(void)
     ch_config_t want;
 
     /* Single register writes keep every untouched field. */
-    CHECK(merge_word(&base, 1U, 7U, &got));
+    merge_word(&base, 1U, 7U, &got);
     want           = base;
     want.rate_code = 7U;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    /* A type write re-normalizes tc_type along with it. */
-    CHECK(merge_word(&base, 0U, 8U, &got));
+    /* A type write re-maps tc_type along with it (decode normalization). */
+    merge_word(&base, 0U, 8U, &got);
     want = make_cfg((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U,
                     0.0f, 0.0f, 0.0f, 1.0f);
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    CHECK(merge_float(&base, 6U, -1.5f, &got));
+    merge_float(&base, 6U, -1.5f, &got);
     want        = base;
     want.offset = -1.5f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    CHECK(merge_float(&base, 8U, 2.5f, &got));
+    merge_float(&base, 8U, 2.5f, &got);
     want      = base;
     want.gain = 2.5f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    /* Non-linear base: linear limit writes normalize back to 0.0. */
-    CHECK(merge_float(&base, 2U, 5.0f, &got));
-    CHECK(got.linear_min == 0.0f);
-    CHECK(got.linear_max == 0.0f);
-
-    /* An illegal overlay rejects the whole candidate (EX 03 path). */
-    CHECK(!merge_word(&base, 1U, 13U, &got));
-
     base = make_cfg((uint8_t)CH_TYPE_4_20MA, CH_TC_TYPE_NONE, 2U,
                     4.0f, 20.0f, 0.0f, 1.0f);
-    CHECK(merge_float(&base, 2U, 0.0f, &got));
+    merge_float(&base, 2U, 0.0f, &got);
     want            = base;
     want.linear_min = 0.0f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    CHECK(merge_float(&base, 4U, 100.0f, &got));
+    merge_float(&base, 4U, 100.0f, &got);
     want            = base;
     want.linear_max = 100.0f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
     /* Both halves of one float must survive the merge. */
-    CHECK(merge_float(&base, 8U, bits_to_float(0x3FC00000U), &got));
+    merge_float(&base, 8U, bits_to_float(0x3FC00000U), &got);
     CHECK(got.gain == 1.5f);
     CHECK(got.offset == 0.0f);
     CHECK(got.linear_min == 4.0f);
@@ -329,63 +419,6 @@ static void test_span_identity(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Semantic rejects (EX 03 path)                                              */
-/*----------------------------------------------------------------------------*/
-
-static void test_semantic_illegal(void)
-{
-    ch_config_t cfg;
-    ch_config_t decoded;
-    uint8_t buf[REG_MAP_CH_CFG_LEN * 2U];
-
-    /* Unknown composite type codes decode to the validator's reject. */
-    cfg = make_cfg((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U,
-                   0.0f, 0.0f, 0.0f, 1.0f);
-    reg_map_ch_encode(&cfg, buf);
-    modbus_slave_put_u16(&buf[0], 11U);
-    reg_map_ch_decode(buf, &decoded);
-    CHECK(!ch_config_validate(&decoded));
-
-    modbus_slave_put_u16(&buf[0], 0xFFFFU);
-    reg_map_ch_decode(buf, &decoded);
-    CHECK(!ch_config_validate(&decoded));
-
-    /* Out-of-range rate codes decode and then fail validation. */
-    reg_map_ch_encode(&cfg, buf);
-    modbus_slave_put_u16(&buf[2], 13U);
-    reg_map_ch_decode(buf, &decoded);
-    CHECK(decoded.rate_code == 13U);
-    CHECK(!ch_config_validate(&decoded));
-
-    /* NaN / Inf survive the codec bit for bit and fail validation. */
-    reg_map_ch_encode(&cfg, buf);
-    modbus_slave_put_u16(&buf[4], 0x7FC0U);
-    modbus_slave_put_u16(&buf[6], 0x0000U);
-    reg_map_ch_decode(buf, &decoded);
-    CHECK(decoded.linear_min != decoded.linear_min);
-    CHECK(!ch_config_validate(&decoded));
-
-    reg_map_ch_encode(&cfg, buf);
-    modbus_slave_put_u16(&buf[12], 0x7F80U);
-    modbus_slave_put_u16(&buf[14], 0x0000U);
-    reg_map_ch_decode(buf, &decoded);
-    CHECK(!ch_config_validate(&decoded));
-
-    reg_map_ch_encode(&cfg, buf);
-    modbus_slave_put_u16(&buf[16], 0xFF80U);
-    modbus_slave_put_u16(&buf[18], 0x0000U);
-    reg_map_ch_decode(buf, &decoded);
-    CHECK(!ch_config_validate(&decoded));
-
-    /* Slave address legality (register 128 write validation). */
-    CHECK(!reg_map_dev_addr_valid(0U));
-    CHECK(reg_map_dev_addr_valid(REG_MAP_DEV_ADDR_MIN));
-    CHECK(reg_map_dev_addr_valid(247U));
-    CHECK(!reg_map_dev_addr_valid(248U));
-    CHECK(!reg_map_dev_addr_valid(0xFFFFU));
-}
-
-/*----------------------------------------------------------------------------*/
 /* Input area layout                                                          */
 /*----------------------------------------------------------------------------*/
 
@@ -478,7 +511,7 @@ static void test_input_layout(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Fault word and wire break codes                                            */
+/* Fault word                                                                 */
 /*----------------------------------------------------------------------------*/
 
 static void test_fault_word(void)
@@ -493,41 +526,15 @@ static void test_fault_word(void)
     CHECK(reg_map_fault_word(0U, 0xFFFFU) == 0x000FU);
 }
 
-static void test_wire_code(void)
-{
-    /* A normal circuit is always status 0. */
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_TC, 0U) == 0U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_PT100, 0U) == 0U);
-
-    /* Thermocouple: any open loop is status 2 (leads not resolvable). */
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_TC, 1U) == 2U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_TC, 2U) == 2U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_TC, 3U) == 2U);
-
-    /* PT100: resolvable leads report 3 / 4. */
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_PT100, 2U) == 3U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_PT100, 3U) == 4U);
-
-    /* Unresolvable PT100 break: front-end contract violation, status 6. */
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_PT100, 1U) == 6U);
-
-    /* Non-detectable types and unknown wire codes: status 6. */
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_4_20MA, 1U) == 6U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_0_10V, 2U) == 6U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_PT100, 7U) == 6U);
-    CHECK(reg_map_wire_status_code((uint8_t)CH_TYPE_0_10V, 7U) == 6U);
-}
-
 int main(void)
 {
     test_roundtrip();
+    test_codec_words();
     test_subblock_merge();
     test_span_exhaustive();
     test_span_identity();
-    test_semantic_illegal();
     test_input_layout();
     test_fault_word();
-    test_wire_code();
 
     printf("%d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

@@ -9,7 +9,8 @@
  * AoColdJunction (its first CJC_SIG heartbeat). Assertions prove the
  * docs/qp-application-design.md section 8 invariants: the boot publish
  * reaches every subscribed channel, no queue runs dry, and telemetry
- * flows end to end into the Modbus mirror.
+ * flows end to end into the Modbus mirror. Channel acceptance travels
+ * back as CFG_APPLIED_SIG.
  *
  * One scenario per process: the QP registry and time-event teardown is
  * not designed for tearing the world down and rebuilding it inside one
@@ -25,14 +26,13 @@
 #include "qpc.h"
 
 #include "analog_input_fake.h"
-#include "app_events.h"
+#include "app.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
 #include "host_support.h"
-#include "kv_store_mem.h"
+#include "kv_mem.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
-#include "param.h"
 #include "reg_map.h"
 #include "tmp75_port_fake.h"
 
@@ -59,26 +59,21 @@ static uint8_t rx_buffer[256];
 static uint8_t tx_buffer[256];
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
-static kv_store_mem_t kv;
+static kv_mem_t kv;
+
+#define POOL_A_BLOCKS 16U
+#define POOL_B_BLOCKS 16U
 
 static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
 static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
 static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
+static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
 
 static uint8_t ch_started;
 static uint8_t cjc_started;
 static uint8_t modbus_started;
-
-/** @brief Route a channel's apply result into the Modbus image. */
-static void on_channel_applied(void* ctx,
-                               uint8_t ch,
-                               uint8_t ok)
-{
-    modbus_image_set_applied((modbus_image_t*)ctx, ch, ok);
-}
 
 /*----------------------------------------------------------------------------*/
 /* Harness                                                                    */
@@ -159,6 +154,18 @@ static void unregister_all(void)
     all_count      = 0U;
 }
 
+/** @brief Read the device fault word through the Modbus data-space map. */
+static uint16_t read_fault_word(void)
+{
+    const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&modbus);
+    uint8_t reply[2];
+
+    CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
+                              MODBUS_SLAVE_REG_READ)
+          == MODBUS_SLAVE_EX_NONE);
+    return modbus_slave_get_u16(reply);
+}
+
 /**
  * @brief Mirror the main.c startup order with fakes at the device edge.
  *
@@ -174,29 +181,27 @@ static void boot_scenario(uint8_t fail_ch)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_store_mem_reset(&kv);
-    param_bind_store(kv_store_mem_ops(), &kv);
+    kv_mem_reset(&kv);
     if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
         /* Preload a wrong-length body: the real loader must reject it. */
         uint8_t bad[4] = {0};
-        char key[KV_STORE_MEM_MAX_KEY];
+        char key[KV_MEM_MAX_KEY];
 
         (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)fail_ch);
-        kv_store_mem_put(&kv, key, bad, sizeof(bad));
+        kv_mem_put(&kv, key, bad, sizeof(bad));
     }
     modbus_port_fake_init(&port);
     tmp75_port_fake_init(&cjc_port);
     tmp75_port_fake_port(&cjc_port, &cjc_port_if);
     CHECK(tmp75_ctor(&cjc_dev, &cjc_port_if, TMP75_ADDRESS_0) == TMP75_OK);
 
-    /* Construct AoModbus first so the channels can report apply results. */
-    modbus_ao_ctor(&modbus);
+    /* AoModbus owns its storage; the store opens in its construction. */
+    modbus_ao_ctor(&modbus, kv_mem_ops(), (void*)&kv);
 
     /* Channels first: every AO subscribes inside its initial transition. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         analog_input_fake_init(&inputs[i]);
-        channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base,
-                        on_channel_applied, &modbus.image);
+        channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base);
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
                       Q_PRIO((uint8_t)(2U + i), 0U),
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
@@ -270,14 +275,18 @@ static void test_full_boot(void)
               >= 5U);
     }
 
-    /* The mirror holds the telemetry of every channel. */
+    /* The mirror holds the telemetry of every channel; the acceptance of
+     * each configuration arrived as CFG_APPLIED_SIG. */
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        CHECK(modbus.image.value[ch] == 25.0f);
-        CHECK(modbus.image.status[ch] == (uint16_t)REG_MAP_STATUS_OK);
-        CHECK(modbus.image.applied[ch] == 1U);
+        CHECK(modbus.value[ch] == 25.0f);
+        CHECK(modbus.status[ch] == (uint16_t)CH_STATUS_OK);
+        CHECK(modbus.applied[ch] == 1U);
     }
-    CHECK(modbus.image.cjc_valid != 0U);
-    CHECK(modbus.image.cjc_temp == 25.0f);
+    CHECK(modbus.cjc_valid != 0U);
+    CHECK(modbus.cjc_temp == 25.0f);
+    CHECK(modbus.db_ok == 1U);
+    CHECK(modbus.addr_ok == 1U);
+    CHECK(read_fault_word() == 0U);
 
     /* Pools fully recycled: both pools have every block back. */
     drain_all();
@@ -295,18 +304,22 @@ static void test_failed_channel_stays_down(void)
 
     run_ticks(1200U);
 
-    CHECK(modbus.image.load_failed[2] != 0U);
-    CHECK(modbus.image.status[2] == (uint16_t)REG_MAP_STATUS_UNCONFIGURED);
-    CHECK(modbus.image.applied[2] == 0U);
+    CHECK(modbus.cfg_ok[2] == 0U);
+    CHECK(modbus.status[2] == (uint16_t)CH_STATUS_UNCONFIGURED);
+    CHECK(modbus.applied[2] == 0U);
     CHECK(analog_input_fake_count(&inputs[2],
                                   (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE)
           == 0U);
 
+    /* The load failure is latched into the fault word (b2); the cold
+     * junction heartbeat is valid, so b0 is clear. */
+    CHECK(read_fault_word() == (uint16_t)REG_MAP_FAULT_PARAM_LOAD);
+
     /* Every other channel still runs. */
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
-            CHECK(modbus.image.value[ch] == 25.0f);
-            CHECK(modbus.image.applied[ch] == 1U);
+            CHECK(modbus.value[ch] == 25.0f);
+            CHECK(modbus.applied[ch] == 1U);
         }
     }
 }

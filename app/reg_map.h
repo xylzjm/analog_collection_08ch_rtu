@@ -6,14 +6,13 @@
  * @brief Modbus data-space map: addressing, span table and register codecs.
  *
  * Pure functions, no state. The typed mirror and the write transaction live
- * in modbus_image (owned by AoModbus). Data definitions (addresses, encodings,
- * write validation) follow docs/ao/modbus_ao.md section 4.
+ * in modbus_ao.c (owned by AoModbus). Data definitions (addresses,
+ * encodings) follow docs/ao/modbus_ao.md section 4.
  */
 
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "ch_config.h"
+#include "app.h"
 #include "modbus_slave.h"
 
 #ifdef __cplusplus
@@ -121,7 +120,8 @@ void reg_map_ch_encode(const ch_config_t* cfg,
  * @brief Decode 10 big-endian registers into a typed configuration.
  *
  * Layout only: an input type code above 10 decodes to type 0xFF so that
- * ch_config_validate() rejects it; semantic validation stays in ch_config.
+ * the validation in modbus_ao.c rejects it; semantic validation stays
+ * there (contract documented on ch_config_t in app.h).
  *
  * @param buf REG_MAP_CH_CFG_LEN * 2 bytes in wire order.
  * @param cfg Receives the decoded configuration.
@@ -139,14 +139,6 @@ void reg_map_dev_encode(uint16_t addr,
 
 /** @brief Decode the slave address register. */
 uint16_t reg_map_dev_decode(const uint8_t* buf);
-
-/**
- * @brief Report whether a slave address is legal.
- *
- * @param addr Address to test.
- * @return true for 1..247, false otherwise.
- */
-bool reg_map_dev_addr_valid(uint16_t addr);
 
 /*----------------------------------------------------------------------------*/
 /* Input area                                                                 */
@@ -208,38 +200,6 @@ void reg_map_input_encode(const reg_map_input_image_t* in,
  */
 uint16_t reg_map_fault_word(uint8_t cjc_valid,
                             uint16_t latched);
-
-/*----------------------------------------------------------------------------*/
-/* Channel status codes (register encoding, channel_ao.md section 3)          */
-/*----------------------------------------------------------------------------*/
-
-/** @brief Channel status register codes. */
-typedef enum {
-    REG_MAP_STATUS_OK               = 0, /**< Valid measurement. */
-    REG_MAP_STATUS_UNCONFIGURED     = 1, /**< No effective configuration. */
-    REG_MAP_STATUS_TC_BREAK         = 2, /**< Thermocouple loop open. */
-    REG_MAP_STATUS_RTD_LEAD_BREAK   = 3, /**< PT100 excitation lead open. */
-    REG_MAP_STATUS_RTD_RETURN_BREAK = 4, /**< PT100 return lead open. */
-    REG_MAP_STATUS_NO_CJC           = 5, /**< Cold junction invalid (TC). */
-    REG_MAP_STATUS_HW_ERROR         = 6, /**< Hardware or IO error. */
-    REG_MAP_STATUS_OUT_OF_RANGE     = 7  /**< Conversion over range. */
-} reg_map_status_t;
-
-/**
- * @brief Map a wire break check result to the channel status code.
- *
- * The wire status argument uses the analog_input_wire_status_t encoding
- * (0 normal, 1 broken unresolvable, 2 broken lead, 3 broken return).
- *
- * @param cfg_type Channel input type (ch_type_t value).
- * @param wire_status Wire check result encoding.
- * @return The status code: 0 for normal, 2 for any thermocouple break, 3/4
- *         for a resolvable PT100 break, 6 for an unresolvable PT100 break
- *         (front-end contract violation), a non-detectable type or an
- *         unknown wire code.
- */
-uint16_t reg_map_wire_status_code(uint8_t cfg_type,
-                                  uint8_t wire_status);
 
 #ifdef __cplusplus
 }
