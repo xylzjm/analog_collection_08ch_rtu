@@ -5,10 +5,9 @@
  * @file reg_map.h
  * @brief Modbus data-space map: addressing, span table and register codecs.
  *
- * Pure functions, no state. The typed mirror lives in AoModbus; the write
- * transaction discipline (atomicity, synchronous persistence) is enforced in
- * the AoModbus write pipeline. Data definitions (addresses, encodings, write
- * validation) follow docs/ao/modbus_ao.md section 4.
+ * Pure functions, no state. The typed mirror and the write transaction live
+ * in modbus_image (owned by AoModbus). Data definitions (addresses, encodings,
+ * write validation) follow docs/ao/modbus_ao.md section 4.
  */
 
 #include <stdbool.h>
@@ -27,9 +26,6 @@ extern "C" {
 
 /** @brief Registers per channel configuration block (holding). */
 #define REG_MAP_CH_CFG_LEN 10U
-
-/** @brief Address stride between channel configuration blocks. */
-#define REG_MAP_CH_CFG_STRIDE 16U
 
 /** @brief Base address of the device register block (holding). */
 #define REG_MAP_DEV_BASE 128U
@@ -71,10 +67,11 @@ typedef enum {
 
 /** @brief One contiguous mapped region (span). */
 typedef struct {
-    reg_space_t     space; /**< Data space this span belongs to. */
-    uint16_t        base;  /**< First address (0-based). */
-    uint16_t        n;     /**< Length in registers or bits. */
-    reg_span_kind_t kind;  /**< Span kind; drives codec dispatch. */
+    reg_space_t space;    /**< Data space this span belongs to. */
+    uint16_t base;        /**< First address (0-based). */
+    uint16_t n;           /**< Length in registers or bits. */
+    reg_span_kind_t kind; /**< Span kind; drives codec dispatch. */
+    uint8_t channel;      /**< Zero-based channel, or 0xFF for non-channel spans. */
 } reg_span_t;
 
 /**
@@ -161,10 +158,10 @@ bool reg_map_dev_addr_valid(uint16_t addr);
  * Reserved registers read back as zero and need no mirror fields.
  */
 typedef struct {
-    float    value[CH_CONFIG_CHANNEL_COUNT];  /**< Latest measured value per channel. */
+    float value[CH_CONFIG_CHANNEL_COUNT];     /**< Latest measured value per channel. */
     uint16_t status[CH_CONFIG_CHANNEL_COUNT]; /**< Channel status code per channel. */
-    float    cjc_temp;    /**< Cold junction temperature. */
-    uint16_t fault_word;  /**< Device fault word (register 68). */
+    float cjc_temp;                           /**< Cold junction temperature. */
+    uint16_t fault_word;                      /**< Device fault word (register 68). */
 } reg_map_input_image_t;
 
 /**
@@ -218,14 +215,14 @@ uint16_t reg_map_fault_word(uint8_t cjc_valid,
 
 /** @brief Channel status register codes. */
 typedef enum {
-    REG_MAP_STATUS_OK = 0,          /**< Valid measurement. */
-    REG_MAP_STATUS_UNCONFIGURED = 1, /**< No effective configuration. */
-    REG_MAP_STATUS_TC_BREAK = 2,     /**< Thermocouple loop open. */
-    REG_MAP_STATUS_RTD_LEAD_BREAK = 3,   /**< PT100 excitation lead open. */
+    REG_MAP_STATUS_OK               = 0, /**< Valid measurement. */
+    REG_MAP_STATUS_UNCONFIGURED     = 1, /**< No effective configuration. */
+    REG_MAP_STATUS_TC_BREAK         = 2, /**< Thermocouple loop open. */
+    REG_MAP_STATUS_RTD_LEAD_BREAK   = 3, /**< PT100 excitation lead open. */
     REG_MAP_STATUS_RTD_RETURN_BREAK = 4, /**< PT100 return lead open. */
-    REG_MAP_STATUS_NO_CJC = 5,       /**< Cold junction invalid (TC). */
-    REG_MAP_STATUS_HW_ERROR = 6,     /**< Hardware or IO error. */
-    REG_MAP_STATUS_OUT_OF_RANGE = 7  /**< Conversion over range. */
+    REG_MAP_STATUS_NO_CJC           = 5, /**< Cold junction invalid (TC). */
+    REG_MAP_STATUS_HW_ERROR         = 6, /**< Hardware or IO error. */
+    REG_MAP_STATUS_OUT_OF_RANGE     = 7  /**< Conversion over range. */
 } reg_map_status_t;
 
 /**

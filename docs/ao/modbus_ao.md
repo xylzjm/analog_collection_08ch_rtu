@@ -29,9 +29,10 @@
    原子性与写回调 RTC ≤ 30 ms。
 3. **从站地址语义**：地址寄存器（128）同路径同步固化；成功后新地址对**下一帧**生效
    （本帧应答照常完成），失败回 04 且地址不变；`callbacks.address` 返回镜像。
-4. **映像不变量**：保持寄存器镜像 = 当前**生效**配置（仅固化成功后更新）；输入寄存器
-   镜像 = 各生产者事件的最近状态；故障锁存位（b1/b2/b3）随镜像在 `modbus_image`
-   组件维护（§5），本 AO 仅转发 MEASURE/CJC 事件与发布提交结果。
+4. **映像不变量**：保持寄存器镜像 = 当前**已固化**配置（仅固化成功后更新）；
+   `applied[]` 记录通道是否已接受；输入寄存器镜像 = 各生产者事件的最近状态；故障
+   锁存位（b1/b2/b3）随镜像在 `modbus_image` 组件维护（§5），本 AO 仅转发
+   MEASURE/CJC 事件与提交/apply 结果。
 5. **同步可读**：寄存器回调在 `modbus_slave_advance()`（本 AO RTC）内同步执行，
    从事件之外无共享数据旁路。
 6. 帧事件用静态事件：modbus 核心在 CAPTURED 期间丢弃字节，`on_frame_received` 至多
@@ -178,15 +179,16 @@ AoModbus (top, 初始 → Serving)
     空档/越界 → EX 02（跨通道写天然命中空档；多通道配置请上位机分帧）
 解码（合成码→type/tc_type）+ ch_config_validate()；任一字段非法 → EX 03（整帧拒绝）
 命中寄存器 128：校验地址 1..247，非法 → EX 03（整帧拒绝）
-新参数 vs snapshot：无变化 → EX 00（不写 flash）
+新参数 vs snapshot：无变化且 applied=1 → EX 00（不写 flash、不通知）
+无变化且 applied=0 → EX 00（重新通知，让通道重试 apply）
 有变化 → param_save_cfg()/param_save_addr() 同步固化（写 + 读回 memcmp）：
-    读回=下发值 → snapshot/镜像更新；通道块发布 CONFIG_SET_SIG；清 b1 → EX 00
+    读回=下发值 → snapshot/镜像更新、applied=0；通道块发布 CONFIG_SET_SIG；清 b1 → EX 00
     读回≠下发值 → 镜像不动、不发布、b1 置位 → EX 04（SLAVE_DEVICE_FAILURE）
 ```
 
 发布在回调内（`modbus_slave_advance()` 的 RTC 内）完成；**应答在固化结果确定后**由核心
-发出——EX 00 = 已生效且已固化（或同值免写），EX 04 = 既未生效也未固化；写帧应答延迟
-含固化时间（≤30 ms），读帧不受影响。
+发出——**EX 00 = 已固化**（不承诺通道已接受），EX 04 = 未固化；通道 apply 失败用状态 6
+和 `applied=0` 表达，重写同值即可重试。写帧应答延迟含固化时间（≤30 ms），读帧不受影响。
 
 ### 读回调
 

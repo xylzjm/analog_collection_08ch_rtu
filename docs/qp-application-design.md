@@ -40,8 +40,9 @@
    （固化后生效+失败回退）守住"运行=已保存"但破坏"应答即提交"语义且需代次号处理并发
    写竞态；维持同步固化，改换条件见 `param.md` §4 选型记录。
 5. **写后读回校验（设计内）**：`param_save_*` 固化后 `fdb_kv_get_blob` 读回比对，
-   **EX 00 ⟺ 读回=下发值**——应答以 flash 实际状态为准，收口"EX 04 但已固化"分歧角
-   （两条具体路径与残余窗口见 `param.md` §4）。
+   **EX 00 ⟺ 读回=下发值（已固化）**——应答以 flash 实际状态为准，收口"EX 04 但已固化"
+   分歧角（两条具体路径与残余窗口见 `param.md` §4）。通道 apply 异步完成，由
+   `modbus_image.applied[]` 记录；失败时状态 6，同值重写可重试。
 6. **全片擦除不区分**：分区全空当作崭新空片、以出厂配置运行（默认表物化），不报故障；
    运维约束 = 校准参数上位机留档 + 禁全片擦除（README）。
 7. **定时器竞态结构规避（方案 B）**：改配经 Unconfigured 隔离 + `APPLY_SIG` 延迟一代
@@ -101,7 +102,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AoChannel` ×8 | 该通道采集全生命周期：配置应用、采样换算、校准、断线检测循环、通道故障状态；不变量：测量/断线硬件模式互斥，任一时刻其一 | 本通道 `analog_input_board_t`（含 SIG24131 片选与前端开关） | QHsm | `CONFIG_SET_SIG` `CJC_SIG` `SAMPLE_SIG` `SETTLE_SIG` `BREAK_WINDOW_SIG` | `MEASURE_SIG` | 2..9（ch1..ch8） | ≤ 1 ms | 8 路互相独立、各有速率/模式/故障生命周期，各自队列+定时器 |
 | `AoColdJunction` | 冷端温度供给与有效性；不变量：CJC_SIG 每 1 s 心跳（含失败时的 invalid） | TMP75 + `i2c_soft` 总线 | QHsm | `TICK_SIG` | `CJC_SIG` | 10 | ≤ 3 ms | 整板唯一 TMP75/唯一 I2C 主；多 TC 通道共享一个冷端源 |
-| `AoModbus` | 协议终结、遥测/镜像的 QP 路由与发布、参数固化调度（经 `param` 组件）；不变量：镜像=生效配置+各事件最近状态（镜像与写事务由 `modbus_image` 组件承载，见下表）；写帧=生效+固化一体 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、`modbus_image` 组件、`param` 组件（`kv_store` → `fdb_kvdb`/FAL） | QHsm | `FRAME_SIG/TX_DONE/TX_TIMEOUT` `MEASURE_SIG` `CJC_SIG` | `CONFIG_SET_SIG` | 11 | ≤ 30 ms（写帧含同步固化）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR，需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
+| `AoModbus` | 协议终结、遥测/镜像的 QP 路由与发布、参数固化调度（经 `param` 组件）；不变量：镜像=已固化配置+各事件最近状态（镜像与写事务由 `modbus_image` 组件承载，见下表）；写帧=固化+通知，apply 由通道异步完成并回写 `applied[]` | `modbus_slave` 实例（USART1/TMR14 经板级端口）、`modbus_image` 组件、`param` 组件（`kv_store` → `fdb_kvdb`/FAL） | QHsm | `FRAME_SIG/TX_DONE/TX_TIMEOUT` `MEASURE_SIG` `CJC_SIG` | `CONFIG_SET_SIG` | 11 | ≤ 30 ms（写帧含同步固化）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR，需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
 
 ### 不建独立活动对象的候选
 
@@ -154,7 +155,7 @@
 | `tc_type` | `uint8_t` | 0=B 1=E 2=J 3=K 4=N 5=R 6=S 7=T | TC 时 ∈{0..7}；非 TC 归一为 0xFF |
 | `rate_code` | `uint16_t` | 采样速率枚举码（`rate_code_t`，0..12，2=10 Hz 出厂默认） | ∈ 0..12；码→mHz 查表（与 `ANALOG_INPUT_BOARD_RATE_*` 同源）供驱动配置，码→tick 查表供采样节拍 |
 | `linear_min` / `linear_max` | `float` | 线性输入上下限工程值（仅 2/3 型） | 有限浮点；非线性型归一为 0.0 |
-| `offset` / `gain` | `float` | 校准：`value = raw × gain + offset` | 有限浮点 |
+| `offset` / `gain` | `float` | 校准参数；板级换算模块在公式之后应用 `value = raw × gain + offset` | 有限浮点 |
 
 `ch_config_validate()` 同时承担**校验**与**归一化**（Modbus 写回调与 param 启动加载共用），
 归一化保证同义配置字节一致，变化检查（memcmp）不会因无意义字段抖动误判。
@@ -292,7 +293,7 @@ QF_run();                         /* QV 调度器接管 */
 | 纯逻辑宿主测试 | `ch_config`/`reg_map`/设备故障位域/通道状态码/采样周期表 | `N checks, 0 failures` | gcc 宿主可执行 |
 | 启动瞬态 | 全系统 | 8 通道先检后测、首值时延达标 | RTT 轨迹 |
 | 断线检测时序 | AoChannel | 3 s 周期、空窗 4 拍、检测期间状态维持→断线揭示（TC 2 / PT100 3、4） | 波形/日志 |
-| 配置写全路径 | Modbus→param→Channel | EX 00=生效+固化；固化失败 EX 04 整笔拒绝；非法写 EX 03；跨块写 EX 02 | 上位机脚本 |
+| 配置写全路径 | Modbus→param→Channel | EX 00=已固化；固化失败 EX 04 整笔拒绝；apply 失败状态 6、同值重写重试；非法写 EX 03；跨块写 EX 02 | 上位机脚本 |
 | 掉电测试 | param | 写入瞬间反复断电：旧值或新值+恢复日志 | ≥100 次循环 |
 | 压测/长稳 | 全系统 | 8×100 Hz + 轮询 + 连续写 1 h，队列池无溢出 | 低水位日志 |
 | 冷端失效注入 | CJC + TC 通道 | 1 s 内 invalid→状态 5→设备故障位 b0；恢复自愈 | 拔线实验 |

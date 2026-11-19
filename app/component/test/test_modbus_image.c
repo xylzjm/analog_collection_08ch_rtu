@@ -137,6 +137,7 @@ static void test_init_defaults(void)
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         CHECK(img.status[ch] == (uint16_t)REG_MAP_STATUS_UNCONFIGURED);
         CHECK(img.load_failed[ch] == 0U);
+        CHECK(img.applied[ch] == 0U);
     }
 
     /* The address callback answers from the mirror. */
@@ -212,6 +213,7 @@ static void test_write_transaction_commit(void)
         CHECK(saved.linear_max == 20.0f);
     }
     CHECK(img.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
+    CHECK(img.applied[0] == 0U); /* persisted, not yet applied */
     CHECK(img.b1 == 0U);
     CHECK(notified_count == 1U);
     CHECK(notified_ch == 0U);
@@ -303,12 +305,40 @@ static void test_write_transaction_no_change(void)
     CHECK(notified_count == 1U);
     CHECK(kv.set_calls == 1U);
 
-    /* The same value again: no write, no notify. */
+    /* The channel accepted it: the same value is now a true no-op. */
+    modbus_image_set_applied(&img, 0U, 1U);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE);
     CHECK(notified_count == 1U); /* unchanged: nobody notified */
     CHECK(kv.set_calls == 1U);
     CHECK(img.b1 == 0U);
+}
+
+/** @brief A failed apply keeps the same-value write as a retry trigger. */
+static void test_write_retry_until_applied(void)
+{
+    modbus_image_t img;
+    const modbus_slave_callbacks_t* cb = wiring(&img);
+    uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
+
+    tc_block(9U, block);
+    CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
+          == MODBUS_SLAVE_EX_NONE);
+    CHECK(notified_count == 1U);
+    CHECK(img.applied[0] == 0U);
+
+    /* Same value while not applied: re-notify so the channel retries. */
+    CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
+          == MODBUS_SLAVE_EX_NONE);
+    CHECK(notified_count == 2U);
+    CHECK(kv.set_calls == 1U); /* persisted once */
+
+    /* Once applied, the same value is silent again. */
+    modbus_image_set_applied(&img, 0U, 1U);
+    CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
+          == MODBUS_SLAVE_EX_NONE);
+    CHECK(notified_count == 2U);
+    CHECK(kv.set_calls == 1U);
 }
 
 /** @brief Single-register writes land through the read-modify-write. */
@@ -422,6 +452,7 @@ int main(void)
     test_write_transaction_reject();
     test_write_transaction_commit_failure();
     test_write_transaction_no_change();
+    test_write_retry_until_applied();
     test_write_single_register();
     test_address_register();
     test_telemetry();

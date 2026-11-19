@@ -5,9 +5,10 @@
 Modbus 共享执行上下文，无独立队列、定时器与状态机。总体设计见
 `docs/qp-application-design.md`。
 
-> 不建独立 AO 的依据（活动对象划分规则）：参数模块无自主行为、无独立响应期限；"写入
-> 动作 = 生效 + 固化一体"的原子语义要求固化在写回调返回前完成，独立 AO 的异步固化
-> 无法给出 EX04 语义。QV 协作调度保证 fdb 调用串行，无并发访问。
+> 不建独立 AO 的依据（活动对象划分规则）：参数模块无自主行为、无独立响应期限；
+> “写入 = 固化”的语义要求固化在写回调返回前完成，独立 AO 的异步固化无法给出 EX04
+> 语义。通道 apply 在 AoChannel 的 RTC 步异步完成，由 `modbus_image.applied[]` 记录。
+> QV 协作调度保证 fdb 调用串行，无并发访问。
 
 ## 1. 基线与范围
 
@@ -36,12 +37,13 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 | --- | --- | --- |
 | `param_bind_store(ops, ctx)` | `main.c` 组合根 / 宿主测试初始化 | 绑定 `kv_store` 实现；必须在 `param_boot_load()` 之前 |
 | `param_boot_load(&result)` | `AoModbus` 初始转换（`QActive_start` 上下文，`QF_run` 前） | `kv_store->init(默认表)`（目标适配器内为 `fal_init` + `fdb_kvdb_init`）+ 逐键加载校验；`result` 返回：每通道配置与有效性、`dev_addr`、初始化/加载失败标志（供 b2/b3 锁存） |
-| `param_save_cfg(ch, cfg)` | `AoModbus` 保持寄存器写回调 | 变化检查（`memcmp` vs `snapshot`）→ 同步固化 + **写后读回校验**（`fdb_kv_get_blob` 比对，应答以 flash 实际状态为准）；返回 `PARAM_OK`（读回=下发值，已固化并生效）/ `PARAM_NO_CHANGE`（同值，免写）/ `PARAM_ERR_WRITE`（读回≠下发值，按未固化处理） |
+| `param_save_cfg(ch, cfg)` | `AoModbus` 保持寄存器写回调 | 变化检查（`memcmp` vs `snapshot`）→ 同步固化 + **写后读回校验**（`kv_store->get` 比对，应答以存储实际状态为准）；返回 `PARAM_OK`（读回=下发值，已固化）/ `PARAM_NO_CHANGE`（同值，免写）/ `PARAM_ERR_WRITE`（读回≠下发值，按未固化处理）。通道是否接受由 `modbus_image.applied[]` 单独记录 |
 | `param_save_addr(addr)` | 同上（寄存器 128） | 同上，作用于 `dev/addr` |
 
-读回一致即更新 `snapshot`；不一致**不更新**（操作人员重写寄存器即重试，差异检查自然再次
-命中）。同值免写（`PARAM_NO_CHANGE`）不计作固化成功：b1/b2 的清除以真实写入并读回一致
-为准。**不做任何兜底**：无自动重试、无掉电前补写、无延迟合并写。
+读回一致即更新 `snapshot`；不一致**不更新**。同值免写（`PARAM_NO_CHANGE`）不计作固化
+成功：b1/b2 的清除以真实写入并读回一致为准。`modbus_image` 在 `applied=0` 时仍会对同值
+重写重新通知，因此通道 apply 失败后“重写同值”可重试，但不会重复写 flash。**本层不做任何
+兜底**：无自动重试、无掉电前补写、无延迟合并写。
 
 ### KV 适配器接缝
 
@@ -60,14 +62,16 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 
 ```text
 写帧（限单个通道块或设备寄存器，空档天然隔断，见 modbus_ao §4/§6）：
-    新参数 vs snapshot：无变化 → EX 00（不写 flash）
+    新参数 vs snapshot：无变化且 applied=1 → EX 00（不写 flash、不通知）
+    无变化且 applied=0 → EX 00（重新通知，retry apply）
     有变化 → param_save_*() 同步固化（写 + 读回 memcmp）：
-        读回 == 下发值 → snapshot 更新 → 调用方更新镜像/发布 CONFIG_SET_SIG → EX 00
+        读回 == 下发值 → snapshot 更新、applied=0 → 发布 CONFIG_SET_SIG → EX 00
         读回 != 下发值 → 镜像不动、不发布、b1 置位 → EX 04（SLAVE_DEVICE_FAILURE）
     （应答以读回为准，不依赖 FlashDB 返回码）
 ```
 
-- **EX 00 = 生效且已固化**（或同值免写）；**EX 04 = 本次写入既未生效也未固化**。
+- **EX 00 = 已固化**（不承诺通道已接受）；**EX 04 = 本次写入未固化**。apply 结果由
+  通道状态 6 和 `applied[]` 表达。
 - 写帧限单通道块/设备块的动机：每回调至多一次 KV 固化（≤30 ms），同时给出帧级原子性
   （多通道帧部分固化的掉电分歧不复存在）。
 - 掉电窗口（§2）保证 KV 旧值或完整新值。历史分歧角（库报错但新值已完整落盘——

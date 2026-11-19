@@ -26,8 +26,8 @@ static void record(analog_input_fake_t* f,
 }
 
 static analog_input_status_t fake_configure(analog_input_t* self,
-                                           const analog_input_config_t* config,
-                                           uint32_t* first_conversion_delay_ms)
+                                            const analog_input_config_t* config,
+                                            uint32_t* first_conversion_delay_ms)
 {
     analog_input_fake_t* f = (analog_input_fake_t*)self;
 
@@ -35,7 +35,7 @@ static analog_input_status_t fake_configure(analog_input_t* self,
     f->base.config = *config;
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE);
     f->log[f->log_len - 1U].type = (uint8_t)config->type;
-    *first_conversion_delay_ms = f->configure_delay_ms;
+    *first_conversion_delay_ms   = f->configure_delay_ms;
     return f->configure_status;
 }
 
@@ -46,7 +46,7 @@ static analog_input_status_t fake_read_sample(analog_input_t* self,
 
     record(f, (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE);
     f->log[f->log_len - 1U].code = f->sample_code;
-    *sample_code = f->sample_code;
+    *sample_code                 = f->sample_code;
     return f->read_status;
 }
 
@@ -56,12 +56,16 @@ static analog_input_status_t fake_convert(analog_input_t* self,
                                           float* measurement)
 {
     analog_input_fake_t* f = (analog_input_fake_t*)self;
+    float value;
 
     (void)sample_code;
-    (void)context;
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CONVERT);
     f->log[f->log_len - 1U].raw = f->convert_raw;
-    *measurement = f->convert_raw;
+    value                       = f->convert_raw;
+    if ( context != NULL ) {
+        value = (value * context->gain) + context->offset;
+    }
+    *measurement = value;
     return f->convert_status;
 }
 
@@ -76,13 +80,13 @@ static analog_input_status_t fake_enable_break_detection(analog_input_t* self,
 }
 
 static analog_input_status_t fake_check_wire_break(analog_input_t* self,
-                                                  analog_input_wire_status_t* wire_status)
+                                                   analog_input_wire_status_t* wire_status)
 {
     analog_input_fake_t* f = (analog_input_fake_t*)self;
 
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CHECK_WIRE);
     f->log[f->log_len - 1U].wire = (uint8_t)f->check_wire;
-    *wire_status = f->check_wire;
+    *wire_status                 = f->check_wire;
     return f->check_status;
 }
 
@@ -103,26 +107,25 @@ static const analog_input_ops_t ops = {
     &fake_convert,
     &fake_enable_break_detection,
     &fake_disable_break_detection,
-    &fake_check_wire_break
-};
+    &fake_check_wire_break};
 
 void analog_input_fake_init(analog_input_fake_t* f)
 {
     (void)analog_input_ctor(&f->base, &ops);
 
-    f->log_len          = 0U;
-    f->configure_status  = ANALOG_INPUT_OK;
+    f->log_len            = 0U;
+    f->configure_status   = ANALOG_INPUT_OK;
     f->configure_delay_ms = 200U;
-    f->read_status      = ANALOG_INPUT_OK;
-    f->sample_code      = 1000;
-    f->convert_status   = ANALOG_INPUT_OK;
-    f->convert_raw      = 25.0f;
-    f->enable_status    = ANALOG_INPUT_OK;
-    f->enable_delay_ms  = 100U;
-    f->check_status     = ANALOG_INPUT_OK;
-    f->check_wire       = ANALOG_INPUT_WIRE_NORMAL;
-    f->disable_status   = ANALOG_INPUT_OK;
-    f->disable_delay_ms = 200U;
+    f->read_status        = ANALOG_INPUT_OK;
+    f->sample_code        = 1000;
+    f->convert_status     = ANALOG_INPUT_OK;
+    f->convert_raw        = 25.0f;
+    f->enable_status      = ANALOG_INPUT_OK;
+    f->enable_delay_ms    = 100U;
+    f->check_status       = ANALOG_INPUT_OK;
+    f->check_wire         = ANALOG_INPUT_WIRE_NORMAL;
+    f->disable_status     = ANALOG_INPUT_OK;
+    f->disable_delay_ms   = 200U;
 }
 
 void analog_input_fake_reset_log(analog_input_fake_t* f)

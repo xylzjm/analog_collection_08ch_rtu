@@ -67,7 +67,7 @@ analog_input_status_t analog_input_convert_linear(
 }
 
 analog_input_status_t analog_input_convert_pt100(int32_t sample_code,
-                                                  float* measurement)
+                                                 float* measurement)
 {
     analog_input_status_t status;
     float gain;
@@ -127,6 +127,45 @@ analog_input_status_t analog_input_convert_thermocouple(
     return analog_input_thermocouple_mv_to_temperature(tc_type,
                                                        emf_mv + cold_junction_mv,
                                                        measurement);
+}
+
+analog_input_status_t analog_input_convert_sample(
+    analog_input_type_t type,
+    analog_input_thermocouple_type_t tc_type,
+    int32_t sample_code,
+    const analog_input_conversion_context_t* context,
+    float* measurement)
+{
+    analog_input_status_t status;
+    float value;
+
+    if ( (context == NULL) || (measurement == NULL) ) {
+        return ANALOG_INPUT_ERR_ARG;
+    }
+
+    switch ( type ) {
+        case ANALOG_INPUT_TYPE_4_20MA:
+        case ANALOG_INPUT_TYPE_0_10V:
+            status = analog_input_convert_linear(type, sample_code, context,
+                                                 &value);
+            break;
+        case ANALOG_INPUT_TYPE_PT100:
+            status = analog_input_convert_pt100(sample_code, &value);
+            break;
+        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
+            status = analog_input_convert_thermocouple(tc_type, sample_code,
+                                                       context, &value);
+            break;
+        default:
+            return ANALOG_INPUT_ERR_ARG;
+    }
+
+    if ( status != ANALOG_INPUT_OK ) {
+        return status;
+    }
+
+    *measurement = (value * context->gain) + context->offset;
+    return ANALOG_INPUT_OK;
 }
 
 analog_input_wire_status_t analog_input_convert_thermocouple_wire(

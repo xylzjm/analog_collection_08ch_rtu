@@ -186,11 +186,6 @@ modbus_slave_status_t modbus_slave_board_ctor(
     return modbus_slave_ctor(&slave, &config);
 }
 
-uint8_t modbus_slave_board_count(void)
-{
-    return 1U;
-}
-
 modbus_slave_t* modbus_slave_board_get(void)
 {
     return &slave;

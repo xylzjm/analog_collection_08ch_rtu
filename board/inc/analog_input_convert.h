@@ -56,7 +56,7 @@ analog_input_status_t analog_input_convert_linear(
  *         the board's accepted PT100 range.
  */
 analog_input_status_t analog_input_convert_pt100(int32_t sample_code,
-                                                  float* measurement);
+                                                 float* measurement);
 
 /**
  * @brief Convert a thermocouple sample with cold junction compensation.
@@ -68,6 +68,27 @@ analog_input_status_t analog_input_convert_pt100(int32_t sample_code,
  * @return Analog_input status of the composed conversions.
  */
 analog_input_status_t analog_input_convert_thermocouple(
+    analog_input_thermocouple_type_t tc_type,
+    int32_t sample_code,
+    const analog_input_conversion_context_t* context,
+    float* measurement);
+
+/**
+ * @brief Convert one sample to a calibrated engineering value.
+ *
+ * Dispatches on the input type, runs the matching pure formula and applies
+ * the per-channel calibration (gain/offset) from @p context.
+ *
+ * @param type Input category.
+ * @param tc_type Thermocouple model; ignored unless @p type is THERMOCOUPLE.
+ * @param sample_code Signed 24-bit conversion code.
+ * @param context Conversion context including calibration.
+ * @param measurement Receives the calibrated engineering value.
+ * @return The formula status, or ANALOG_INPUT_ERR_ARG for a NULL pointer or
+ *         an unknown input type.
+ */
+analog_input_status_t analog_input_convert_sample(
+    analog_input_type_t type,
     analog_input_thermocouple_type_t tc_type,
     int32_t sample_code,
     const analog_input_conversion_context_t* context,

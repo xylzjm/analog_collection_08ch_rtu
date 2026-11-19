@@ -253,19 +253,9 @@ static analog_input_status_t convert(analog_input_t* self,
         return ANALOG_INPUT_ERR_STATE;
     }
 
-    switch ( self->config.type ) {
-        case ANALOG_INPUT_TYPE_4_20MA:
-        case ANALOG_INPUT_TYPE_0_10V:
-            return analog_input_convert_linear(self->config.type, sample_code,
-                                              context, measurement);
-        case ANALOG_INPUT_TYPE_PT100:
-            return analog_input_convert_pt100(sample_code, measurement);
-        case ANALOG_INPUT_TYPE_THERMOCOUPLE:
-            return analog_input_convert_thermocouple(self->config.thermocouple_type,
-                                                      sample_code, context,
-                                                      measurement);
-    }
-    return ANALOG_INPUT_ERR_STATE;
+    return analog_input_convert_sample(self->config.type,
+                                       self->config.thermocouple_type,
+                                       sample_code, context, measurement);
 }
 
 static analog_input_status_t enable_break_detection(analog_input_t* self,
@@ -402,11 +392,6 @@ analog_input_status_t analog_input_board_ctor_all(void)
         }
     }
     return ANALOG_INPUT_OK;
-}
-
-uint8_t analog_input_board_count(void)
-{
-    return (uint8_t)ANALOG_INPUT_BOARD_CHANNEL_COUNT;
 }
 
 analog_input_t* analog_input_board_get(uint8_t channel)

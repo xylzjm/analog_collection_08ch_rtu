@@ -1,5 +1,5 @@
-#include "board.h"
 #include "sig24131_board.h"
+#include "board.h"
 
 #include "at32f421_wk_config.h"
 #include "wk_system.h"
@@ -167,11 +167,6 @@ sig24131_status_t sig24131_board_reset_all(void)
     /* Send all resets first, then wait once for every device. */
     wk_delay_ms(SIG24131_RESET_DELAY_MS);
     return result;
-}
-
-uint8_t sig24131_board_count(void)
-{
-    return (uint8_t)SIG24131_BOARD_INSTANCE_COUNT;
 }
 
 sig24131_t* sig24131_board_get_device(uint8_t channel)

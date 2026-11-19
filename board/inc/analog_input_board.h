@@ -4,9 +4,9 @@
 #include <stdint.h>
 
 #include "analog_input.h"
+#include "board_config.h"
 #include "sig24131.h"
 #include "sig24131_board.h"
-#include "board_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -127,9 +127,6 @@ analog_input_status_t analog_input_board_ctor(uint8_t channel);
  * @return ANALOG_INPUT_OK, or the first constructor failure.
  */
 analog_input_status_t analog_input_board_ctor_all(void);
-
-/** @brief Return the number of channel objects owned by this module. */
-uint8_t analog_input_board_count(void);
 
 /**
  * @brief Return the interface object of one channel.

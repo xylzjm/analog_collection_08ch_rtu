@@ -18,13 +18,13 @@
 static int checks;
 static int failures;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        ++checks;                                                        \
-        if ( !(cond) ) {                                                \
-            ++failures;                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);     \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        ++checks;                                                  \
+        if ( !(cond) ) {                                           \
+            ++failures;                                            \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        }                                                          \
     } while ( 0 )
 
 /*----------------------------------------------------------------------------*/
@@ -36,7 +36,7 @@ static double cvd_temperature(double resistance_ohm)
     const double r0 = 100.0;
     const double a  = 3.9083e-3;
     const double b  = -5.775e-7;
-    double ratio = resistance_ohm / r0;
+    double ratio    = resistance_ohm / r0;
 
     return (-a + sqrt((a * a) - (4.0 * b * (1.0 - ratio)))) / (2.0 * b);
 }
@@ -65,22 +65,27 @@ static void test_current_input(void)
     analog_input_conversion_context_t ctx;
     float value;
 
-    ctx.linear_min = 0.0f;
-    ctx.linear_max = 100.0f;
+    ctx.linear_min    = 0.0f;
+    ctx.linear_max    = 100.0f;
     ctx.cold_junction = 0.0f;
+    ctx.gain          = 1.0f;
+    ctx.offset        = 0.0f;
 
     /* 12 mA through the 200 ohm shunt: code = 12 / 62.5 * 2^24 / 2. */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_4_20MA, 3221225,
-                                      &ctx, &value) == ANALOG_INPUT_OK);
+                                      &ctx, &value)
+          == ANALOG_INPUT_OK);
     CHECK(fabsf(value - 50.0f) <= 0.01f);
 
     /* Below 4 mA extrapolates negative on purpose: over-range stays visible. */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_4_20MA, 0,
-                                      &ctx, &value) == ANALOG_INPUT_OK);
+                                      &ctx, &value)
+          == ANALOG_INPUT_OK);
     CHECK(fabsf(value - (-25.0f)) <= 0.01f);
 
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_4_20MA, 0, NULL,
-                                      &value) == ANALOG_INPUT_ERR_ARG);
+                                      &value)
+          == ANALOG_INPUT_ERR_ARG);
 }
 
 static void test_voltage_input(void)
@@ -88,20 +93,24 @@ static void test_voltage_input(void)
     analog_input_conversion_context_t ctx;
     float value;
 
-    ctx.linear_min = 0.0f;
-    ctx.linear_max = 100.0f;
+    ctx.linear_min    = 0.0f;
+    ctx.linear_max    = 100.0f;
     ctx.cold_junction = 0.0f;
+    ctx.gain          = 1.0f;
+    ctx.offset        = 0.0f;
 
     /* 5 V at the terminal: code = 5 / 12.5 * 2^24. */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_0_10V, 3355443,
-                                      &ctx, &value) == ANALOG_INPUT_OK);
+                                      &ctx, &value)
+          == ANALOG_INPUT_OK);
     CHECK(fabsf(value - 50.0f) <= 0.01f);
 
     ctx.linear_min = -100.0f;
     ctx.linear_max = 100.0f;
     /* 8 V maps to the 80 percent point of the span. */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_0_10V, 5368709,
-                                      &ctx, &value) == ANALOG_INPUT_OK);
+                                      &ctx, &value)
+          == ANALOG_INPUT_OK);
     CHECK(fabsf(value - 60.0f) <= 0.01f);
 }
 
@@ -140,8 +149,10 @@ static void test_thermocouple_input(void)
     float value;
 
     ctx.cold_junction = 25.0f;
-    ctx.linear_min = 0.0f;
-    ctx.linear_max = 0.0f;
+    ctx.linear_min    = 0.0f;
+    ctx.linear_max    = 0.0f;
+    ctx.gain          = 1.0f;
+    ctx.offset        = 0.0f;
 
     /*
      * A type K junction at 200 C over a 25 C cold end measures
@@ -155,6 +166,65 @@ static void test_thermocouple_input(void)
 
     CHECK(analog_input_convert_thermocouple(
               ANALOG_INPUT_THERMOCOUPLE_TYPE_K, 766324, NULL, &value)
+          == ANALOG_INPUT_ERR_ARG);
+}
+
+/*----------------------------------------------------------------------------*/
+/* Dispatch and calibration                                                   */
+/*----------------------------------------------------------------------------*/
+
+static void test_sample_dispatch(void)
+{
+    analog_input_conversion_context_t ctx;
+    float value;
+
+    ctx.cold_junction = 25.0f;
+    ctx.linear_min    = 0.0f;
+    ctx.linear_max    = 100.0f;
+    ctx.gain          = 1.0f;
+    ctx.offset        = 0.0f;
+
+    /* Each type reaches its formula through the one dispatch entry. */
+    CHECK(analog_input_convert_sample(
+              ANALOG_INPUT_TYPE_4_20MA, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
+              3221225, &ctx, &value)
+          == ANALOG_INPUT_OK);
+    CHECK(fabsf(value - 50.0f) <= 0.01f);
+
+    CHECK(analog_input_convert_sample(
+              ANALOG_INPUT_TYPE_0_10V, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
+              3355443, &ctx, &value)
+          == ANALOG_INPUT_OK);
+    CHECK(fabsf(value - 50.0f) <= 0.01f);
+
+    CHECK(analog_input_convert_sample(
+              ANALOG_INPUT_TYPE_THERMOCOUPLE, ANALOG_INPUT_THERMOCOUPLE_TYPE_K,
+              766324, &ctx, &value)
+          == ANALOG_INPUT_OK);
+    CHECK(fabsf(value - 200.0f) <= 0.1f);
+
+    CHECK(analog_input_convert_sample(
+              ANALOG_INPUT_TYPE_PT100, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
+              4194304, &ctx, &value)
+          == ANALOG_INPUT_OK);
+
+    /* Calibration is applied once, after the formula. */
+    ctx.gain   = 2.0f;
+    ctx.offset = 0.5f;
+    CHECK(analog_input_convert_sample(
+              ANALOG_INPUT_TYPE_4_20MA, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
+              3221225, &ctx, &value)
+          == ANALOG_INPUT_OK);
+    CHECK(fabsf(value - 100.5f) <= 0.02f);
+
+    /* Bad arguments are rejected at the same door. */
+    CHECK(analog_input_convert_sample(
+              (analog_input_type_t)99, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
+              0, &ctx, &value)
+          == ANALOG_INPUT_ERR_ARG);
+    CHECK(analog_input_convert_sample(
+              ANALOG_INPUT_TYPE_4_20MA, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
+              0, NULL, &value)
           == ANALOG_INPUT_ERR_ARG);
 }
 
@@ -207,6 +277,7 @@ int main(void)
     test_voltage_input();
     test_pt100_input();
     test_thermocouple_input();
+    test_sample_dispatch();
     test_wire_verdicts();
     test_settle_delay();
 

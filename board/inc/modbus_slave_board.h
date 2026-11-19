@@ -22,9 +22,6 @@ modbus_slave_status_t modbus_slave_board_ctor(
     const modbus_slave_callbacks_t* callbacks,
     const modbus_slave_identity_t* identity);
 
-/** @brief Return the number of RS485 channels in this build. */
-uint8_t modbus_slave_board_count(void);
-
 /** @brief Return the board's Modbus slave instance. */
 modbus_slave_t* modbus_slave_board_get(void);
 

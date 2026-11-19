@@ -134,7 +134,7 @@ static modbus_slave_exception_t holding_write(modbus_image_t* img,
     }
 
     {
-        uint8_t ch = (uint8_t)(span->base / REG_MAP_CH_CFG_STRIDE);
+        uint8_t ch = span->channel;
         uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
         ch_config_t cand;
 
@@ -155,6 +155,14 @@ static modbus_slave_exception_t holding_write(modbus_image_t* img,
             img->cfg[ch]         = cand;
             img->load_failed[ch] = 0U;
             img->b1              = 0U;
+            img->applied[ch]     = 0U;
+            if ( img->cfg_notifier != NULL ) {
+                img->cfg_notifier(img->cfg_notifier_ctx, ch, &cand);
+            }
+        } else if ( (st == PARAM_NO_CHANGE) && (img->applied[ch] == 0U) ) {
+            /* Persisted already, but the channel has not accepted it yet. */
+            img->cfg[ch]         = cand;
+            img->load_failed[ch] = 0U;
             if ( img->cfg_notifier != NULL ) {
                 img->cfg_notifier(img->cfg_notifier_ctx, ch, &cand);
             }
@@ -186,9 +194,7 @@ static modbus_slave_exception_t holding(void* ctx,
         uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
 
         if ( span->kind == REG_SPAN_CH_CFG ) {
-            uint8_t ch = (uint8_t)(span->base / REG_MAP_CH_CFG_STRIDE);
-
-            reg_map_ch_encode(&img->cfg[ch], block);
+            reg_map_ch_encode(&img->cfg[span->channel], block);
         } else {
             reg_map_dev_encode(img->addr_image, block);
         }
@@ -217,6 +223,7 @@ void modbus_image_init(modbus_image_t* img)
         img->value[ch]       = 0.0f;
         img->status[ch]      = (uint16_t)REG_MAP_STATUS_UNCONFIGURED;
         img->load_failed[ch] = 0U;
+        img->applied[ch]     = 0U;
         memset(&img->cfg[ch], 0, sizeof(img->cfg[ch]));
     }
 
@@ -241,6 +248,7 @@ void modbus_image_boot(modbus_image_t* img,
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         img->load_failed[ch] = res->cfg_load_failed[ch];
+        img->applied[ch]     = 0U;
         if ( res->cfg_valid[ch] != 0U ) {
             img->cfg[ch] = res->cfg[ch];
         }
@@ -271,6 +279,15 @@ void modbus_image_set_cfg_notifier(modbus_image_t* img,
 {
     img->cfg_notifier     = fn;
     img->cfg_notifier_ctx = ctx;
+}
+
+void modbus_image_set_applied(modbus_image_t* img,
+                              uint8_t ch,
+                              uint8_t ok)
+{
+    if ( ch < CH_CONFIG_CHANNEL_COUNT ) {
+        img->applied[ch] = (ok != 0U) ? 1U : 0U;
+    }
 }
 
 void modbus_image_set_measure(modbus_image_t* img,

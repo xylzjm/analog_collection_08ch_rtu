@@ -72,6 +72,14 @@ static uint8_t ch_started;
 static uint8_t cjc_started;
 static uint8_t modbus_started;
 
+/** @brief Route a channel's apply result into the Modbus image. */
+static void on_channel_applied(void* ctx,
+                               uint8_t ch,
+                               uint8_t ok)
+{
+    modbus_image_set_applied((modbus_image_t*)ctx, ch, ok);
+}
+
 /*----------------------------------------------------------------------------*/
 /* Harness                                                                    */
 /*----------------------------------------------------------------------------*/
@@ -181,10 +189,14 @@ static void boot_scenario(uint8_t fail_ch)
     tmp75_port_fake_port(&cjc_port, &cjc_port_if);
     CHECK(tmp75_ctor(&cjc_dev, &cjc_port_if, TMP75_ADDRESS_0) == TMP75_OK);
 
+    /* Construct AoModbus first so the channels can report apply results. */
+    modbus_ao_ctor(&modbus);
+
     /* Channels first: every AO subscribes inside its initial transition. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         analog_input_fake_init(&inputs[i]);
-        channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base);
+        channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base,
+                        on_channel_applied, &modbus.image);
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
                       Q_PRIO((uint8_t)(2U + i), 0U),
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
@@ -194,7 +206,6 @@ static void boot_scenario(uint8_t fail_ch)
     all_count  = CH_CONFIG_CHANNEL_COUNT;
 
     /* AoModbus: its boot load publishes CONFIG_SET_SIG to the channels. */
-    modbus_ao_ctor(&modbus);
     cfg.baudrate    = 9600U;
     cfg.rx_buffer   = rx_buffer;
     cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
@@ -263,6 +274,7 @@ static void test_full_boot(void)
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         CHECK(modbus.image.value[ch] == 25.0f);
         CHECK(modbus.image.status[ch] == (uint16_t)REG_MAP_STATUS_OK);
+        CHECK(modbus.image.applied[ch] == 1U);
     }
     CHECK(modbus.image.cjc_valid != 0U);
     CHECK(modbus.image.cjc_temp == 25.0f);
@@ -285,6 +297,7 @@ static void test_failed_channel_stays_down(void)
 
     CHECK(modbus.image.load_failed[2] != 0U);
     CHECK(modbus.image.status[2] == (uint16_t)REG_MAP_STATUS_UNCONFIGURED);
+    CHECK(modbus.image.applied[2] == 0U);
     CHECK(analog_input_fake_count(&inputs[2],
                                   (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE)
           == 0U);
@@ -293,6 +306,7 @@ static void test_failed_channel_stays_down(void)
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
             CHECK(modbus.image.value[ch] == 25.0f);
+            CHECK(modbus.image.applied[ch] == 1U);
         }
     }
 }

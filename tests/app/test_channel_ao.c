@@ -32,13 +32,13 @@
 static int checks;
 static int failures;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        ++checks;                                                       \
-        if ( !(cond) ) {                                                \
-            ++failures;                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);     \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        ++checks;                                                  \
+        if ( !(cond) ) {                                           \
+            ++failures;                                            \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        }                                                          \
     } while ( 0 )
 
 /*----------------------------------------------------------------------------*/
@@ -57,6 +57,21 @@ static QActive recorder;
 static QEvtPtr rec_queue[32];
 static uint8_t ao_started;
 static uint8_t rec_started;
+
+/** @brief Last configuration-apply result reported by the AO. */
+static uint16_t applied_count;
+static uint8_t applied_ch;
+static uint8_t applied_ok;
+
+static void on_applied(void* ctx,
+                       uint8_t ch,
+                       uint8_t ok)
+{
+    (void)ctx;
+    ++applied_count;
+    applied_ch = ch;
+    applied_ok = ok;
+}
 
 /** @brief Drain the recorder queue and return how many events it held. */
 static uint16_t rec_drain(void)
@@ -163,8 +178,11 @@ static void scenario_begin(void)
 
     analog_input_fake_init(&fake);
     analog_input_fake_reset_log(&fake);
+    applied_count = 0U;
+    applied_ch    = 0xFFU;
+    applied_ok    = 0xFFU;
 
-    channel_ao_ctor(&ao, 0U, &fake.base);
+    channel_ao_ctor(&ao, 0U, &fake.base, on_applied, NULL);
     QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(2U, 0U),
                   ao_queue, CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     ao_started = 1U;
@@ -183,14 +201,14 @@ static void publish_config(uint8_t type,
 {
     config_set_evt_t* e = Q_NEW(config_set_evt_t, CONFIG_SET_SIG);
 
-    e->ch          = 0U;
-    e->cfg.type    = type;
-    e->cfg.tc_type = tc_type;
-    e->cfg.rate_code = rate_code;
+    e->ch             = 0U;
+    e->cfg.type       = type;
+    e->cfg.tc_type    = tc_type;
+    e->cfg.rate_code  = rate_code;
     e->cfg.linear_min = 0.0f;
     e->cfg.linear_max = 0.0f;
-    e->cfg.offset  = 0.0f;
-    e->cfg.gain    = 1.0f;
+    e->cfg.offset     = 0.0f;
+    e->cfg.gain       = 1.0f;
     QACTIVE_PUBLISH(&e->super, (void*)0);
 }
 
@@ -228,7 +246,12 @@ static void drive_to_measuring(uint8_t type,
 /*----------------------------------------------------------------------------*/
 
 /** @brief Start states of the sweep, mirroring the deleted model test. */
-enum { SW_UNCONFIG = 0, SW_DETECTING, SW_SETTLING, SW_MEASURING };
+enum {
+    SW_UNCONFIG = 0,
+    SW_DETECTING,
+    SW_SETTLING,
+    SW_MEASURING
+};
 
 /**
  * @brief One interleaving: reconfigure while timers run, then prove the
@@ -259,18 +282,15 @@ static void sweep_run(int start,
         publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
         drain();
         drain();
-    }
-    else if ( start == SW_SETTLING ) {
+    } else if ( start == SW_SETTLING ) {
         publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
         drain();
         drain();
         tick(fake.enable_delay_ms + 1U);
         drain();
-    }
-    else if ( start == SW_MEASURING ) {
+    } else if ( start == SW_MEASURING ) {
         drive_to_measuring((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
-    }
-    else { /* SW_UNCONFIG: nothing to set up */
+    } else { /* SW_UNCONFIG: nothing to set up */
     }
 
     if ( settle_before ) {
@@ -278,8 +298,7 @@ static void sweep_run(int start,
          * must consume it as genuine before the reconfig dispatch. */
         if ( start == SW_MEASURING ) {
             tick(100U + 1U); /* te_sample period at 10 Hz */
-        }
-        else {
+        } else {
             tick(201U); /* either settle deadline is at most 200 ms */
         }
     }
@@ -290,8 +309,7 @@ static void sweep_run(int start,
          * reconfig in the FIFO; Unconfigured must ignore it. */
         if ( start == SW_MEASURING ) {
             tick(100U + 1U);
-        }
-        else if ( !settle_before ) {
+        } else if ( !settle_before ) {
             tick(201U);
         }
     }
@@ -325,14 +343,14 @@ static void sweep_run(int start,
 
     /* Old-era wire checks may only precede the new-era configure. */
     {
-        uint16_t cfg_idx = 0U;
-        uint8_t have_cfg = 0U;
+        uint16_t cfg_idx          = 0U;
+        uint8_t have_cfg          = 0U;
         uint32_t const final_rate = ch_config_rate_millihz((uint16_t)(second_cfg ? 9U : 5U));
 
         for ( i = baseline; i < fake.log_len; ++i ) {
             if ( (fake.log[i].op == (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE)
                  && (fake.log[i].rate == final_rate) ) {
-                cfg_idx = i;
+                cfg_idx  = i;
                 have_cfg = 1U;
                 break;
             }
@@ -341,8 +359,8 @@ static void sweep_run(int start,
 
         if ( have_cfg != 0U ) {
             const analog_input_fake_call_t* enable = NULL;
-            const analog_input_fake_call_t* check = NULL;
-            uint16_t reads = 0U;
+            const analog_input_fake_call_t* check  = NULL;
+            uint16_t reads                         = 0U;
 
             for ( i = cfg_idx; i < fake.log_len; ++i ) {
                 const analog_input_fake_call_t* c = &fake.log[i];
@@ -350,8 +368,7 @@ static void sweep_run(int start,
                 if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_ENABLE_BREAK ) {
                     CHECK(enable == NULL); /* one era, one enable */
                     enable = c;
-                }
-                else if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_CHECK_WIRE ) {
+                } else if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_CHECK_WIRE ) {
                     CHECK(c->rate == final_rate);
                     if ( check == NULL ) {
                         check = c;
@@ -359,8 +376,7 @@ static void sweep_run(int start,
                         CHECK(enable != NULL);
                         CHECK(c->tick >= (enable->tick + fake.enable_delay_ms - 1U));
                     }
-                }
-                else if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE ) {
+                } else if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE ) {
                     /* No sample under a foreign configuration. */
                     CHECK(c->rate == final_rate);
                     ++reads;
@@ -450,7 +466,7 @@ static void test_wire_break_reveal_and_freeze(void)
     drain();
     {
         uint16_t frozen = 0U;
-        uint16_t other = 0U;
+        uint16_t other  = 0U;
 
         while ( !QEQueue_isEmpty(&recorder.eQueue) ) {
             measure_evt_t const* mm;
@@ -459,8 +475,7 @@ static void test_wire_break_reveal_and_freeze(void)
             mm = Q_EVT_CAST(measure_evt_t);
             if ( mm->status == (uint16_t)REG_MAP_STATUS_TC_BREAK ) {
                 ++frozen;
-            }
-            else {
+            } else {
                 ++other;
             }
             QF_gc(ee);
@@ -524,10 +539,9 @@ static void test_pt100_wire_codes(void)
         analog_input_wire_status_t wire;
         uint16_t expected;
     } cases[] = {
-        { ANALOG_INPUT_WIRE_BROKEN_LEAD,   (uint16_t)REG_MAP_STATUS_RTD_LEAD_BREAK },
-        { ANALOG_INPUT_WIRE_BROKEN_RETURN, (uint16_t)REG_MAP_STATUS_RTD_RETURN_BREAK },
-        { ANALOG_INPUT_WIRE_BROKEN,        (uint16_t)REG_MAP_STATUS_HW_ERROR }
-    };
+        {ANALOG_INPUT_WIRE_BROKEN_LEAD, (uint16_t)REG_MAP_STATUS_RTD_LEAD_BREAK},
+        {ANALOG_INPUT_WIRE_BROKEN_RETURN, (uint16_t)REG_MAP_STATUS_RTD_RETURN_BREAK},
+        {ANALOG_INPUT_WIRE_BROKEN, (uint16_t)REG_MAP_STATUS_HW_ERROR}};
     size_t k;
 
     for ( k = 0; k < (sizeof(cases) / sizeof(cases[0])); ++k ) {
@@ -562,6 +576,10 @@ static void test_configure_failure_parks(void)
     drain();
     drain(); /* APPLY fails: status 6 published, still Unconfigured */
 
+    CHECK(applied_count == 1U);
+    CHECK(applied_ch == 0U);
+    CHECK(applied_ok == 0U);
+
     {
         QEvt const* e = rec_take();
 
@@ -589,6 +607,8 @@ static void test_configure_failure_parks(void)
     tick(fake.disable_delay_ms + 1U);
     drain();
     CHECK(rec_drain() >= 1U);
+    CHECK(applied_count == 2U);
+    CHECK(applied_ok == 1U);
 }
 
 /*----------------------------------------------------------------------------*/

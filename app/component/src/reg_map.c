@@ -13,26 +13,28 @@
  * table itself. Holding: 8 channel configuration blocks at 16n + device
  * register 128. Input: 8 channel telemetry blocks at 8n + system block 64.
  */
+/** @brief Channel field of a span that does not belong to one channel. */
+#define SPAN_NO_CHANNEL 0xFFU
+
 static const reg_span_t spans[] = {
-    { REG_SPACE_HOLDING, 0U,   REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 16U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 32U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 48U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 64U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 80U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 96U,  REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, 112U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG },
-    { REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV },
-    { REG_SPACE_INPUT, 0U,  REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 8U,  REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 16U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 24U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 32U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 40U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 48U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, 56U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN },
-    { REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS }
-};
+    {REG_SPACE_HOLDING, 0U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 0U},
+    {REG_SPACE_HOLDING, 16U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 1U},
+    {REG_SPACE_HOLDING, 32U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 2U},
+    {REG_SPACE_HOLDING, 48U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 3U},
+    {REG_SPACE_HOLDING, 64U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 4U},
+    {REG_SPACE_HOLDING, 80U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 5U},
+    {REG_SPACE_HOLDING, 96U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 6U},
+    {REG_SPACE_HOLDING, 112U, REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, 7U},
+    {REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV, SPAN_NO_CHANNEL},
+    {REG_SPACE_INPUT, 0U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 0U},
+    {REG_SPACE_INPUT, 8U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 1U},
+    {REG_SPACE_INPUT, 16U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 2U},
+    {REG_SPACE_INPUT, 24U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 3U},
+    {REG_SPACE_INPUT, 32U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 4U},
+    {REG_SPACE_INPUT, 40U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 5U},
+    {REG_SPACE_INPUT, 48U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 6U},
+    {REG_SPACE_INPUT, 56U, REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, 7U},
+    {REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS, SPAN_NO_CHANNEL}};
 
 /**
  * @brief Write one big-endian float32 as two registers (high word first).
@@ -80,12 +82,8 @@ const reg_span_t* reg_map_find(reg_space_t space,
         }
         /* Unpopulated channel positions are not part of the map: the table
          * describes the 8-position board, the SKU population filters it. */
-        if ( (span->kind == REG_SPAN_CH_CFG)
-             && ((span->base / REG_MAP_CH_CFG_STRIDE) >= CH_CONFIG_CHANNEL_COUNT) ) {
-            continue;
-        }
-        if ( (span->kind == REG_SPAN_CH_IN)
-             && ((span->base / REG_MAP_CH_IN_STRIDE) >= CH_CONFIG_CHANNEL_COUNT) ) {
+        if ( ((span->kind == REG_SPAN_CH_CFG) || (span->kind == REG_SPAN_CH_IN))
+             && (span->channel >= CH_CONFIG_CHANNEL_COUNT) ) {
             continue;
         }
         if ( ((uint32_t)span->base <= (uint32_t)start)
@@ -170,20 +168,16 @@ void reg_map_ch_decode(const uint8_t* buf,
     if ( code < 8U ) {
         cfg->type    = (uint8_t)CH_TYPE_TC;
         cfg->tc_type = (uint8_t)code;
-    }
-    else if ( code == 8U ) {
+    } else if ( code == 8U ) {
         cfg->type    = (uint8_t)CH_TYPE_PT100;
         cfg->tc_type = CH_TC_TYPE_NONE;
-    }
-    else if ( code == 9U ) {
+    } else if ( code == 9U ) {
         cfg->type    = (uint8_t)CH_TYPE_4_20MA;
         cfg->tc_type = CH_TC_TYPE_NONE;
-    }
-    else if ( code == 10U ) {
+    } else if ( code == 10U ) {
         cfg->type    = (uint8_t)CH_TYPE_0_10V;
         cfg->tc_type = CH_TC_TYPE_NONE;
-    }
-    else {
+    } else {
         /* Layout only: unknown codes become a sentinel the validator rejects. */
         cfg->type    = 0xFFU;
         cfg->tc_type = CH_TC_TYPE_NONE;
@@ -226,21 +220,17 @@ void reg_map_input_encode(const reg_map_input_image_t* in,
 
                 memcpy(&bits, &in->value[ch], sizeof(bits));
                 word = (uint16_t)(bits >> 16);
-            }
-            else if ( off == 1U ) {
+            } else if ( off == 1U ) {
                 uint32_t bits;
 
                 memcpy(&bits, &in->value[ch], sizeof(bits));
                 word = (uint16_t)(bits & 0xFFFFU);
-            }
-            else if ( off == 2U ) {
+            } else if ( off == 2U ) {
                 word = in->status[ch];
-            }
-            else {
+            } else {
                 word = 0U; /* reserved */
             }
-        }
-        else if ( addr < (REG_MAP_SYS_BASE + REG_MAP_CH_IN_LEN) ) {
+        } else if ( addr < (REG_MAP_SYS_BASE + REG_MAP_CH_IN_LEN) ) {
             uint16_t off = (uint16_t)(addr - REG_MAP_SYS_BASE);
 
             if ( off == 0U ) {
@@ -248,21 +238,17 @@ void reg_map_input_encode(const reg_map_input_image_t* in,
 
                 memcpy(&bits, &in->cjc_temp, sizeof(bits));
                 word = (uint16_t)(bits >> 16);
-            }
-            else if ( off == 1U ) {
+            } else if ( off == 1U ) {
                 uint32_t bits;
 
                 memcpy(&bits, &in->cjc_temp, sizeof(bits));
                 word = (uint16_t)(bits & 0xFFFFU);
-            }
-            else if ( off == 4U ) {
+            } else if ( off == 4U ) {
                 word = in->fault_word;
-            }
-            else {
+            } else {
                 word = 0U; /* reserved */
             }
-        }
-        else {
+        } else {
             word = 0U; /* defensive: outside every span */
         }
 

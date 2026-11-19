@@ -50,7 +50,8 @@ typedef struct {
 
 一张按 `space` 分段的静态 const 表即寄存器地图的**唯一出处**：holding 段 9 项
 （8×`CH_CFG` @ 16n + `DEV` @ 128）、input 段 9 项（8×`CH_IN` @ 8n + `SYS` @ 64..71）、
-coil/discrete 段**为空**。"空间有无映射"由表回答，产品裁剪零成本。
+coil/discrete 段**为空**。"空间有无映射"由表回答，产品裁剪零成本。通道 span 自带
+`channel` 身份（非通道 span 为 `0xFF`），调用方不再用 `base / stride` 推导。
 
 **SKU 装配数过滤**：表描述底板 8 通道位置的全布局；`CH_CONFIG_CHANNEL_COUNT`
 （装配数，编译期固定）把未装配位置过滤为 EX 02——同一工程支持少于 8 通道的产品，
@@ -115,12 +116,12 @@ holding 写回调：
     CH_CFG：encode(cfg[ch]) → 帧覆盖 → decode → ch_config_validate（含归一化）
     DEV：  校验 1..247（非法 → EX 03）
     param_save_*（同步固化 + 写后读回）
-        读回=下发值 → 提交类型化镜像（通道块发布 CONFIG_SET_SIG）→ EX 00
+        读回=下发值 → 提交类型化镜像、applied=0（通道块发布 CONFIG_SET_SIG）→ EX 00
         读回≠下发值 → 什么都不动 → EX 04（b1）
 ```
 
-EX 00 ⟺ 生效且已固化（同值免写）；03/04 整帧不动——原子性纪律在 `AoModbus` 写回调层
-收口，本组件只提供编排所需的寻址与编解码。
+EX 00 ⟺ 已固化（同值免写；通道 apply 结果由 `applied[]`/状态 6 表达）；03/04 整帧不动
+——原子性纪律在 `AoModbus` 写回调层收口，本组件只提供编排所需的寻址与编解码。
 
 ## 6. 设计取舍记录
 

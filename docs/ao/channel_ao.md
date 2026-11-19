@@ -12,7 +12,7 @@
 | 独占资源 | `analog_input_t` 实例（构造注入，组合根经 `analog_input_board_get(ch)` 接线）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
 | 依赖接口 | `analog_input.h` 六操作：`configure / read_sample / convert / enable_break_detection / disable_break_detection / check_wire_break`（全部非阻塞，延迟经出参返回） |
 | 扩展变量 | `cfg`（生效配置）、`cjc`（冷端缓存）、`wire`（断线结果）、`last_value`、`settle_ms` |
-| 假设 | `convert()` 需要的冷端/线性上下文由本对象按 `cfg` 组装；偏移/增益校准在 `convert()` 之后由本对象应用（不进驱动） |
+| 假设 | `convert()` 需要的冷端/线性上下文与增益/偏移由本对象按 `cfg` 组装；校准在板级换算模块内完成（不进驱动） |
 
 ## 2. 职责与不变量
 
@@ -20,8 +20,8 @@
    仅在测量模式合法，`check_wire_break` 仅在检测模式合法（接口契约）。
 2. **配置所有权**：`cfg` 是生效配置的唯一副本；变更只能经 `CONFIG_SET_SIG` 进入，
    经 `pending` + `APPLY_SIG` 隔离重入（改配不变量见 §6）。
-3. **校准语义**：`value = raw × gain + offset`，`raw` 为 `convert()` 输出的工程量
-   （TC 已含冷端补偿；线性型已按 `linear_min/max` 映射）。
+3. **校准语义**：`convert()` 直接输出校准后工程量（板级换算模块内部完成
+   `raw × gain + offset`；TC 已含冷端补偿，线性型已按 `linear_min/max` 映射）。
 4. **测量值有效性**：TC 通道在冷端无效期间不输出换算值（状态 5、值冻结）；
    断线检测期间值冻结、状态维持上一结果（无"检测中"过渡码，断线在检查完成时揭示）。
 5. 所有等待（稳定拍、窗口、采样周期）都是状态 + 时间事件，无忙等无阻塞。
@@ -110,6 +110,9 @@ AoChannel (top, 初始 → Unconfigured)
 | 稳定完成 | Settling | 动作：`do_sample()` → `Q_TRAN(Measuring)` → exit Settling → entry Measuring（arm `te_sample` 周期 + `te_break`） |
 | 3 s 窗口到期 | Measuring | `Q_TRAN(Detecting)` → exit Measuring（disarm `te_sample/te_break`）→ entry Detecting（模式切换+arm） |
 
+`configure(pending)` 的结果经 `on_applied(ctx, ch, ok)` 回调上报：成功 1、失败 0 并发布
+状态 6。镜像侧用 `applied[ch]` 记录；apply 失败后同值重写会再次通知，从而可重试。
+
 模型检查：初始转换目标 Unconfigured 无守卫；Detecting/Settling entry 不读触发事件参数
 （延迟值经扩展变量 `settle_ms` 传递）；所有副作用在处理函数 switch 分支内；守卫互斥
 （`ch==me` / configure 成败互补）。
@@ -120,8 +123,7 @@ AoChannel (top, 初始 → Unconfigured)
 wire != OK                            → 发布状态 2/3/4（值冻结），返回
 read_sample(&code)                    失败 → 发布状态 6（值冻结），返回
 TC 且 !cjc.valid                      → 发布状态 5（值冻结），返回
-convert(code, ctx, &raw)              失败 → 发布状态 7（值冻结），返回
-value = raw * gain + offset           （raw 为局部量，不上报）
+convert(code, ctx, &value)            失败 → 发布状态 7（值冻结），返回
 last_* 更新；发布 MEASURE_SIG(ch, value, 0)
 ```
 

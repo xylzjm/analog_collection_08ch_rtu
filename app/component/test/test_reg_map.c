@@ -9,13 +9,13 @@
 static int checks;
 static int failures;
 
-#define CHECK(cond)                                                          \
-    do {                                                                     \
-        checks++;                                                            \
-        if ( !(cond) ) {                                                     \
-            failures++;                                                      \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);           \
-        }                                                                    \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        checks++;                                                  \
+        if ( !(cond) ) {                                           \
+            failures++;                                            \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        }                                                          \
     } while ( 0 )
 
 /* Model verdicts of reg_map_check(), independent of the built-in table. */
@@ -66,12 +66,11 @@ static uint32_t float_to_bits(float value)
 static void test_roundtrip(void)
 {
     static const ch_config_t cases[] = {
-        { (uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U, 0.0f, 0.0f, 0.0f, 1.0f },
-        { (uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_B, 12U, -3.0f, 9.0f, 0.125f, 0.99f },
-        { (uint8_t)CH_TYPE_PT100, 5U, 0U, -200.0f, 850.0f, -0.5f, 1.005f },
-        { (uint8_t)CH_TYPE_4_20MA, 0xFFU, 7U, 4.0f, 20.0f, 0.0f, 1.0f },
-        { (uint8_t)CH_TYPE_0_10V, 2U, 3U, -10.0f, 10.0f, 1.5f, 2.5f }
-    };
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U, 0.0f, 0.0f, 0.0f, 1.0f},
+        {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_B, 12U, -3.0f, 9.0f, 0.125f, 0.99f},
+        {(uint8_t)CH_TYPE_PT100, 5U, 0U, -200.0f, 850.0f, -0.5f, 1.005f},
+        {(uint8_t)CH_TYPE_4_20MA, 0xFFU, 7U, 4.0f, 20.0f, 0.0f, 1.0f},
+        {(uint8_t)CH_TYPE_0_10V, 2U, 3U, -10.0f, 10.0f, 1.5f, 2.5f}};
     size_t i;
 
     for ( i = 0U; i < (sizeof(cases) / sizeof(cases[0])); ++i ) {
@@ -146,7 +145,7 @@ static void test_subblock_merge(void)
 
     /* Single register writes keep every untouched field. */
     CHECK(merge_word(&base, 1U, 7U, &got));
-    want = base;
+    want           = base;
     want.rate_code = 7U;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
@@ -157,12 +156,12 @@ static void test_subblock_merge(void)
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
     CHECK(merge_float(&base, 6U, -1.5f, &got));
-    want = base;
+    want        = base;
     want.offset = -1.5f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
     CHECK(merge_float(&base, 8U, 2.5f, &got));
-    want = base;
+    want      = base;
     want.gain = 2.5f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
@@ -177,12 +176,12 @@ static void test_subblock_merge(void)
     base = make_cfg((uint8_t)CH_TYPE_4_20MA, CH_TC_TYPE_NONE, 2U,
                     4.0f, 20.0f, 0.0f, 1.0f);
     CHECK(merge_float(&base, 2U, 0.0f, &got));
-    want = base;
+    want            = base;
     want.linear_min = 0.0f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
     CHECK(merge_float(&base, 4U, 100.0f, &got));
-    want = base;
+    want            = base;
     want.linear_max = 100.0f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
@@ -202,9 +201,9 @@ static int model_check(reg_space_t space,
                        uint16_t start,
                        uint16_t count)
 {
-    static const uint16_t holding_base[9] = { 0U, 16U, 32U, 48U, 64U, 80U, 96U, 112U, 128U };
-    static const uint16_t holding_len[9]  = { 10U, 10U, 10U, 10U, 10U, 10U, 10U, 10U, 1U };
-    static const uint16_t input_base[9]   = { 0U, 8U, 16U, 24U, 32U, 40U, 48U, 56U, 64U };
+    static const uint16_t holding_base[9] = {0U, 16U, 32U, 48U, 64U, 80U, 96U, 112U, 128U};
+    static const uint16_t holding_len[9]  = {10U, 10U, 10U, 10U, 10U, 10U, 10U, 10U, 1U};
+    static const uint16_t input_base[9]   = {0U, 8U, 16U, 24U, 32U, 40U, 48U, 56U, 64U};
     const uint16_t* base;
     const uint16_t* len;
     uint32_t end;
@@ -220,8 +219,7 @@ static int model_check(reg_space_t space,
     if ( space == REG_SPACE_HOLDING ) {
         base = holding_base;
         len  = holding_len;
-    }
-    else {
+    } else {
         base = input_base;
         len  = NULL;
     }
@@ -264,14 +262,11 @@ static void test_span_exhaustive(void)
 
                 ex = reg_map_check((reg_space_t)space, (uint16_t)start,
                                    (uint16_t)count, &span);
-                if ( code_of(ex) != model_check((reg_space_t)space,
-                                                (uint16_t)start,
-                                                (uint16_t)count) ) {
+                if ( code_of(ex) != model_check((reg_space_t)space, (uint16_t)start, (uint16_t)count) ) {
                     CHECK(0);
                     printf("  space=%d start=%u count=%u ex=%d\n",
                            space, (unsigned)start, (unsigned)count, (int)ex);
-                }
-                else {
+                } else {
                     CHECK(1);
                 }
 
@@ -311,6 +306,26 @@ static void test_span_exhaustive(void)
           == MODBUS_SLAVE_EX_ILLEGAL_FUNCTION);
     CHECK(reg_map_find(REG_SPACE_COIL, 0U, 1U) == NULL);
     CHECK(reg_map_find(REG_SPACE_DISCRETE, 0U, 1U) == NULL);
+}
+
+/** @brief A channel span carries its identity; non-channel spans use 0xFF. */
+static void test_span_identity(void)
+{
+    const reg_span_t* span;
+
+    span = reg_map_find(REG_SPACE_HOLDING, 0U, 1U);
+    CHECK((span != NULL) && (span->channel == 0U));
+    span = reg_map_find(REG_SPACE_HOLDING, 16U, 1U);
+    CHECK((span != NULL) && (span->channel == 1U));
+    span = reg_map_find(REG_SPACE_HOLDING, 112U, 1U);
+    CHECK((span != NULL) && (span->channel == 7U));
+    span = reg_map_find(REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U);
+    CHECK((span != NULL) && (span->channel == 0xFFU));
+
+    span = reg_map_find(REG_SPACE_INPUT, 56U, 1U);
+    CHECK((span != NULL) && (span->channel == 7U));
+    span = reg_map_find(REG_SPACE_INPUT, REG_MAP_SYS_BASE, 1U);
+    CHECK((span != NULL) && (span->channel == 0xFFU));
 }
 
 /*----------------------------------------------------------------------------*/
@@ -429,8 +444,7 @@ static void test_input_layout(void)
             printf("  addr=%u got=%u want=%u\n", (unsigned)i,
                    (unsigned)modbus_slave_get_u16(&buf[2U * i]),
                    (unsigned)expect_input_word(&in, i));
-        }
-        else {
+        } else {
             CHECK(1);
         }
     }
@@ -438,9 +452,9 @@ static void test_input_layout(void)
     /* Spot checks against hand-split words. */
     CHECK(modbus_slave_get_u16(&buf[0]) == (uint16_t)(float_to_bits(1.5f) >> 16));
     CHECK(modbus_slave_get_u16(&buf[2]) == (uint16_t)(float_to_bits(1.5f) & 0xFFFFU));
-    CHECK(modbus_slave_get_u16(&buf[4]) == 100U);  /* ch1 status, addr 2 */
-    CHECK(modbus_slave_get_u16(&buf[20]) == 101U); /* ch2 status, addr 10 */
-    CHECK(modbus_slave_get_u16(&buf[12]) == 0U);   /* ch1 reserved, addr 6 */
+    CHECK(modbus_slave_get_u16(&buf[4]) == 100U);     /* ch1 status, addr 2 */
+    CHECK(modbus_slave_get_u16(&buf[20]) == 101U);    /* ch2 status, addr 10 */
+    CHECK(modbus_slave_get_u16(&buf[12]) == 0U);      /* ch1 reserved, addr 6 */
     CHECK(modbus_slave_get_u16(&buf[6U * 2U]) == 0U); /* reserved */
     CHECK(modbus_slave_get_u16(&buf[64U * 2U]) == (uint16_t)(float_to_bits(-12.5f) >> 16));
     CHECK(modbus_slave_get_u16(&buf[65U * 2U]) == (uint16_t)(float_to_bits(-12.5f) & 0xFFFFU));
@@ -509,6 +523,7 @@ int main(void)
     test_roundtrip();
     test_subblock_merge();
     test_span_exhaustive();
+    test_span_identity();
     test_semantic_illegal();
     test_input_layout();
     test_fault_word();

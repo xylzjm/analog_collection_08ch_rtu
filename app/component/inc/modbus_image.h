@@ -39,7 +39,8 @@ typedef void (*modbus_image_cfg_commit_fn)(void* ctx,
 
 /** @brief Typed mirror of the Modbus data space. */
 typedef struct {
-    ch_config_t cfg[CH_CONFIG_CHANNEL_COUNT];     /**< Effective configs. */
+    ch_config_t cfg[CH_CONFIG_CHANNEL_COUNT];     /**< Persisted configs. */
+    uint8_t applied[CH_CONFIG_CHANNEL_COUNT];     /**< 1 once the channel accepted cfg. */
     float value[CH_CONFIG_CHANNEL_COUNT];         /**< Latest measured values. */
     uint16_t status[CH_CONFIG_CHANNEL_COUNT];     /**< Channel status codes. */
     float cjc_temp;                               /**< Latest cold junction temperature. */
@@ -96,6 +97,20 @@ const modbus_slave_callbacks_t* modbus_image_callbacks(modbus_image_t* img);
 void modbus_image_set_cfg_notifier(modbus_image_t* img,
                                    modbus_image_cfg_commit_fn fn,
                                    void* ctx);
+
+/**
+ * @brief Record the channel's configuration-apply result.
+ *
+ * A same-value configuration write re-notifies while this flag is 0, so a
+ * failed apply can be retried by rewriting the same block.
+ *
+ * @param img Image to update.
+ * @param ch Zero-based channel index.
+ * @param ok Non-zero when the channel accepted the configuration.
+ */
+void modbus_image_set_applied(modbus_image_t* img,
+                              uint8_t ch,
+                              uint8_t ok);
 
 /**
  * @brief Record one measurement into the telemetry mirror.

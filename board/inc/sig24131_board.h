@@ -38,9 +38,6 @@ sig24131_status_t sig24131_board_reset(uint8_t channel);
 /** @brief Reset every device and wait once for all of them to settle. */
 sig24131_status_t sig24131_board_reset_all(void);
 
-/** @brief Return the number of populated SIG24131 instances. */
-uint8_t sig24131_board_count(void);
-
 /** @brief Return the driver object of one channel. */
 sig24131_t* sig24131_board_get_device(uint8_t channel);
 
