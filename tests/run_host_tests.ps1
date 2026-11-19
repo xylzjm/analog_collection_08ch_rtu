@@ -69,7 +69,6 @@ $modbusSources = @(
 # FlashDB adapter in app/component/src/kv_store_flashdb.c).
 $paramSources = @(
     'app/component/src/param.c',
-    'app/component/src/param_defaults.c',
     'tests/stubs/kv_store_mem.c'
 )
 

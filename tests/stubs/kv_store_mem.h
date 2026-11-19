@@ -40,14 +40,12 @@ typedef struct {
 /** @brief In-memory store state and the test observation counters. */
 typedef struct {
     kv_store_mem_entry_t entries[KV_STORE_MEM_MAX_ENTRIES]; /**< Stored pairs. */
-    uint8_t initialized;                                    /**< Non-zero after a successful init/reset. */
     uint8_t fail_init;                                      /**< Script: init returns -1. */
     uint8_t fail_write;                                     /**< Script: set returns -1 and stores nothing. */
     uint8_t corrupt_read;                                   /**< Script: get returns a modified copy. */
     uint16_t init_calls;                                    /**< init invocations. */
     uint16_t get_calls;                                     /**< get invocations. */
     uint16_t set_calls;                                     /**< set invocations (not default materialization). */
-    uint16_t reset_calls;                                   /**< reset invocations. */
     char last_key[KV_STORE_MEM_MAX_KEY];                    /**< Key of the last set. */
     uint8_t last_value[KV_STORE_MEM_MAX_VALUE];             /**< Body of the last set. */
     size_t last_len;                                        /**< Length of the last set. */

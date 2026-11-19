@@ -63,16 +63,6 @@ typedef struct {
      * @return 0 on success, a negative value on failure.
      */
     int (*set)(void* ctx, const char* key, const void* buf, size_t len);
-
-    /**
-     * @brief Restore every default key.
-     *
-     * @param ctx Implementation context; may be NULL.
-     * @param defaults Default table; may be NULL when count is 0.
-     * @param count Number of entries in @p defaults.
-     * @return 0 on success, a negative value on failure.
-     */
-    int (*reset)(void* ctx, const kv_default_t* defaults, size_t count);
 } kv_store_ops_t;
 
 #ifdef __cplusplus

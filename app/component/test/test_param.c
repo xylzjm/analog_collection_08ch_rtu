@@ -192,24 +192,6 @@ static void test_init_failure(void)
     CHECK(res.db_ok == 1U);
 }
 
-/** @brief set_default_all reloads the factory state into the snapshot. */
-static void test_default_reset(void)
-{
-    param_boot_result_t res;
-    ch_config_t cfg = make_cfg((uint8_t)CH_TYPE_4_20MA, 9U);
-
-    bind_store();
-    param_boot_load(&res);
-    CHECK(param_save_cfg(0U, &cfg) == PARAM_OK);
-
-    param_set_default_all();
-    CHECK(kv.reset_calls == 1U);
-
-    /* The snapshot now holds the default, so the same cfg is a change. */
-    CHECK(param_save_cfg(0U, &cfg) == PARAM_OK);
-    CHECK(param_save_cfg(0U, &cfg) == PARAM_NO_CHANGE);
-}
-
 /** @brief Address saves follow the same commit and retry discipline. */
 static void test_address_save(void)
 {
@@ -219,6 +201,7 @@ static void test_address_save(void)
     param_boot_load(&res);
 
     CHECK(param_save_addr(247U) == PARAM_OK);
+    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
     CHECK(param_save_addr(247U) == PARAM_NO_CHANGE);
 
     kv.corrupt_read = 1U;
@@ -255,7 +238,6 @@ int main(void)
     test_boot_load_failure();
     test_bad_address();
     test_init_failure();
-    test_default_reset();
     test_address_save();
     test_invalid_and_unbound();
 

@@ -12,7 +12,7 @@
 #include "elog.h"
 #include "flashdb.h"
 
-#include "param_defaults.h"
+#include "param.h"
 
 /** @brief FAL partition that backs the key-value database. */
 #define KV_STORE_FDB_PATH "fdb_kvdb"
@@ -96,27 +96,11 @@ static int flashdb_set(void* ctx,
     return 0;
 }
 
-static int flashdb_reset(void* ctx,
-                         const kv_default_t* defaults,
-                         size_t count)
-{
-    (void)ctx;
-    (void)defaults;
-    (void)count;
-
-    if ( fdb_kv_set_default(&kvdb) != FDB_NO_ERR ) {
-        elog_error("kv_store", "fdb_kv_set_default failed");
-        return -1;
-    }
-    return 0;
-}
-
 /** @brief The one implementation table; ctx is unused. */
 static const kv_store_ops_t ops = {
     &flashdb_init,
     &flashdb_get,
     &flashdb_set,
-    &flashdb_reset,
 };
 
 const kv_store_ops_t* kv_store_flashdb_ops(void)

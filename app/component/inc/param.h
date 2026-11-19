@@ -41,6 +41,9 @@ typedef struct {
     uint8_t addr_load_failed;                         /**< dev/addr load failure (default used). */
 } param_boot_result_t;
 
+/** @brief Default KV nodes: the 8 board positions plus dev/addr. */
+#define PARAM_DEFAULT_KV_COUNT 9U
+
 /**
  * @brief Bind the storage backend used by every param operation.
  *
@@ -88,14 +91,6 @@ param_status_t param_save_cfg(uint8_t ch,
  * @return Same codes as param_save_cfg().
  */
 param_status_t param_save_addr(uint16_t addr);
-
-/**
- * @brief Restore every parameter to the factory default table.
- *
- * Extension point: no register entry exists yet. On success the internal
- * snapshot is reloaded from the materialized defaults.
- */
-void param_set_default_all(void);
 
 #ifdef __cplusplus
 }

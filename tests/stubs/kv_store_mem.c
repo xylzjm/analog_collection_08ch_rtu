@@ -95,7 +95,6 @@ static int mem_init(void* ctx,
     }
 
     materialize_defaults(mem, defaults, count);
-    mem->initialized = 1U;
     return 0;
 }
 
@@ -154,25 +153,11 @@ static int mem_set(void* ctx,
     return 0;
 }
 
-static int mem_reset(void* ctx,
-                     const kv_default_t* defaults,
-                     size_t count)
-{
-    kv_store_mem_t* mem = (kv_store_mem_t*)ctx;
-
-    ++mem->reset_calls;
-    memset(mem->entries, 0, sizeof(mem->entries));
-    materialize_defaults(mem, defaults, count);
-    mem->initialized = 1U;
-    return 0;
-}
-
 /** @brief The one implementation table; ctx is the kv_store_mem_t. */
 static const kv_store_ops_t ops = {
     &mem_init,
     &mem_get,
     &mem_set,
-    &mem_reset,
 };
 
 const kv_store_ops_t* kv_store_mem_ops(void)

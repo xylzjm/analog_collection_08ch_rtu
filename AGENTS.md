@@ -31,7 +31,7 @@ workspace file adds both folders; without them nothing compiles.
 - Firmware builds only through EIDE: VS Code tasks `build`, `rebuild`, `clean`,
   `flash`, `build and flash`, or the EIDE MCP tools with project uid
   `2b2c107904df4cdb1e97e57d6947db29` (`rebuild` is the reliable full check).
-- A clean build is 70 C files + 1 assembly file, ROM about 52.3/60 KB (87 %),
+- A clean build is 69 C files + 1 assembly file, ROM about 52.4/60 KB (87.3 %),
   RAM 9.3/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
   KV layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
@@ -78,11 +78,12 @@ workspace file adds both folders; without them nothing compiles.
 
 - 10 active objects (8x AoChannel at prio 2..9, AoColdJunction 10, AoModbus 11)
   plus the passive components `ch_config` / `reg_map` / `modbus_image` / `param`
-  (+ `param_defaults.c`; storage sits behind the `kv_store` adapter, target
-  FlashDB in `kv_store_flashdb.c`, host memory store in `tests/stubs`). QV is
-  cooperative: active objects never preempt each
-  other; ISRs only post events to their queues. SysTick (1 ms) is the single
-  tick source for QP time events and `board_tick_get()`.
+  (storage sits behind the `kv_store` adapter, target FlashDB in
+  `kv_store_flashdb.c`, host memory store in `tests/stubs`; `param` owns the KV
+  schema: key names and the default table live in `param.c`).
+  QV is cooperative: active objects never preempt each other; ISRs only post
+  events to their queues. SysTick (1 ms) is the single tick source for QP time
+  events and `board_tick_get()`.
 - `modbus_image` owns the typed Modbus mirror and the write transaction
   (QP-free, host-tested directly through the data-space callbacks). AoModbus
   keeps only routing, boot publishing and the commit-to-publish conversion via

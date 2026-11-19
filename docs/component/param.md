@@ -17,7 +17,7 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 | 存储 | FlashDB KVDB（FAL 模式），分区 `fdb_kvdb` = `0x0800F000..0x0800FFFF`（4 KB，4×1 KB 扇区）；`FDB_WRITE_GRAN=8` |
 | 独占资源 | `kv_store` 接口（`param` 只依赖它）、`fdb_kvdb_t` 实例与 FAL（FlashDB 适配器内）、片内 Flash 参数分区（唯一调用者 = `AoModbus`） |
 | 状态 | `snapshot[8]`（最近成功固化的配置 + 有效标志）、`dev_addr`（最近固化地址）、`db_ok`、`load_failed[]`（b2 清除依据） |
-| API | `param_bind_store()`；`kv_store_ops_t` 的 `init/get/set/reset`。目标适配器内部使用 `fal_init()`、`fdb_kvdb_init()`、`fdb_kv_get_blob()`、`fdb_kv_set_blob()`、`fdb_kv_set_default()` |
+| API | `param_bind_store()`；`kv_store_ops_t` 的 `init/get/set`。目标适配器内部使用 `fal_init()`、`fdb_kvdb_init()`、`fdb_kv_get_blob()`、`fdb_kv_set_blob()` |
 
 ## 2. FlashDB 托管结论（代码依据 `middleware/flashDB/src/fdb_kvdb.c`）
 
@@ -38,7 +38,6 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 | `param_boot_load(&result)` | `AoModbus` 初始转换（`QActive_start` 上下文，`QF_run` 前） | `kv_store->init(默认表)`（目标适配器内为 `fal_init` + `fdb_kvdb_init`）+ 逐键加载校验；`result` 返回：每通道配置与有效性、`dev_addr`、初始化/加载失败标志（供 b2/b3 锁存） |
 | `param_save_cfg(ch, cfg)` | `AoModbus` 保持寄存器写回调 | 变化检查（`memcmp` vs `snapshot`）→ 同步固化 + **写后读回校验**（`fdb_kv_get_blob` 比对，应答以 flash 实际状态为准）；返回 `PARAM_OK`（读回=下发值，已固化并生效）/ `PARAM_NO_CHANGE`（同值，免写）/ `PARAM_ERR_WRITE`（读回≠下发值，按未固化处理） |
 | `param_save_addr(addr)` | 同上（寄存器 128） | 同上，作用于 `dev/addr` |
-| `param_set_default_all()` | 恢复出厂（扩展点，暂无寄存器入口） | `fdb_kv_set_default()`：格式化分区并重写默认表 |
 
 读回一致即更新 `snapshot`；不一致**不更新**（操作人员重写寄存器即重试，差异检查自然再次
 命中）。同值免写（`PARAM_NO_CHANGE`）不计作固化成功：b1/b2 的清除以真实写入并读回一致
@@ -46,7 +45,7 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 
 ### KV 适配器接缝
 
-`param.h` 不再包含 `flashdb.h`：存储操作只经 `kv_store.h` 的 `init/get/set/reset`。
+`param.h` 不再包含 `flashdb.h`：存储操作只经 `kv_store.h` 的 `init/get/set`。
 `get` 返回存储长度（可大于缓冲区，此时拷贝被截断），由 `param` 比较长度并执行写后读回。
 
 | 实现 | 文件 | 绑定 |
@@ -111,24 +110,27 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 | `cfg/ch0` .. `cfg/ch7` | `ch_config_t` 本体（20 B，无版本头） | 每通道独立键：单通道写不牵动他通道 |
 | `dev/addr` | `u16` 本体（2 B） | 从站地址；校验 1..247 |
 
-出厂默认参数由 **FlashDB 默认表**承载：`param_defaults.c` 提供唯一的默认数据源
-（`kv_default_t` 表：`cfg/ch0..7` 与 `dev/addr`，值为参数本体），由 FlashDB 适配器
-转换成 `fdb_default_kv` 后传给 `fdb_kvdb_init()`。键集是**底板 8 位置布局**：装配数（`CH_CONFIG_CHANNEL_COUNT`）少于 8
-的 SKU，未装配通道的键仍由默认表物化但不被加载/使用（加载循环以装配数为界）。空 flash（全扇区头坏）时 `_fdb_kv_load()` 走 `fdb_kv_set_default()`
+出厂默认参数与键名由 `param` 组件内的默认表单源承载（`param.c` 内部 static）。表是
+`kv_default_t` 数组：`cfg/ch0..7` 与
+`dev/addr`，值为参数本体；由 FlashDB 适配器转换成 `fdb_default_kv` 后传给
+`fdb_kvdb_init()`。键集是**底板 8 位置布局**（`PARAM_DEFAULT_KV_COUNT =
+BOARD_CHANNEL_POSITIONS_MAX + 1`）：装配数（`CH_CONFIG_CHANNEL_COUNT`）少于 8
+的 SKU，未装配通道的键仍由默认表物化但不被加载/使用（加载循环以装配数为界）。
+空 flash（全扇区头坏）时 `_fdb_kv_load()` 走 `fdb_kv_set_default()`
 把全部默认键物化，加载即有效值——**出厂首启不报故障**。
 
 **不启用 `FDB_KV_AUTO_UPDATE`**（`fdb_cfg.h` 维持现状）：该机制在版本号变化时会把缺失
 键**静默补写**为默认值，CRC 坏而被跳过的 KV 会被它掩盖成"从未损坏"。关闭后，缺失/损坏/
-语义非法的键如实报 b2 且不下发（§5）。恢复出厂 = `fdb_kv_set_default()`（扩展点：保留
-寄存器已裁撤，如需上位机入口将在设备级块新增定义）；该操作掉电中断只留下部分缺失键，下次启动按
-加载失败处理（对应通道不投入运行），可接受。
+语义非法的键如实报 b2 且不下发（§5）。
 
 ### 布局演进（仅开发期）
 
 设备无在线升级、固件出厂即固定，KV 布局**仅在开发调试期演进**，生产后不存在迁移问题，
-也不需要任何迁移机制：开发期改布局直接全片擦除/恢复出厂/上位机重下发，旧格式数据天然
+也不需要任何迁移机制：开发期改布局直接全片擦除/上位机重下发，旧格式数据天然
 落进既有防线（语义校验拒绝或 CRC 坏跳过 → b2、不顶替）。不设版本字段；不启用
-`FDB_KV_AUTO_UPDATE` 补键（静默掩蔽 CRC 坏键，理由见上）。
+`FDB_KV_AUTO_UPDATE` 补键（静默掩蔽 CRC 坏键，理由见上）。加载失败日志区分
+`missing` / `size` / `invalid`（`param.c` 的 `load_cfg`/`load_addr`），便于现场判断是
+键缺失、旧长度还是语义非法；故障位仍是 b2，语义不变。
 
 ## 7. 定时与容量
 
@@ -156,7 +158,6 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 | 情形 | 归类 | 说明 |
 | --- | --- | --- |
 | 掉电/复位打断写入 | **非故障** | §2 掉电保护：下次启动恢复出旧值或完整新值；EX 00/04 与恢复结果无分歧（EX 04 后恢复出新值属 Flash 硬件异常，§4 已注明报废级） |
-| 掉电打断恢复出厂 | 加载失败（b2） | 部分键缺失，对应通道不投入运行（§6 已述） |
 | 数据保持衰减（写入正确、存放后位衰减） | 加载失败（b2） | 下次启动 CRC 失败被跳过 = 键缺失；出厂前老化/高温试验可提前暴露 |
 | `FDB_SAVED_FULL`（GC 后仍无空间） | 写入失败（b1/EX 04） | **重写不可修复**（容量问题，非瞬态）；本布局 3 KB 可用 vs ~1 KB 数据不会发生，GC 长稳验证看守 |
 | 磨损寿命耗尽 | 写入失败（b1/EX 04） | 表现为编程/回读校验失败；变化检查 + 磨损均衡已是缓解 |
@@ -165,7 +166,7 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 | Flash 读硬件错误 | 加载失败（b2）**+数据损失** | FlashDB 会把读失败扇区当坏扇区**自动格式化**——数据被销毁后表现为键缺失；归 b2，备注数据不可找回 |
 | 写"成功"但内容与预期不符 | **已收口（设计内）** | 写后读回 memcmp：EX 00 ⟺ 读回=下发值，应答以 flash 实际状态为准，消灭"EX 04 但已固化"分歧角（§4）；残余仅为写与读回双重误判（报废级域） |
 | 运行中读取 | 无此场景 | 确认：除启动加载外无读路径；GC 内部读属写路径。`fdb_kvdb_check()` 留作产线/维护完整性检查（可选） |
-| 全片擦除/分区被整区格式化后上电 | **已定案：不区分** | 当作崭新空片：默认表物化、以出厂配置运行、不报故障（= 隐式恢复出厂语义）。运维约束：校准参数上位机留档、严守禁全片擦除（README） |
+| 全片擦除/分区被整区格式化后上电 | **已定案：不区分** | 当作崭新空片：默认表物化、以出厂配置运行、不报故障（= 隐式恢复默认配置）。运维约束：校准参数上位机留档、严守禁全片擦除（README） |
 
 
 
@@ -187,4 +188,3 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 | 初始化失败 | 人为破坏分区（init 失败） | b3 且复位前不清；无通道启动；Modbus 默认地址运行可读到故障 | 调试构建 |
 | 掉电窗口 | 固化瞬间反复断电 ≥100 次 | 每次上电旧值或新值+CRC 恢复日志，无半截值 | 自动断电夹具 |
 | GC 长稳 | 连续写 1000 次 | 无 SAVED_FULL；固化 RTC 水位 ≤30 ms；扇区擦除轮转 | 日志统计 |
-| 恢复出厂（扩展） | 调 `fdb_kv_set_default()` | 全部参数回默认并物化；b2/b3 不置位 | 调试构建 |
