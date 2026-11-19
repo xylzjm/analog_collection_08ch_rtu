@@ -118,6 +118,7 @@ virtualFolder:
         - path: app/component/src/reg_map.c
         - path: app/component/src/param.c
         - path: app/component/src/param_defaults.c
+        - path: app/component/src/kv_store_flashdb.c
         - path: app/ao/src/channel_ao.c
         - path: app/ao/src/cold_junction_ao.c
         - path: app/ao/src/modbus_ao.c

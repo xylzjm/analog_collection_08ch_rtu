@@ -9,8 +9,10 @@
 #include "app_events.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
+#include "kv_store_flashdb.h"
 #include "modbus_ao.h"
 #include "modbus_slave_board.h"
+#include "param.h"
 #include "tmp75_board.h"
 
 /** @brief Route EasyLogger assertions to the project error handler. */
@@ -71,6 +73,9 @@ int main(void)
     QActive_psInit(subscrSto, MAX_SIG);
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
+
+    /* Storage backend for param; the DB opens in AoModbus's initial transition. */
+    param_bind_store(kv_store_flashdb_ops(), (void*)0);
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         channel_ao_ctor(&channels[i], (uint8_t)i,

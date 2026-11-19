@@ -64,7 +64,7 @@ holding 写回调（本组件内）：
 | 测试 | 激励 | 预期 | 证据 |
 | --- | --- | --- | --- |
 | 写事务全路径 | 直调 `holding_registers`（EX 00/03/04、单寄存器 RMW、同值免写） | 镜像/通知器/锁存与 EX 一致；非法值镜像不动 | `app/component/test/test_modbus_image.c` |
-| 提交失败 | `param_stub` 返回 ERR_WRITE | EX 04 + b1；故障字经输入寄存器可见 | 同上 |
+| 提交失败 | `kv_store_mem.corrupt_read` 制造读回不一致 | EX 04 + b1；故障字经输入寄存器可见 | 同上 |
 | 地址寄存器 | 写 247/0/248、读回 | 生效地址移动、EX 03 拒绝、`callbacks.address` 同步 | 同上 |
 | 启动采纳 | 构造 boot 结果 | 有效项入镜像、失败项入 b2/b3 | 同上 |
 | AO 级全链路 | 真实 modbus 核心收帧 → advance | 写帧应答字节、发布、静默路径 | `tests/app/test_modbus_ao.c` |

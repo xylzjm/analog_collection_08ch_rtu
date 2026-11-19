@@ -15,7 +15,7 @@ tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 ```
 
 - `app/`：组合根（composition root）、日志初始化、共享应用头 `app_events.h`（信号、事件载荷、池容量）与应用对象（活动对象见 `app/ao/`，被动组件见 `app/component/`；两组目录均分 `inc/` 头文件与 `src/` 实现，组件宿主测试在 `app/component/test/`）。
-- `tests/`：活动对象宿主测试（`tests/app/`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器、param 提交结果）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
+- `tests/`：活动对象宿主测试（`tests/app/`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器、param 的 kv_store 内存实现）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
 - `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
@@ -41,7 +41,7 @@ board_init();   /* 时钟、外设、板级设备；末尾等 TMP75 首次转换
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储初始化不属于 board 层。`app/component/src/param.c` 拥有 `fdb_kvdb`，在 `AoModbus` 初始转换内（`QF_run()` 之前）调用 `fal_init()` / `fdb_kvdb_init()`；日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储初始化不属于 board 层。`param` 把存储放在 `kv_store` 适配器之后：目标实现 `app/component/src/kv_store_flashdb.c` 拥有 `fdb_kvdb`，在 `AoModbus` 初始转换内（`QF_run()` 之前）由 `param_boot_load()` 调用 `kv_store->init()`，其中再执行 `fal_init()` / `fdb_kvdb_init()`；宿主测试绑定 `tests/stubs/kv_store_mem.c` 的内存实现。日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 
@@ -163,7 +163,7 @@ elog_* / FDB_PRINT / printf
 ## 构建
 
 - IDE：EIDE
-- 编译器：ARMCLANG 6，C99，`-O1`（2026-11 定夺：QP 运行时与 FlashDB KV 层全量链接后 `-O0` 需约 70 KB ROM，超出 60 KB 可用区；`-O1` 实测 51.3 KB，纯逻辑语义仍由宿主 gcc 测试守护）
+- 编译器：ARMCLANG 6，C99，`-O1`（2026-11 定夺：QP 运行时与 FlashDB KV 层全量链接后 `-O0` 需约 70 KB ROM，超出 60 KB 可用区；`-O1` 实测 52.3 KB（87%），纯逻辑语义仍由宿主 gcc 测试守护）
 - 运行库：microlib
 - 调试构建定义：`AT32F421C8T7`
 - include 顺序要求：`board/ports/easylogger` 必须早于 `../middleware/EasyLogger/easylogger/inc`

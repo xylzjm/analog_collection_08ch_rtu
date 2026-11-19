@@ -74,7 +74,7 @@
 | 地址变更 | 任意 | FC06 写寄存器 128 | 校验→同步固化→镜像生效；本帧应答收尾，新地址对后续帧生效 | 掉电后新地址保持；旧地址静默 |
 | 参数固化失败 | 固化时 Flash 异常 | `fdb_kv_set_blob` 失败 | EX 04 整笔拒绝（配置不生效）+b1 锁存；**无兜底**（无自动重试/补写） | 操作人员重写寄存器即重试，成功清 b1 |
 | 参数加载失败 | 某通道 KV 损坏/缺失 | 上电加载 | 该通道不投入运行（状态 1）+b2；其余通道正常启动 | 绝不默认顶替 |
-| 参数库初始化失败 | 分区损坏 | `fdb_kvdb_init` 失败 | b3（复位前不清）；无通道启动；Modbus 按默认地址运行 | 产品报废级；上位机可读到故障 |
+| 参数库初始化失败 | 分区损坏 | `kv_store` 初始化（`fdb_kvdb_init`）失败 | b3（复位前不清）；无通道启动；Modbus 按默认地址运行 | 产品报废级；上位机可读到故障 |
 | 冷端失效 | TMP75 脱落/温度越界 | 连续 3 次读失败或越界（-30..+85 之外） | CJC 发布 invalid→TC 通道状态 5（值冻结）→设备故障位 b0 置位 | 1 s 内揭示；恢复后自愈 |
 | 重复/非法写 | 任意 | 非法枚举/NaN/未支持速率 | 整帧回 ILLEGAL_DATA_VALUE(03)，无部分生效 | 镜像与 flash 不变 |
 | 超时竞争 | Detecting 中 | `CONFIG_SET_SIG` 到达 | 改配隔离重入（迟到 SETTLE 落 Unconfigured 被忽略）→重新进入先检后测 | 无提前检查、无迟到事件达处理态 |
@@ -88,7 +88,7 @@
    USART1/TMR14 ─── │ AoModbus             │ 寄存器映像 / 设备故障位域
    (板级端口)        │ prio 11              │◄──── MEASURE_SIG ────┐
                     │  ┌────────────────┐  │◄──── CJC_SIG ────┐   │
-   fdb_kvdb/FAL ─── │  │ param 组件(同步)│  │          ┌──────┴───┴───┐
+   kv_store→fdb/FAL─│  │ param 组件(同步)│  │          ┌──────┴───┴───┐
                     │  └────────────────┘  │          │ AoColdJunction│ TMP75+软I2C
                     └──────────┬───────────┘          │    prio 10    │
               发布 CONFIG_SET_SIG                     └───────────────┘
@@ -101,7 +101,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AoChannel` ×8 | 该通道采集全生命周期：配置应用、采样换算、校准、断线检测循环、通道故障状态；不变量：测量/断线硬件模式互斥，任一时刻其一 | 本通道 `analog_input_board_t`（含 SIG24131 片选与前端开关） | QHsm | `CONFIG_SET_SIG` `CJC_SIG` `SAMPLE_SIG` `SETTLE_SIG` `BREAK_WINDOW_SIG` | `MEASURE_SIG` | 2..9（ch1..ch8） | ≤ 1 ms | 8 路互相独立、各有速率/模式/故障生命周期，各自队列+定时器 |
 | `AoColdJunction` | 冷端温度供给与有效性；不变量：CJC_SIG 每 1 s 心跳（含失败时的 invalid） | TMP75 + `i2c_soft` 总线 | QHsm | `TICK_SIG` | `CJC_SIG` | 10 | ≤ 3 ms | 整板唯一 TMP75/唯一 I2C 主；多 TC 通道共享一个冷端源 |
-| `AoModbus` | 协议终结、遥测/镜像的 QP 路由与发布、参数固化调度（经 `param` 组件）；不变量：镜像=生效配置+各事件最近状态（镜像与写事务由 `modbus_image` 组件承载，见下表）；写帧=生效+固化一体 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、`modbus_image` 组件、`param` 组件（`fdb_kvdb`/FAL） | QHsm | `FRAME_SIG/TX_DONE/TX_TIMEOUT` `MEASURE_SIG` `CJC_SIG` | `CONFIG_SET_SIG` | 11 | ≤ 30 ms（写帧含同步固化）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR，需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
+| `AoModbus` | 协议终结、遥测/镜像的 QP 路由与发布、参数固化调度（经 `param` 组件）；不变量：镜像=生效配置+各事件最近状态（镜像与写事务由 `modbus_image` 组件承载，见下表）；写帧=生效+固化一体 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、`modbus_image` 组件、`param` 组件（`kv_store` → `fdb_kvdb`/FAL） | QHsm | `FRAME_SIG/TX_DONE/TX_TIMEOUT` `MEASURE_SIG` `CJC_SIG` | `CONFIG_SET_SIG` | 11 | ≤ 30 ms（写帧含同步固化）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR，需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
 
 ### 不建独立活动对象的候选
 
@@ -112,7 +112,7 @@
 | 类型化镜像与写事务（`modbus_image`） | `AoModbus` 执行上下文（modbus 核心以镜像为 ctx 直调四个数据空间回调） | 无自主行为/独立时限；写事务的原子性纪律（校验→固化→镜像→通知）与数据空间读写同体 | `app/component/src/modbus_image.c`（设计见 `docs/component/modbus_image.md`），宿主 `CHECK` 测试直接驱动回调 |
 | 设备故障位域合成 | `modbus_image` 内部 | 是寄存器映像的一部分 | `modbus_image` 随各事件与锁存更新 |
 | 参数持久化（`param` 组件） | `AoModbus` 执行上下文 | 无自主行为/独立时限；EX 04 语义要求固化在写回调返回前完成 | `AoModbus` 初始转换与 `modbus_image` 写事务直接调用 |
-| flash 掉电恢复 | `param`（AoModbus 初始转换） | FlashDB 内部机制 | `fdb_kvdb_init()` |
+| flash 掉电恢复 | `param`（AoModbus 初始转换） | FlashDB 内部机制 | `kv_store` 初始化（适配器内 `fdb_kvdb_init()`） |
 
 纯函数组件（`ch_config`/`reg_map`/`modbus_image`/`param`）**不使用 QP 工具宏**（保持宿主测试零 QP 依赖）；
 `QF_MPOOL_EL`/`QEVT_INITIALIZER`/`Q_ACTIVE_UPCAST` 等只用于 AO 侧代码。配置提交经

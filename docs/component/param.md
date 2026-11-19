@@ -15,9 +15,9 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 | --- | --- |
 | 需求 | 上位机每次配置写入动作经变化检查后**同步**固化到片内 Flash；固化失败整笔拒绝并如实上报；掉电不丢/不坏；磨损受控 |
 | 存储 | FlashDB KVDB（FAL 模式），分区 `fdb_kvdb` = `0x0800F000..0x0800FFFF`（4 KB，4×1 KB 扇区）；`FDB_WRITE_GRAN=8` |
-| 独占资源 | `fdb_kvdb_t` 实例、FAL、片内 Flash 参数分区（唯一调用者 = `AoModbus`） |
+| 独占资源 | `kv_store` 接口（`param` 只依赖它）、`fdb_kvdb_t` 实例与 FAL（FlashDB 适配器内）、片内 Flash 参数分区（唯一调用者 = `AoModbus`） |
 | 状态 | `snapshot[8]`（最近成功固化的配置 + 有效标志）、`dev_addr`（最近固化地址）、`db_ok`、`load_failed[]`（b2 清除依据） |
-| API | `fal_init()`、`fdb_kvdb_init()`、`fdb_kv_get_blob()`、`fdb_kv_set_blob()`、`fdb_kv_set_default()`（`flashdb.h`） |
+| API | `param_bind_store()`；`kv_store_ops_t` 的 `init/get/set/reset`。目标适配器内部使用 `fal_init()`、`fdb_kvdb_init()`、`fdb_kv_get_blob()`、`fdb_kv_set_blob()`、`fdb_kv_set_default()` |
 
 ## 2. FlashDB 托管结论（代码依据 `middleware/flashDB/src/fdb_kvdb.c`）
 
@@ -34,7 +34,8 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 
 | 函数 | 调用点 | 语义 |
 | --- | --- | --- |
-| `param_boot_load(&result)` | `AoModbus` 初始转换（`QActive_start` 上下文，`QF_run` 前） | `fal_init` + `fdb_kvdb_init(默认表)` + 逐键加载校验；`result` 返回：每通道配置与有效性、`dev_addr`、初始化/加载失败标志（供 b2/b3 锁存） |
+| `param_bind_store(ops, ctx)` | `main.c` 组合根 / 宿主测试初始化 | 绑定 `kv_store` 实现；必须在 `param_boot_load()` 之前 |
+| `param_boot_load(&result)` | `AoModbus` 初始转换（`QActive_start` 上下文，`QF_run` 前） | `kv_store->init(默认表)`（目标适配器内为 `fal_init` + `fdb_kvdb_init`）+ 逐键加载校验；`result` 返回：每通道配置与有效性、`dev_addr`、初始化/加载失败标志（供 b2/b3 锁存） |
 | `param_save_cfg(ch, cfg)` | `AoModbus` 保持寄存器写回调 | 变化检查（`memcmp` vs `snapshot`）→ 同步固化 + **写后读回校验**（`fdb_kv_get_blob` 比对，应答以 flash 实际状态为准）；返回 `PARAM_OK`（读回=下发值，已固化并生效）/ `PARAM_NO_CHANGE`（同值，免写）/ `PARAM_ERR_WRITE`（读回≠下发值，按未固化处理） |
 | `param_save_addr(addr)` | 同上（寄存器 128） | 同上，作用于 `dev/addr` |
 | `param_set_default_all()` | 恢复出厂（扩展点，暂无寄存器入口） | `fdb_kv_set_default()`：格式化分区并重写默认表 |
@@ -42,6 +43,19 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 读回一致即更新 `snapshot`；不一致**不更新**（操作人员重写寄存器即重试，差异检查自然再次
 命中）。同值免写（`PARAM_NO_CHANGE`）不计作固化成功：b1/b2 的清除以真实写入并读回一致
 为准。**不做任何兜底**：无自动重试、无掉电前补写、无延迟合并写。
+
+### KV 适配器接缝
+
+`param.h` 不再包含 `flashdb.h`：存储操作只经 `kv_store.h` 的 `init/get/set/reset`。
+`get` 返回存储长度（可大于缓冲区，此时拷贝被截断），由 `param` 比较长度并执行写后读回。
+
+| 实现 | 文件 | 绑定 |
+| --- | --- | --- |
+| 目标 FlashDB/FAL | `app/component/src/kv_store_flashdb.c` | `main.c` 调 `param_bind_store(kv_store_flashdb_ops(), NULL)` |
+| 宿主内存 | `tests/stubs/kv_store_mem.c` | 各宿主测试在启动 AO 前绑定 |
+
+接缝的意义：EX 00 回读不变式可以在宿主上编译并注入读回不一致，不需要链接 FlashDB，
+也不再需要与 `param` 契约重复的 `param_stub`。
 
 ## 4. 写路径语义（同步固化，整帧拒绝）
 
@@ -85,7 +99,7 @@ Modbus 共享执行上下文，无独立队列、定时器与状态机。总体�
 | 键缺失 / KV 损坏（CRC 跳过）/ 语义非法（校验拒绝） | **不下发**，对应通道不投入运行（状态 1，等上位机下发） | b2（`load_failed` 记账） |
 | 部分成功部分失败 | 成功通道照常启动 | 只对失败参数报 b2 |
 | `dev/addr` 加载失败 | **默认地址 1**（唯一允许的默认兜底，保证上位机可达） | b2 |
-| `fdb_kvdb_init` 失败 | 无任何配置可下发；Modbus 按默认地址运行 | b3（复位前不清） |
+| `kv_store` 初始化 / `fdb_kvdb_init` 失败 | 无任何配置可下发；Modbus 按默认地址运行 | b3（复位前不清） |
 
 b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任一后续固化成功；b3 不清除。
 上位机对失败通道重写配置寄存器 = 启动该通道 + 固化 + 清 b2，一步到位。
@@ -98,8 +112,8 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 | `dev/addr` | `u16` 本体（2 B） | 从站地址；校验 1..247 |
 
 出厂默认参数由 **FlashDB 默认表**承载：`param_defaults.c` 提供唯一的默认数据源
-（`fdb_kv_pair_t` 表：`cfg/ch0..7` 与 `dev/addr`，值为参数本体），传给
-`fdb_kvdb_init()`。键集是**底板 8 位置布局**：装配数（`CH_CONFIG_CHANNEL_COUNT`）少于 8
+（`kv_default_t` 表：`cfg/ch0..7` 与 `dev/addr`，值为参数本体），由 FlashDB 适配器
+转换成 `fdb_default_kv` 后传给 `fdb_kvdb_init()`。键集是**底板 8 位置布局**：装配数（`CH_CONFIG_CHANNEL_COUNT`）少于 8
 的 SKU，未装配通道的键仍由默认表物化但不被加载/使用（加载循环以装配数为界）。空 flash（全扇区头坏）时 `_fdb_kv_load()` 走 `fdb_kv_set_default()`
 把全部默认键物化，加载即有效值——**出厂首启不报故障**。
 
@@ -130,7 +144,7 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 | --- | --- | --- |
 | 固化写失败 | 合法异常（不可恢复） | EX 04 整笔拒绝 + b1 锁存；**无兜底**；操作人员重写寄存器即重试 |
 | 加载失败（缺失/损坏/非法） | 合法异常（不可恢复，与初始化失败同级） | 不下发不顶替 + b2；等上位机下发配置后启动 |
-| `fdb_kvdb_init` 失败 | 合法异常（不可恢复，产品报废级） | 无任何配置下发 + b3；Modbus 按默认地址运行 |
+| `kv_store` 初始化 / `fdb_kvdb_init` 失败 | 合法异常（不可恢复，产品报废级） | 无任何配置下发 + b3；Modbus 按默认地址运行 |
 | 掉电（任意写时刻） | 预期环境 | 旧值或完整新值（§2），上电自动恢复 |
 | 键名/格式演进 | 设计变更 | 仅开发期存在（§6 布局演进）；旧格式按加载失败处理（不下发不顶替） |
 
@@ -159,6 +173,7 @@ b2 清除：对应参数随后**成功固化**一次即清除；b1 清除：任�
 
 | 测试 | 激励 | 预期 | 证据 |
 | --- | --- | --- | --- |
+| 宿主回读注入 | `kv_store_mem.corrupt_read` 制造读回不一致 | `PARAM_ERR_WRITE`；清故障后重写成功 | `test_param` |
 | 差异检查 | 同值重复 FC16 写 ×100 | 0 次 flash 写、均 EX 00（日志计数） | RTT 计数 |
 | 固化/回读 | 改配置→断电→上电 | 配置保持；通道行为一致 | 断电循环 |
 | 写失败注入 | 固化时制造写失败 | EX 04、配置不生效、b1 锁存；重写后 EX 00 并清 b1 | 调试构建 |

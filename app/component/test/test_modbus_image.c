@@ -4,8 +4,8 @@
  *
  * Drives the data-space callbacks directly with the image as their ctx
  * - no slave core, no QP - so the whole transaction discipline runs
- * exactly as the core would invoke it: validate, commit (through the
- * param stub), then mirror, then notify.
+ * exactly as the core would invoke it: validate, commit (through the real
+ * param module over an in-memory KV store), then mirror, then notify.
  */
 
 #include <stddef.h>
@@ -15,7 +15,8 @@
 
 #include "modbus_image.h"
 
-#include "param_stub.h"
+#include "kv_store_mem.h"
+#include "param.h"
 #include "reg_map.h"
 
 static int checks;
@@ -38,6 +39,9 @@ static uint8_t notified_ch;
 static uint8_t notified_count;
 static ch_config_t notified_cfg;
 
+/** @brief Backing store of the real param module. */
+static kv_store_mem_t kv;
+
 static void notifier(void* ctx,
                      uint8_t ch,
                      const ch_config_t* cfg)
@@ -52,8 +56,12 @@ static void notifier(void* ctx,
 static const modbus_slave_callbacks_t* wiring(modbus_image_t* img)
 {
     const modbus_slave_callbacks_t* cb;
+    param_boot_result_t boot;
 
-    param_stub_reset();
+    kv_store_mem_reset(&kv);
+    param_bind_store(kv_store_mem_ops(), &kv);
+    param_boot_load(&boot);
+    CHECK(boot.db_ok != 0U);
     notified_count = 0U;
     modbus_image_init(img);
     modbus_image_set_cfg_notifier(img, &notifier, NULL);
@@ -87,19 +95,32 @@ static modbus_slave_exception_t read_regs(const modbus_slave_callbacks_t* cb,
                                  bytes, MODBUS_SLAVE_REG_READ);
 }
 
-/** @brief Encode a type K 10 Hz default configuration into a block. */
-static void default_tc_block(uint8_t* block)
+/** @brief Encode a type K configuration with the given rate code. */
+static void tc_block(uint16_t rate_code,
+                     uint8_t* block)
 {
     ch_config_t cfg;
 
     cfg.type       = (uint8_t)CH_TYPE_TC;
     cfg.tc_type    = (uint8_t)CH_TC_TYPE_K;
-    cfg.rate_code  = 2U;
+    cfg.rate_code  = rate_code;
     cfg.linear_min = 0.0f;
     cfg.linear_max = 0.0f;
     cfg.offset     = 0.0f;
     cfg.gain       = 1.0f;
     reg_map_ch_encode(&cfg, block);
+}
+
+/** @brief Decode the body of the last KV write as a channel configuration. */
+static ch_config_t last_cfg(void)
+{
+    ch_config_t cfg;
+
+    memset(&cfg, 0, sizeof(cfg));
+    if ( kv.last_len <= sizeof(cfg) ) {
+        memcpy(&cfg, kv.last_value, kv.last_len);
+    }
+    return cfg;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -182,10 +203,14 @@ static void test_write_transaction_commit(void)
 
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE);
-    CHECK(param_stub.save_cfg_calls == 1U);
-    CHECK(param_stub.last_ch == 0U);
-    CHECK(param_stub.last_cfg.rate_code == 9U);
-    CHECK(param_stub.last_cfg.linear_max == 20.0f);
+    CHECK(kv.set_calls == 1U);
+    CHECK(strcmp(kv.last_key, "cfg/ch0") == 0);
+    {
+        ch_config_t saved = last_cfg();
+
+        CHECK(saved.rate_code == 9U);
+        CHECK(saved.linear_max == 20.0f);
+    }
     CHECK(img.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(img.b1 == 0U);
     CHECK(notified_count == 1U);
@@ -208,7 +233,7 @@ static void test_write_transaction_reject(void)
     uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
     uint8_t before[REG_MAP_CH_CFG_LEN * 2U];
 
-    default_tc_block(block);
+    tc_block(9U, block);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE);
     CHECK(notified_count == 1U);
@@ -217,7 +242,7 @@ static void test_write_transaction_reject(void)
     block[1] = 0x63U; /* type code 99: no such input type. */
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE);
-    CHECK(param_stub.save_cfg_calls == 1U); /* only the valid frame above */
+    CHECK(kv.set_calls == 1U); /* only the valid frame above */
     read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block);
     CHECK(memcmp(block, before, sizeof(block)) == 0);
     CHECK(notified_count == 1U);
@@ -230,17 +255,27 @@ static void test_write_transaction_commit_failure(void)
     modbus_image_t img;
     const modbus_slave_callbacks_t* cb = wiring(&img);
     uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
+    uint8_t next_block[REG_MAP_CH_CFG_LEN * 2U];
     uint8_t before[REG_MAP_CH_CFG_LEN * 2U];
     uint8_t reply[2U];
+    ch_config_t next;
 
-    default_tc_block(block);
+    /* First write is a change from the loaded default, so it commits. */
+    tc_block(9U, block);
     CHECK(write_regs(cb, 16U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE); /* channel 2 (zero-based 1) */
+    CHECK(notified_count == 1U);
 
     read_regs(cb, 16U, REG_MAP_CH_CFG_LEN, before);
-    param_stub_set_save(PARAM_ERR_WRITE, PARAM_ERR_WRITE);
-    CHECK(write_regs(cb, 16U, REG_MAP_CH_CFG_LEN, block)
+
+    /* A second, different value attempts a write whose read-back is wrong. */
+    next      = last_cfg();
+    next.gain = 3.0f;
+    reg_map_ch_encode(&next, next_block);
+    kv.corrupt_read = 1U;
+    CHECK(write_regs(cb, 16U, REG_MAP_CH_CFG_LEN, next_block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
+    kv.corrupt_read = 0U;
     CHECK(img.b1 != 0U);
     read_regs(cb, 16U, REG_MAP_CH_CFG_LEN, block);
     CHECK(memcmp(block, before, sizeof(block)) == 0);
@@ -261,15 +296,18 @@ static void test_write_transaction_no_change(void)
     const modbus_slave_callbacks_t* cb = wiring(&img);
     uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
 
-    default_tc_block(block);
+    /* A change from the loaded default commits once. */
+    tc_block(9U, block);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE);
     CHECK(notified_count == 1U);
+    CHECK(kv.set_calls == 1U);
 
-    param_stub_set_save(PARAM_NO_CHANGE, PARAM_NO_CHANGE);
+    /* The same value again: no write, no notify. */
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE);
     CHECK(notified_count == 1U); /* unchanged: nobody notified */
+    CHECK(kv.set_calls == 1U);
     CHECK(img.b1 == 0U);
 }
 
@@ -282,19 +320,20 @@ static void test_write_single_register(void)
     uint8_t one[2U];
     uint8_t echo[REG_MAP_CH_CFG_LEN * 2U];
 
-    default_tc_block(block);
+    /* Start from 50 Hz (a change from the loaded 10 Hz default). */
+    tc_block(9U, block);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_NONE);
 
-    /* Register 1 is the rate code: 50 Hz (code 9). */
-    modbus_slave_put_u16(one, 9U);
+    /* Register 1 is the rate code: 10 Hz (code 2). */
+    modbus_slave_put_u16(one, 2U);
     CHECK(write_regs(cb, 1U, 1U, one) == MODBUS_SLAVE_EX_NONE);
-    CHECK(img.cfg[0].rate_code == 9U);
+    CHECK(img.cfg[0].rate_code == 2U);
     CHECK(img.cfg[0].type == (uint8_t)CH_TYPE_TC);
 
     CHECK(read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, echo)
           == MODBUS_SLAVE_EX_NONE);
-    CHECK(modbus_slave_get_u16(&echo[2]) == 9U);
+    CHECK(modbus_slave_get_u16(&echo[2]) == 2U);
     CHECK(notified_count == 2U);
 }
 
@@ -311,7 +350,8 @@ static void test_address_register(void)
           == MODBUS_SLAVE_EX_NONE);
     CHECK(img.addr_image == 247U);
     CHECK(cb->address(cb->ctx) == 247U);
-    CHECK(param_stub.save_addr_calls == 1U);
+    CHECK(kv.set_calls == 1U);
+    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
     CHECK(notified_count == 0U); /* address writes never notify */
 
     modbus_slave_put_u16(one, 0U);

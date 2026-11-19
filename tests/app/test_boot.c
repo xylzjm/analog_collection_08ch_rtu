@@ -29,9 +29,10 @@
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
 #include "host_support.h"
+#include "kv_store_mem.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
-#include "param_stub.h"
+#include "param.h"
 #include "reg_map.h"
 #include "tmp75_port_fake.h"
 
@@ -58,6 +59,7 @@ static uint8_t rx_buffer[256];
 static uint8_t tx_buffer[256];
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
+static kv_store_mem_t kv;
 
 static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
 static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
@@ -164,10 +166,15 @@ static void boot_scenario(uint8_t fail_ch)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    param_stub_reset();
+    kv_store_mem_reset(&kv);
+    param_bind_store(kv_store_mem_ops(), &kv);
     if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
-        param_stub.boot.cfg_valid[fail_ch]       = 0U;
-        param_stub.boot.cfg_load_failed[fail_ch] = 1U;
+        /* Preload a wrong-length body: the real loader must reject it. */
+        uint8_t bad[4] = {0};
+        char key[KV_STORE_MEM_MAX_KEY];
+
+        (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)fail_ch);
+        kv_store_mem_put(&kv, key, bad, sizeof(bad));
     }
     modbus_port_fake_init(&port);
     tmp75_port_fake_init(&cjc_port);

@@ -65,12 +65,12 @@ $modbusSources = @(
     '../library/protocol/modbus_slave/src/modbus_slave_rtu.c'
 )
 
-$stubs = @(
-    'tests/stubs/host_support.c',
-    'tests/stubs/modbus_port_fake.c',
-    'tests/stubs/param_stub.c',
-    'tests/stubs/analog_input_fake.c',
-    'tests/stubs/tmp75_port_fake.c'
+# The real param module over the in-memory KV store (target uses the
+# FlashDB adapter in app/component/src/kv_store_flashdb.c).
+$paramSources = @(
+    'app/component/src/param.c',
+    'app/component/src/param_defaults.c',
+    'tests/stubs/kv_store_mem.c'
 )
 
 $tests = @(
@@ -88,12 +88,18 @@ $tests = @(
         Extra = @()
     },
     @{
+        Name = 'test_param'
+        Sources = @('app/component/test/test_param.c',
+                    'app/component/src/ch_config.c',
+                    'app/component/src/reg_map.c') + $paramSources + $modbusSources
+        Extra = @()
+    },
+    @{
         Name = 'test_modbus_image'
         Sources = @('app/component/test/test_modbus_image.c',
                     'app/component/src/modbus_image.c',
                     'app/component/src/reg_map.c',
-                    'app/component/src/ch_config.c',
-                    'tests/stubs/param_stub.c') + $modbusSources
+                    'app/component/src/ch_config.c') + $paramSources + $modbusSources
         Extra = @()
     },
     @{
@@ -107,10 +113,8 @@ $tests = @(
         Name = 'test_channel_ao'
         Sources = @('tests/app/test_channel_ao.c',
                     'app/ao/src/channel_ao.c',
-                    'app/component/src/modbus_image.c',
                     'app/component/src/reg_map.c',
                     'app/component/src/ch_config.c',
-                    'tests/stubs/param_stub.c',
                     'tests/stubs/analog_input_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
@@ -123,8 +127,7 @@ $tests = @(
                     'app/component/src/reg_map.c',
                     'app/component/src/ch_config.c',
                     'tests/stubs/modbus_port_fake.c',
-                    'tests/stubs/param_stub.c',
-                    'tests/stubs/host_support.c') + $qpSources + $modbusSources
+                    'tests/stubs/host_support.c') + $paramSources + $qpSources + $modbusSources
         Extra = @()
     },
     @{
@@ -139,9 +142,8 @@ $tests = @(
                     '../library/device/tmp75/src/tmp75.c',
                     'tests/stubs/analog_input_fake.c',
                     'tests/stubs/modbus_port_fake.c',
-                    'tests/stubs/param_stub.c',
                     'tests/stubs/tmp75_port_fake.c',
-                    'tests/stubs/host_support.c') + $qpSources + $modbusSources
+                    'tests/stubs/host_support.c') + $paramSources + $qpSources + $modbusSources
         Extra = @()
         Runs = @('1', '2')
     }

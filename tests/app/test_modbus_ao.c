@@ -3,8 +3,9 @@
  * @brief Host tests for the AoModbus write pipeline and mirrors.
  *
  * The slave core is the real modbus_slave library driven over fake
- * line/timer/critical ports; the param component is the scriptable stub.
- * Frames are fed byte by byte through modbus_slave_rx_byte(), captured by
+ * line/timer/critical ports; the param component is the real module over
+ * an in-memory KV store. Frames are fed byte by byte through
+ * modbus_slave_rx_byte(), captured by
  * modbus_slave_timer_expired() (which posts FRAME_SIG through the event
  * port) and concluded by the real AO dispatch of advance(). Expected
  * replies are spelled out as literal bytes with an independent bitwise
@@ -20,9 +21,10 @@
 
 #include "app_events.h"
 #include "host_support.h"
+#include "kv_store_mem.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
-#include "param_stub.h"
+#include "param.h"
 #include "reg_map.h"
 
 static int checks;
@@ -44,6 +46,7 @@ static uint8_t tx_buffer[256];
 static modbus_ao_t ao;
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
+static kv_store_mem_t kv;
 static QEvtPtr ao_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
 static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
@@ -186,8 +189,12 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
     return Q_TRAN(&rec_state);
 }
 
-/** @brief Build the slave, attach it and bring the AO up. */
-static void scenario_begin_ex(const param_boot_result_t* boot)
+/**
+ * @brief Build the slave, attach it and bring the AO up.
+ *
+ * @param db_fail Non-zero scripts a kv_store init failure (b3 path).
+ */
+static void scenario_begin_ex(uint8_t db_fail)
 {
     modbus_slave_config_t cfg;
 
@@ -200,10 +207,9 @@ static void scenario_begin_ex(const param_boot_result_t* boot)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    param_stub_reset();
-    if ( boot != NULL ) {
-        param_stub_set_boot(boot);
-    }
+    kv_store_mem_reset(&kv);
+    kv.fail_init = db_fail;
+    param_bind_store(kv_store_mem_ops(), &kv);
     modbus_port_fake_init(&port);
     published_count = 0U;
 
@@ -249,7 +255,19 @@ static void scenario_begin_ex(const param_boot_result_t* boot)
 
 static void scenario_begin(void)
 {
-    scenario_begin_ex(NULL);
+    scenario_begin_ex(0U);
+}
+
+/** @brief Decode the body of the last KV write as a channel configuration. */
+static ch_config_t last_cfg(void)
+{
+    ch_config_t cfg;
+
+    memset(&cfg, 0, sizeof(cfg));
+    if ( kv.last_len <= sizeof(cfg) ) {
+        memcpy(&cfg, kv.last_value, kv.last_len);
+    }
+    return cfg;
 }
 
 /** @brief End-of-scenario invariants: queues drained, criticals balanced. */
@@ -365,11 +383,15 @@ static void test_fc16_write_pipeline(void)
     }
 
     /* The commit happened once, the mirror and the publish agree with it. */
-    CHECK(param_stub.save_cfg_calls == 1U);
-    CHECK(param_stub.last_ch == 0U);
-    CHECK(param_stub.last_cfg.type == (uint8_t)CH_TYPE_4_20MA);
-    CHECK(param_stub.last_cfg.rate_code == 9U);
-    CHECK(param_stub.last_cfg.linear_max == 20.0f);
+    CHECK(kv.set_calls == 1U);
+    CHECK(strcmp(kv.last_key, "cfg/ch0") == 0);
+    {
+        ch_config_t saved = last_cfg();
+
+        CHECK(saved.type == (uint8_t)CH_TYPE_4_20MA);
+        CHECK(saved.rate_code == 9U);
+        CHECK(saved.linear_max == 20.0f);
+    }
     CHECK(ao.image.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(ao.image.cfg[0].gain == 2.0f);
     rec_collect();
@@ -432,7 +454,7 @@ static void test_invalid_write_rejected(void)
         CHECK(memcmp(reply, full, 5U) == 0);
     }
 
-    CHECK(param_stub.save_cfg_calls == 0U);
+    CHECK(kv.set_calls == 0U);
     CHECK(ao.image.cfg[0].type == (uint8_t)CH_TYPE_TC);
     rec_collect();
     CHECK(published_count == boot_publish_count);
@@ -458,7 +480,8 @@ static void test_address_change(void)
     pump_tx();
     reply_len = tx_take(reply, sizeof(reply));
     CHECK(reply_len == 8U);
-    CHECK(param_stub.save_addr_calls == 1U);
+    CHECK(kv.set_calls == 1U);
+    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
     CHECK(ao.image.addr_image == 247U);
     CHECK(modbus_slave_get_address(&slave) == 247U);
 
@@ -493,12 +516,13 @@ static void test_commit_failure_latches(void)
     uint8_t pdu_fault[5] = {0x04U, 0x00U, 0x44U, 0x00U, 0x01U}; /* reg 68 */
 
     scenario_begin();
-    param_stub_set_save(PARAM_ERR_WRITE, PARAM_ERR_WRITE);
+    kv.corrupt_read = 1U;
 
     build_frame(frame, &frame_len, 1U, pdu_set, 5U);
     feed_frame(frame, frame_len);
     drain();
     pump_tx();
+    kv.corrupt_read = 0U;
 
     {
         static const uint8_t head[] = {0x01U, 0x86U, 0x04U};
@@ -557,7 +581,8 @@ static void test_silence_paths(void)
     drain();
     pump_tx();
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
-    CHECK(param_stub.save_addr_calls == 1U);
+    CHECK(kv.set_calls == 1U);
+    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
     CHECK(ao.image.addr_image == 150U);
     scenario_end();
 }
@@ -565,13 +590,8 @@ static void test_silence_paths(void)
 /** @brief Boot failures surface as latched fault bits, not defaults. */
 static void test_boot_failures_latch(void)
 {
-    param_boot_result_t boot;
-
-    memset(&boot, 0, sizeof(boot));
-    boot.db_ok    = 0U;                   /* FlashDB init failed: b3, no configuration published */
-    boot.dev_addr = REG_MAP_DEV_ADDR_MIN; /* param.c guarantees the default */
-
-    scenario_begin_ex(&boot);
+    /* KV init fails: b3 is latched and no configuration is published. */
+    scenario_begin_ex(1U);
 
     CHECK(ao.image.fdb_init_failed != 0U);
     rec_collect();
