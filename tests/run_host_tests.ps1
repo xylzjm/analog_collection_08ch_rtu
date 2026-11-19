@@ -29,7 +29,7 @@ if ( -not (Test-Path $gcc) ) {
 $common = @('-std=c99', '-Wall', '-Wextra', '-Wno-unused-parameter')
 
 # Include order is load-bearing: tests/stubs must come first so the host
-# qp_port.h, elog.h and flashdb.h shadows win over the firmware headers.
+# qp_port.h and elog.h shadows win over the firmware headers.
 $inc = @(
     '-Itests/stubs',
     '-Iapp',

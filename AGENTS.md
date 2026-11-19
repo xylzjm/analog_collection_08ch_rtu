@@ -12,7 +12,7 @@ CI, lint or typecheck step exists.
   partition, QP port and assertion policy.
 - The application layer lives in `docs/`: `qp-application-design.md` (AO
   partition, event contract, capacity), `docs/ao/*.md` (one per active object)
-  and `docs/component/*.md` (passive components).
+  and `docs/component/reg_map.md` (the pure register map).
 - When designed behavior changes, update the doc and keep source comments to
   short Doxygen `@brief` lines.
 - Docs are UTF-8 with CRLF line endings; source and headers are pure ASCII.
@@ -77,25 +77,32 @@ workspace file adds both folders; without them nothing compiles.
 ## Application layer
 
 - 10 active objects (8x AoChannel at prio 2..9, AoColdJunction 10, AoModbus 11)
-  plus the passive components `ch_config` / `reg_map` / `modbus_image` / `param`
-  (storage sits behind the `kv_store` adapter, target FlashDB in
-  `kv_store_flashdb.c`, host memory store in `tests/stubs`; `param` owns the KV
-  schema: key names and the default table live in `param.c`).
-  QV is cooperative: active objects never preempt each other; ISRs only post
-  events to their queues. SysTick (1 ms) is the single tick source for QP time
-  events and `board_tick_get()`.
-- `modbus_image` owns the typed Modbus mirror and the write transaction
-  (QP-free, host-tested directly through the data-space callbacks). AoModbus
-  keeps only routing, boot publishing and the commit-to-publish conversion via
-  the image's notifier callback.
+  plus the pure module `reg_map`. One file per AO, QP/C example style:
+  `app/channel_ao.*`, `app/cold_junction_ao.*`, `app/modbus_ao.*`; `app/app.h`
+  holds the shared vocabulary (ch_config_t, signals, event payloads). QV is
+  cooperative: active objects never preempt each other; ISRs only post events
+  to their queues. SysTick (1 ms) is the single tick source for QP time events
+  and `board_tick_get()`.
+- AoModbus owns the typed Modbus mirror, the holding-register write transaction
+  (validate -> synchronous commit with read-back verify -> mirror -> publish)
+  and the parameter persistence in `modbus_ao.c`; the mirror IS the change-check
+  snapshot (no separate snapshot). Storage sits behind the `modbus_kv_ops_t`
+  seam (target FlashDB in `app/kv_flashdb.c`, host memory store
+  `tests/stubs/kv_mem.c`); the KV schema (keys `cfg/ch0..7`/`dev/addr`, default
+  table) lives in `modbus_ao.c`. Fault bits b1 is latched; b2/b3 are derived
+  from the load outcome each read (db_ok guard, SKU mask).
+- The apply result travels as `CFG_APPLIED_SIG` (AoChannel publishes, AoModbus
+  records `applied[]`) and a committed write publishes `CONFIG_SET_SIG`
+  directly: no passive module ever calls back into an active object.
 - Active objects take their device objects by constructor injection (no board
-  singletons inside `app/ao/`): `main.c` passes the board singletons to the
-  channel and cold-junction constructors, and composes the Modbus slave from
-  `modbus_ao_callbacks()` / `modbus_ao_identity()` before `modbus_ao_attach()`.
+  singletons inside `app/`): `main.c` passes the board singletons to the
+  channel and cold-junction constructors, injects the KV store into
+  `modbus_ao_ctor()`, and composes the Modbus slave from `modbus_ao_callbacks()`
+  / `modbus_ao_identity()` before `modbus_ao_attach()`.
 - Start order: channels, then AoModbus, then AoColdJunction. Every AO subscribes
   inside its own initial transition (QP/C example style; `QActive_start()`
-  registers the AO before running it), and `param_boot_load()` runs inside the
-  AoModbus initial transition before `QF_run()`.
+  registers the AO before running it), and the boot load (load_all + publish)
+  runs inside the AoModbus initial transition before `QF_run()`.
 - Channel indices are zero-based in the app layer (events, `cfg/ch0`..`cfg/ch7`
   KV keys) but one-based in the board API: `analog_input_board_get()` takes
   `i + 1`, as `main.c` does.
@@ -108,10 +115,11 @@ workspace file adds both folders; without them nothing compiles.
 - `log_init()` must run before `board_init()`, or that function's `elog_error()`
   diagnostics are lost. No logging from interrupt context:
   `elog_port_output_lock` is empty.
-- `param_bind_store()` must run before `QActive_start(AoModbus)`: the boot
-  load runs in that AO's initial transition and fails safe (`db_ok = 0`, b3)
-  when no store is bound. `main.c` binds `kv_store_flashdb_ops()`, host tests
-  bind `kv_store_mem`.
+- The KV store is injected via `modbus_ao_ctor()`: `main.c` passes
+  `kv_flashdb_ops()` (whose `init` runs in the ctor and opens the FlashDB
+  database), host tests pass `kv_mem`. An unbound store or a failed init
+  leaves `db_ok = 0` (fault word b3) and every later commit fails safe with
+  EX 04.
 - Critical sections only through `board_critical_enter()` /
   `board_critical_exit()` (`board/inc/board.h`). The nest counter is shared with
   QP, which reaches it via the strong `QF_crit_entry_`/`QF_crit_exit_` overrides
@@ -137,23 +145,24 @@ workspace file adds both folders; without them nothing compiles.
    (MinGW gcc on PATH; `-KeepExe` keeps the executables). The script compiles
    and runs each test separately; a new test must be added to its `$tests`
    table. `tests/stubs` must stay first in the
-   include order so the host `qp_port.h`, `elog.h` and `flashdb.h` shadows win
+   include order so the host `qp_port.h` and `elog.h` shadows win
    over the firmware headers.
-   - `app/component/test/`: pure component tests (self-contained `main()` +
-     `CHECK`), no QP linkage. Today: `test_ch_config`, `test_reg_map`,
-     `test_modbus_image`, `test_param`.
-   - `tests/app/`: active-object tests driven by event injection. The real QP/C
-     sources (`../middleware/qp/qpc/src/qf/*` + `qv.c`) link against the host
-     port `tests/stubs/qp_port.h`, which shares the firmware `qp_config.h`; the
+   - Six executables, all in `tests/` (flat): `test_reg_map` (pure map),
+     `test_modbus_data` (write transaction + persistence driven directly
+     through the data-space callbacks with `kv_mem`, no frames), `test_channel_ao`
+     and `test_modbus_ao` (event/tick-injected AO tests), `test_boot` (startup
+     integration; takes a scenario argument 1, 2 because the QP registry is not
+     rebuilt twice inside one process) and `test_analog_input_convert` (the
+     pure board conversion module against hand-derived electrical anchors, no
+     QP linkage).
+   - The AO tests link the real QP/C sources
+     (`../middleware/qp/qpc/src/qf/*` + `qv.c`) against the host port
+     `tests/stubs/qp_port.h`, which shares the firmware `qp_config.h`; the
      dispatch loop replicates the QV triple (`QActive_get_` -> `QASM_DISPATCH`
      -> `QF_gc`). Fakes exist only at the device edges: `analog_input_fake`,
      `tmp75_port_fake` (behind the real `tmp75.c`), `modbus_port_fake` (behind
-     the real slave core), and `kv_store_mem` (an in-memory KV store behind the
-     real `param`). `test_boot` takes a scenario argument (1, 2) because the QP
-     registry is not rebuilt twice inside one process.
-     `test_analog_input_convert` instead tests the pure board conversion
-     module (`board/src/analog_input_convert.c`) against hand-derived
-     electrical anchors, with no QP linkage.
+     the real slave core), and `kv_mem` (an in-memory KV store behind the real
+     persistence code in `modbus_ao.c`).
 3. The script prints `N checks, 0 failures` per test. `tests/` is outside the
    EIDE build, so host tests say nothing about ROM or target timing.
 4. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -

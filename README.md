@@ -7,20 +7,20 @@
 ## 目录与分层
 
 ```text
-app/                    应用入口、日志服务
+app/                    应用入口、应用对象（每 AO 一对文件）与共享词汇
 board/inc, board/src    板级硬件与板级设备适配
 board/ports/            中间件移植层
 board/vendor_wk/        WorkBench 生成的外设初始化代码
 tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 ```
 
-- `app/`：组合根（composition root）、日志初始化、共享应用头 `app_events.h`（信号、事件载荷、池容量）与应用对象（活动对象见 `app/ao/`，被动组件见 `app/component/`；两组目录均分 `inc/` 头文件与 `src/` 实现，组件宿主测试在 `app/component/test/`）。
-- `tests/`：活动对象宿主测试（`tests/app/`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器、param 的 kv_store 内存实现）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
+- `app/`：组合根 `main.c`（含事件池容量）、日志初始化、共享词汇头 `app.h`（通道模型、信号、事件载荷）与应用对象：一个活动对象一对 `*_ao.h/.c` 文件（`channel_ao`、`cold_junction_ao`、`modbus_ao`），纯寄存器映射 `reg_map.h/.c`，FlashDB 存储适配 `kv_flashdb.c`。
+- `tests/`：6 个宿主测试可执行（`test_reg_map`、`test_modbus_data`、`test_channel_ao`、`test_modbus_ao`、`test_boot`、`test_analog_input_convert`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器）与存储接缝（`kv_mem`）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
 - `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
 
-应用层设计（活动对象划分、事件契约、状态机、容量与验证）见 `docs/qp-application-design.md`，每个活动对象的独立设计文档见 `docs/ao/`（`channel_ao.md` ×8 实例、`cold_junction_ao.md`、`modbus_ao.md`），被动组件见 `docs/component/`（`param.md`、`reg_map.md`、`modbus_image.md`）；本文只描述板级、驱动与移植。应用层已按设计实现（10 个活动对象 + `ch_config`/`reg_map`/`modbus_image`/`param` 被动组件，宿主测试见 `app/component/test/` 与 `tests/`），板上行为（时序、固化、断线码）尚待硬件验证。
+应用层设计（活动对象划分、事件契约、容量与启动）见 `docs/qp-application-design.md`，每个活动对象的独立设计文档见 `docs/ao/`（`channel_ao.md` ×8 实例、`cold_junction_ao.md`、`modbus_ao.md`），纯寄存器映射见 `docs/component/reg_map.md`；本文只描述板级、驱动与移植。应用层已按设计实现（10 个活动对象 + 纯模块 `reg_map`；AoModbus 自含镜像、写事务与持久化），板上行为（时序、固化、断线码）尚待硬件验证。
 
 ## 启动顺序
 
@@ -41,7 +41,7 @@ board_init();   /* 时钟、外设、板级设备；末尾等 TMP75 首次转换
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储初始化不属于 board 层。`param` 把存储放在 `kv_store` 适配器之后：目标实现 `app/component/src/kv_store_flashdb.c` 拥有 `fdb_kvdb`，在 `AoModbus` 初始转换内（`QF_run()` 之前）由 `param_boot_load()` 调用 `kv_store->init()`，其中再执行 `fal_init()` / `fdb_kvdb_init()`；宿主测试绑定 `tests/stubs/kv_store_mem.c` 的内存实现。日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储初始化不属于 board 层。存储经 `modbus_kv_ops_t` 接缝注入 `modbus_ao_ctor()`：目标实现 `app/kv_flashdb.c` 拥有 `fdb_kvdb`，构造期内 `kv->init()` 执行 `fal_init()` / `fdb_kvdb_init()`（`QF_run()` 之前）；宿主测试绑定 `tests/stubs/kv_mem.c` 的内存实现。日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 
