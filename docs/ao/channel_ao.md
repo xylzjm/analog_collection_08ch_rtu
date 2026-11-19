@@ -10,9 +10,9 @@
 | --- | --- |
 | 需求 | 按配置（TC/PT100/4-20 mA/0-10 V）周期采样输出校准工程量；TC/PT100 断线检测与测量互斥、3 s 切换；**先检后测**（上电/改配后先断线检查再出首值）；上报通道状态 |
 | 状态机 | QHsm 手写（`Q_TRAN`/`Q_SUPER`），一状态一处理函数 |
-| 独占资源 | `analog_input_t`（构造注入：`channel_ao_ctor(me, ch, input)`，组合根经 `analog_input_board_get(ch)` 接线）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
+| 独占资源 | `analog_input_t`（构造注入：`channel_ao_ctor(me, ch, input)`，组合根经 `analog_input_board_get(ch + 1)` 接线——板级 API 1 基，AO/事件层 0 基）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
 | 依赖接口 | `analog_input.h` 六操作：`configure / read_sample / convert / enable_break_detection / disable_break_detection / check_wire_break`（全部非阻塞，延迟经出参返回） |
-| 扩展变量 | `cfg`（生效配置）、`pending`（待应用）、`cjc` 缓存、`wire`（断线结果）、`last_value`、`settle_ms` |
+| 扩展变量 | `cfg`（生效配置）、`pending`（待应用）、`cjc_temp`/`cjc_valid` 缓存、`wire`（断线结果）、`last_value`、`settle_ms` |
 
 ## 2. 职责与不变量
 
@@ -35,7 +35,7 @@
 | --- | --- | --- | --- | --- |
 | `CONFIG_SET_SIG` | `{ch, cfg}`（`ch` 0 基，与镜像/KV 同基；构造入参 `ch` 亦 0 基） | 发布（AoModbus：启动加载 / 写帧提交成功） | 池B 动态 | `ch != me` 显式忽略；命中→改配隔离（`pending=cfg` + post `APPLY_SIG` + 转 Unconfigured，§6） |
 | `APPLY_SIG` | 无 | `applyEvt` 静态自投 | 静态 | 仅 Unconfigured 响应：`configure(pending)`→重入先检后测；该态唯一出边 |
-| `CJC_SIG` | `{temp_c, valid}` | 发布（ColdJunction 1 Hz） | 池A 动态 | 复制进 `cjc` 缓存，不保存事件指针 |
+| `CJC_SIG` | `{temp_c, valid}` | 发布（ColdJunction 1 Hz） | 池A 动态 | 复制进 `cjc_temp`/`cjc_valid` 缓存，不保存事件指针 |
 | `SAMPLE_SIG` | 无 | `te_sample` 自投 | 静态 | 仅 Measuring 响应；采样一步 |
 | `SETTLE_SIG` | 无 | `te_settle` 自投 | 静态 | Detecting=检查就绪；Settling=转换就绪；迟到事件结构上不可达（§6） |
 | `BREAK_WINDOW_SIG` | 无 | `te_break` 自投 | 静态 | 仅 Measuring 响应→Detecting；他态默认忽略 |
@@ -51,7 +51,7 @@
 | 2 | 热电偶断线 | TC 通道断线检查发现回路开路（线位不可分辨） |
 | 3 | PT100 激励线断 | PT100 通道 `ANALOG_INPUT_WIRE_BROKEN_LEAD` |
 | 4 | PT100 回流线断 | PT100 通道 `ANALOG_INPUT_WIRE_BROKEN_RETURN` |
-| 5 | 冷端无效（TC） | `!cjc.valid` 时的采样拍 |
+| 5 | 冷端无效（TC） | `!cjc_valid` 时的采样拍 |
 | 6 | 硬件/IO 错误 | `configure/read_sample` 返回 ERR_IO/ERR_STATE |
 | 7 | 转换超量程 | `convert` 返回 ERR_CONVERSION |
 
@@ -102,13 +102,14 @@ AoChannel (top, 初始 → Unconfigured)
 ```text
 wire != OK                            → 发布状态 2/3/4（值冻结），返回
 read_sample(&code)                    失败 → 发布状态 6（值冻结），返回
-TC 且 !cjc.valid                      → 发布状态 5（值冻结），返回
+TC 且 !cjc_valid                      → 发布状态 5（值冻结），返回
 convert(code, ctx, &value)            失败 → 发布状态 7（值冻结），返回
 last_value 更新；发布 MEASURE_SIG(ch, value, 0)
 ```
 
 `值冻结` = 值字段填 `last_value`（尚无首值时 0），有效性以状态码为准。`ctx` 组装：
-TC → `cold_junction = cjc.temp_c`；线性型 → `linear_min/max = cfg.*`；PT100 → 空上下文。
+全部字段无条件填写（`cold_junction = cjc_temp`、`linear_min/linear_max = cfg.*`、
+`gain/offset = cfg.*`），各输入类型只消费自己需要的字段。
 
 ## 6. 定时设计与改配隔离
 

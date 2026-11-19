@@ -83,6 +83,7 @@ AoColdJunction (top, 初始 → Starting)
 
 | 测试 | 激励 | 预期 | 证据 |
 | --- | --- | --- | --- |
+| 心跳/失效/自愈（宿主） | `tests/test_cold_junction_ao.c`，tmp75_port_fake 注入 | 首读即发布、1 Hz 心跳；连续 3 次失败→invalid（温度冻结）；恢复读→valid | 宿主测试 |
 | 正常心跳 | 上电 | 1 Hz 发布，温度随环境变化 | RTT 日志 |
 | 失效注入 | 断开 SDA/SCL | ≤3 s 内 invalid 心跳；TC 通道状态 5 | 拔线实验 |
 | 自愈 | 恢复接线 | 下一条心跳即 valid | 日志 |

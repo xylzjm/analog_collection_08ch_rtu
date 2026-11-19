@@ -293,9 +293,6 @@ static int model_check(reg_space_t space,
 {
     static const uint16_t holding_base[9] = {0U, 16U, 32U, 48U, 64U, 80U, 96U, 112U, 128U};
     static const uint16_t holding_len[9]  = {10U, 10U, 10U, 10U, 10U, 10U, 10U, 10U, 1U};
-    static const uint16_t input_base[9]   = {0U, 8U, 16U, 24U, 32U, 40U, 48U, 56U, 64U};
-    const uint16_t* base;
-    const uint16_t* len;
     uint32_t end;
     int i;
 
@@ -306,20 +303,18 @@ static int model_check(reg_space_t space,
         return MODEL_EX_02;
     }
 
-    if ( space == REG_SPACE_HOLDING ) {
-        base = holding_base;
-        len  = holding_len;
-    } else {
-        base = input_base;
-        len  = NULL;
-    }
-
     end = (uint32_t)start + (uint32_t)count;
     for ( i = 0; i < 9; ++i ) {
-        uint32_t b = (space == REG_SPACE_HOLDING) ? (uint32_t)base[i]
-                                                  : (uint32_t)(i * 8);
-        uint32_t n = (space == REG_SPACE_HOLDING) ? (uint32_t)len[i] : 8U;
+        uint32_t b;
+        uint32_t n;
 
+        if ( space == REG_SPACE_HOLDING ) {
+            b = (uint32_t)holding_base[i];
+            n = (uint32_t)holding_len[i];
+        } else {
+            b = (uint32_t)(i * 8);
+            n = 8U;
+        }
         if ( (b <= (uint32_t)start) && (end <= (b + n)) ) {
             return MODEL_EX_NONE;
         }
@@ -373,7 +368,8 @@ static void test_span_exhaustive(void)
     }
 
     /* Zero-length requests never hit. */
-    CHECK(reg_map_find(REG_SPACE_HOLDING, 0U, 0U) == NULL);
+    CHECK(reg_map_check(REG_SPACE_HOLDING, 0U, 0U, NULL)
+          == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
     CHECK(reg_map_check(REG_SPACE_HOLDING, 128U, 0U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
 
@@ -389,32 +385,33 @@ static void test_span_exhaustive(void)
     CHECK(reg_map_check(REG_SPACE_INPUT, 60U, 8U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
 
-    /* Coil and discrete spaces have no data space at all. */
+    /* Coil and discrete spaces have no data space at all (and so never
+     * report a hit span). */
     CHECK(reg_map_check(REG_SPACE_COIL, 0U, 1U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_FUNCTION);
     CHECK(reg_map_check(REG_SPACE_DISCRETE, 0U, 1U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_FUNCTION);
-    CHECK(reg_map_find(REG_SPACE_COIL, 0U, 1U) == NULL);
-    CHECK(reg_map_find(REG_SPACE_DISCRETE, 0U, 1U) == NULL);
 }
 
 /** @brief A channel span carries its identity; non-channel spans use 0xFF. */
 static void test_span_identity(void)
 {
-    const reg_span_t* span;
+    const reg_span_t* span = NULL;
 
-    span = reg_map_find(REG_SPACE_HOLDING, 0U, 1U);
+    CHECK(reg_map_check(REG_SPACE_HOLDING, 0U, 1U, &span) == MODBUS_SLAVE_EX_NONE);
     CHECK((span != NULL) && (span->channel == 0U));
-    span = reg_map_find(REG_SPACE_HOLDING, 16U, 1U);
+    CHECK(reg_map_check(REG_SPACE_HOLDING, 16U, 1U, &span) == MODBUS_SLAVE_EX_NONE);
     CHECK((span != NULL) && (span->channel == 1U));
-    span = reg_map_find(REG_SPACE_HOLDING, 112U, 1U);
+    CHECK(reg_map_check(REG_SPACE_HOLDING, 112U, 1U, &span) == MODBUS_SLAVE_EX_NONE);
     CHECK((span != NULL) && (span->channel == 7U));
-    span = reg_map_find(REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U);
+    CHECK(reg_map_check(REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, &span)
+          == MODBUS_SLAVE_EX_NONE);
     CHECK((span != NULL) && (span->channel == 0xFFU));
 
-    span = reg_map_find(REG_SPACE_INPUT, 56U, 1U);
+    CHECK(reg_map_check(REG_SPACE_INPUT, 56U, 1U, &span) == MODBUS_SLAVE_EX_NONE);
     CHECK((span != NULL) && (span->channel == 7U));
-    span = reg_map_find(REG_SPACE_INPUT, REG_MAP_SYS_BASE, 1U);
+    CHECK(reg_map_check(REG_SPACE_INPUT, REG_MAP_SYS_BASE, 1U, &span)
+          == MODBUS_SLAVE_EX_NONE);
     CHECK((span != NULL) && (span->channel == 0xFFU));
 }
 
@@ -467,6 +464,7 @@ static void test_input_layout(void)
     float cjc_temp;
     uint16_t fault_word;
     uint8_t buf[72U * 2U];
+    const reg_span_t* span;
     uint16_t i;
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
@@ -476,7 +474,17 @@ static void test_input_layout(void)
     cjc_temp   = -12.5f;
     fault_word = 0x000FU;
 
-    reg_map_input_encode(value, status, cjc_temp, fault_word, 0U, 72U, buf);
+    /* One encode per span: the codec dispatches on the span that
+     * reg_map_check reports for the range, so every call stays inside
+     * one block. */
+    for ( i = 0U; i < 9U; ++i ) {
+        uint16_t base = (uint16_t)(i * 8U);
+
+        CHECK(reg_map_check(REG_SPACE_INPUT, base, 8U, &span)
+              == MODBUS_SLAVE_EX_NONE);
+        reg_map_input_encode(value, status, cjc_temp, fault_word, span,
+                             base, 8U, &buf[2U * base]);
+    }
     for ( i = 0U; i < 72U; ++i ) {
         if ( modbus_slave_get_u16(&buf[2U * i])
              != expect_input_word(value, status, cjc_temp, fault_word, i) ) {
@@ -504,19 +512,25 @@ static void test_input_layout(void)
     CHECK(modbus_slave_get_u16(&buf[69U * 2U]) == 0U);
 
     /* Partial windows assemble the same registers. */
-    reg_map_input_encode(value, status, cjc_temp, fault_word, 64U, 8U, buf);
+    CHECK(reg_map_check(REG_SPACE_INPUT, 64U, 8U, &span) == MODBUS_SLAVE_EX_NONE);
+    reg_map_input_encode(value, status, cjc_temp, fault_word, span,
+                         64U, 8U, buf);
     for ( i = 64U; i < 72U; ++i ) {
         CHECK(modbus_slave_get_u16(&buf[2U * (i - 64U)])
               == expect_input_word(value, status, cjc_temp, fault_word, i));
     }
 
-    reg_map_input_encode(value, status, cjc_temp, fault_word, 10U, 3U, buf);
+    CHECK(reg_map_check(REG_SPACE_INPUT, 10U, 3U, &span) == MODBUS_SLAVE_EX_NONE);
+    reg_map_input_encode(value, status, cjc_temp, fault_word, span,
+                         10U, 3U, buf);
     for ( i = 10U; i < 13U; ++i ) {
         CHECK(modbus_slave_get_u16(&buf[2U * (i - 10U)])
               == expect_input_word(value, status, cjc_temp, fault_word, i));
     }
 
-    reg_map_input_encode(value, status, cjc_temp, fault_word, 63U, 1U, buf);
+    CHECK(reg_map_check(REG_SPACE_INPUT, 63U, 1U, &span) == MODBUS_SLAVE_EX_NONE);
+    reg_map_input_encode(value, status, cjc_temp, fault_word, span,
+                         63U, 1U, buf);
     CHECK(modbus_slave_get_u16(&buf[0])
           == expect_input_word(value, status, cjc_temp, fault_word, 63U));
 }

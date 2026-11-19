@@ -86,6 +86,11 @@ typedef enum {
 /** @brief Number of entries in the sample rate tables. */
 #define CH_CONFIG_RATE_CODE_COUNT (CH_CONFIG_RATE_CODE_MAX + 1U)
 
+/* Drift guard: the bound must match the APP_RATE_LIST row count. */
+#define APP_RATE_COUNT_ONE(code, millihertz) +1U
+Q_ASSERT_STATIC((0U APP_RATE_LIST(APP_RATE_COUNT_ONE)) == CH_CONFIG_RATE_CODE_COUNT);
+#undef APP_RATE_COUNT_ONE
+
 /**
  * @brief One channel's configuration, 20 bytes, no padding, no version field.
  *
@@ -110,7 +115,7 @@ typedef struct {
 } ch_config_t;
 
 /* Compile-time guard: the struct body is the 20 byte persistence format. */
-typedef char ch_config_persist_size_check[(sizeof(ch_config_t) == 20U) ? 1 : -1];
+Q_ASSERT_STATIC(sizeof(ch_config_t) == 20U);
 
 /** @brief Channel status register codes (wire values frozen). */
 typedef enum {
@@ -179,6 +184,43 @@ Q_ASSERT_STATIC(sizeof(cfg_applied_evt_t) <= sizeof(measure_evt_t));
 Q_ASSERT_STATIC(sizeof(cjc_evt_t) <= sizeof(measure_evt_t));
 
 /*----------------------------------------------------------------------------*/
+/* Active object priorities                                                   */
+/*----------------------------------------------------------------------------*/
+
+/** @brief Priority of the first AoChannel (channels take first..first+N-1). */
+#define APP_PRIO_CH_FIRST 2U
+
+/** @brief Priority of AoColdJunction. */
+#define APP_PRIO_CJC 10U
+
+/**
+ * @brief Priority of AoModbus; must stay the highest of all active objects.
+ *
+ * The QV capacity argument of docs/qp-application-design.md section 7
+ * depends on APP_PRIO_MODBUS being the highest: AoModbus must dispatch a
+ * published event before any other AO produces the next one.
+ */
+#define APP_PRIO_MODBUS 11U
+
+/*----------------------------------------------------------------------------*/
+/* Event pools                                                                */
+/*----------------------------------------------------------------------------*/
+
+/**
+ * @brief Pool A block count (MEASURE/CFG_APPLIED/CJC events).
+ *
+ * Sized by the capacity table of docs/qp-application-design.md section 7.
+ */
+#define APP_POOL_A_BLOCK_NUM 16U
+
+/**
+ * @brief Pool B block count (CONFIG_SET events).
+ *
+ * Sized by the capacity table of docs/qp-application-design.md section 7.
+ */
+#define APP_POOL_B_BLOCK_NUM 16U
+
+/*----------------------------------------------------------------------------*/
 /* Board positions                                                            */
 /*----------------------------------------------------------------------------*/
 
@@ -199,6 +241,10 @@ Q_ASSERT_STATIC(sizeof(cjc_evt_t) <= sizeof(measure_evt_t));
 #define APP_POSITION_COUNT_ONE(pos) +1U
 Q_ASSERT_STATIC((0U APP_BOARD_POSITIONS(APP_POSITION_COUNT_ONE)) == APP_BOARD_POSITION_COUNT);
 #undef APP_POSITION_COUNT_ONE
+
+/* Drift guard: the SKU channel count must fit the board position list; the
+ * modbus_ao bitmasks and the KV key table index by position. */
+Q_ASSERT_STATIC(CH_CONFIG_CHANNEL_COUNT <= APP_BOARD_POSITION_COUNT);
 
 #ifdef __cplusplus
 }

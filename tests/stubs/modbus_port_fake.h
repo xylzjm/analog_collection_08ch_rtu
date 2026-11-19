@@ -19,11 +19,7 @@ typedef struct {
     uint8_t tx_enabled;  /**< Last direction() tx argument. */
     uint16_t tx_len;     /**< Bytes pushed through put_byte(). */
     uint8_t tx_bytes[MODBUS_PORT_FAKE_TX_MAX]; /**< Reply capture. */
-    /* timer */
-    uint32_t last_timeout_us; /**< Last arm() argument. */
-    uint16_t arm_calls;    /**< arm() invocations. */
-    uint16_t cancel_calls; /**< cancel() invocations. */
-    uint8_t armed;         /**< 1 after arm(), 0 after cancel(). */
+    /* timer: functional only, nothing is recorded */
     /* critical section */
     uint16_t enter_calls;  /**< enter() invocations. */
     uint16_t exit_calls;   /**< exit() invocations. */

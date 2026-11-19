@@ -5,8 +5,8 @@
  * The call log is the trajectory evidence for the AO tests: entry and
  * exit of the detection and measurement modes are visible as
  * enable/check/disable records, each stamped with the virtual tick and
- * the effective configuration, so deadline and stale-generation
- * violations can be asserted without any tracing facility.
+ * the effective sample rate, so deadline and stale-generation violations
+ * can be asserted without any tracing facility.
  */
 
 #include "analog_input_fake.h"
@@ -31,11 +31,10 @@ static analog_input_status_t fake_configure(analog_input_t* self,
 {
     analog_input_fake_t* f = (analog_input_fake_t*)self;
 
-    /* Implementations own the cached configuration; record it too. */
+    /* Implementations own the cached configuration. */
     f->base.config = *config;
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE);
-    f->log[f->log_len - 1U].type = (uint8_t)config->type;
-    *first_conversion_delay_ms   = f->configure_delay_ms;
+    *first_conversion_delay_ms = f->configure_delay_ms;
     return f->configure_status;
 }
 
@@ -45,8 +44,7 @@ static analog_input_status_t fake_read_sample(analog_input_t* self,
     analog_input_fake_t* f = (analog_input_fake_t*)self;
 
     record(f, (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE);
-    f->log[f->log_len - 1U].code = f->sample_code;
-    *sample_code                 = f->sample_code;
+    *sample_code = f->sample_code;
     return f->read_status;
 }
 
@@ -60,8 +58,7 @@ static analog_input_status_t fake_convert(analog_input_t* self,
 
     (void)sample_code;
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CONVERT);
-    f->log[f->log_len - 1U].raw = f->convert_raw;
-    value                       = f->convert_raw;
+    value = f->convert_raw;
     if ( context != NULL ) {
         value = (value * context->gain) + context->offset;
     }
@@ -85,8 +82,7 @@ static analog_input_status_t fake_check_wire_break(analog_input_t* self,
     analog_input_fake_t* f = (analog_input_fake_t*)self;
 
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CHECK_WIRE);
-    f->log[f->log_len - 1U].wire = (uint8_t)f->check_wire;
-    *wire_status                 = f->check_wire;
+    *wire_status = f->check_wire;
     return f->check_status;
 }
 

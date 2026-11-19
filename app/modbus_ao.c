@@ -87,7 +87,7 @@ static const ch_config_t default_ch_cfg = {
 };
 
 /** @brief Factory default Modbus slave address. */
-static const uint16_t default_dev_addr = REG_MAP_DEV_ADDR_MIN;
+static const uint16_t default_dev_addr = REG_MAP_DEFAULT_DEV_ADDR;
 
 /**
  * @brief Default KV table: the single source of keys and default bodies.
@@ -272,7 +272,7 @@ static void load_all(modbus_ao_t* me)
         me->addr    = addr;
         me->addr_ok = 1U;
     } else {
-        me->addr = REG_MAP_DEV_ADDR_MIN;
+        me->addr = REG_MAP_DEFAULT_DEV_ADDR;
     }
 }
 
@@ -394,10 +394,11 @@ static modbus_slave_exception_t input(void* ctx,
                                       uint8_t* buffer,
                                       modbus_slave_register_mode_t mode)
 {
-    modbus_ao_t* me = (modbus_ao_t*)ctx;
+    modbus_ao_t* me       = (modbus_ao_t*)ctx;
+    const reg_span_t* span = NULL;
     modbus_slave_exception_t ex;
 
-    ex = reg_map_check(REG_SPACE_INPUT, start, count, NULL);
+    ex = reg_map_check(REG_SPACE_INPUT, start, count, &span);
     if ( ex != MODBUS_SLAVE_EX_NONE ) {
         return ex;
     }
@@ -406,7 +407,7 @@ static modbus_slave_exception_t input(void* ctx,
     }
 
     reg_map_input_encode(me->value, me->status, me->cjc_temp, fault_word(me),
-                         start, count, buffer);
+                         span, start, count, buffer);
     return MODBUS_SLAVE_EX_NONE;
 }
 
@@ -575,11 +576,14 @@ static void on_timeout(void* ctx)
  * reports the smallest free space seen since start - the boot burst and
  * the 8x100 Hz soak both leave their footprint in one number per AO.
  */
-static void report_queue_watermarks(void)
+static void report_queue_watermarks(const modbus_ao_t* me)
 {
     uint8_t prio;
 
-    for ( prio = 2U; prio <= 11U; ++prio ) {
+    elog_debug("modbus_ao", "tx done=%u timeout=%u",
+               (unsigned)me->tx_done_cnt, (unsigned)me->tx_timeout_cnt);
+
+    for ( prio = (uint8_t)APP_PRIO_CH_FIRST; prio <= (uint8_t)APP_PRIO_MODBUS; ++prio ) {
         uint16_t const min_free = QActive_getQueueMin(prio);
 
         if ( min_free != 0xFFFFU ) { /* unstarted AOs report sentinel */
@@ -617,7 +621,7 @@ void modbus_ao_ctor(modbus_ao_t* me,
     me->kv_ctx         = kv_ctx;
     me->db_ok          = 0U;
     me->b1             = 0U;
-    me->addr           = REG_MAP_DEV_ADDR_MIN;
+    me->addr           = REG_MAP_DEFAULT_DEV_ADDR;
     me->addr_ok        = 0U;
     me->cjc_temp       = 0.0f;
     me->cjc_valid      = 0U;
@@ -767,7 +771,7 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
             ++me->diag_ctr;
             if ( me->diag_ctr >= MODBUS_AO_DIAG_PERIOD_HEARTBEATS ) {
                 me->diag_ctr = 0U;
-                report_queue_watermarks();
+                report_queue_watermarks(me);
             }
             status = Q_HANDLED();
             break;

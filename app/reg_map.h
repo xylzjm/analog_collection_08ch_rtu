@@ -38,11 +38,8 @@ extern "C" {
 /** @brief Base address of the system block (input). */
 #define REG_MAP_SYS_BASE 64U
 
-/** @brief Lowest legal Modbus slave address (single source: the core). */
-#define REG_MAP_DEV_ADDR_MIN MODBUS_SLAVE_ADDRESS_MIN
-
-/** @brief Highest legal Modbus slave address (single source: the core). */
-#define REG_MAP_DEV_ADDR_MAX MODBUS_SLAVE_ADDRESS_MAX
+/** @brief Factory default Modbus slave address (single source: the core). */
+#define REG_MAP_DEFAULT_DEV_ADDR MODBUS_SLAVE_ADDRESS_MIN
 
 /*----------------------------------------------------------------------------*/
 /* Data spaces and spans                                                      */
@@ -72,19 +69,6 @@ typedef struct {
     reg_span_kind_t kind; /**< Span kind; drives codec dispatch. */
     uint8_t channel;      /**< Zero-based channel, or 0xFF for non-channel spans. */
 } reg_span_t;
-
-/**
- * @brief Find the span wholly containing one address range.
- *
- * @param space Data space to search.
- * @param start First address (0-based).
- * @param count Number of registers or bits; must be >= 1.
- * @return The containing span, or NULL when the range is empty, crosses a
- *         block boundary, falls into an unmapped gap or leaves the space.
- */
-const reg_span_t* reg_map_find(reg_space_t space,
-                               uint16_t start,
-                               uint16_t count);
 
 /**
  * @brief Unified callback entry: exception code plus the hit span.
@@ -149,11 +133,16 @@ uint16_t reg_map_dev_decode(const uint8_t* buf);
  *
  * The parameter lists are the raw state of the input area (the mirror the
  * caller owns); reserved registers read back as zero and need no state.
+ * Dispatch runs on span->kind exactly like the holding path: REG_SPAN_CH_IN
+ * uses span->channel and the offset from span->base, REG_SPAN_SYS assembles
+ * CJC and the fault word; any other kind reads back as zero.
  *
  * @param value Latest measured value per channel (CH_CONFIG_CHANNEL_COUNT).
  * @param status Channel status code per channel.
  * @param cjc_temp Cold junction temperature.
  * @param fault_word Device fault word (register 68).
+ * @param span Hit span of the range, as reg_map_check() reports it; must
+ *        contain [start, start + count).
  * @param start First register address (0-based).
  * @param count Number of registers.
  * @param buf Receives count * 2 bytes in wire order.
@@ -162,6 +151,7 @@ void reg_map_input_encode(const float* value,
                           const uint16_t* status,
                           float cjc_temp,
                           uint16_t fault_word,
+                          const reg_span_t* span,
                           uint16_t start,
                           uint16_t count,
                           uint8_t* buf);

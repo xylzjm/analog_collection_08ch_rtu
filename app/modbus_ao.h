@@ -142,13 +142,6 @@ const modbus_slave_identity_t* modbus_ao_identity(void);
 void modbus_ao_attach(modbus_ao_t* me,
                       modbus_slave_t* slave);
 
-/**
- * @brief Return the target FlashDB/FAL implementation of modbus_kv_ops_t.
- *
- * Implemented in app/kv_flashdb.c.
- */
-const modbus_kv_ops_t* kv_flashdb_ops(void);
-
 #ifdef __cplusplus
 }
 #endif

@@ -41,17 +41,14 @@ static int failures;
 static uint8_t rx_buffer[256];
 static uint8_t tx_buffer[256];
 
-#define POOL_A_BLOCKS 16U
-#define POOL_B_BLOCKS 16U
-
 static modbus_ao_t ao;
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
 static kv_mem_t kv;
 static QEvtPtr ao_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
 /* Publish observer for CONFIG_SET_SIG. */
 static QActive recorder;
@@ -256,7 +253,7 @@ static void world_start(void)
 
     modbus_ao_attach(&ao, &slave);
 
-    QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(11U, 0U),
+    QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(APP_PRIO_MODBUS, 0U),
                   ao_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     ao_started = 1U;
 
@@ -332,7 +329,7 @@ static void test_boot_load_publishes(void)
 
     scenario_begin();
     CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
-    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.addr_ok == 1U);
     {
         uint8_t ch;
@@ -435,7 +432,7 @@ static void test_fc16_write_pipeline(void)
     CHECK(published[boot_publish_count].cfg.type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(published[boot_publish_count].cfg.rate_code == 9U);
 
-    /* The channel acceptance event replaces the old apply callback. */
+    /* The channel acceptance event is the acceptance path (CFG_APPLIED_SIG). */
     {
         cfg_applied_evt_t* e = Q_NEW(cfg_applied_evt_t, CFG_APPLIED_SIG);
 
@@ -592,7 +589,7 @@ static void test_commit_failure_latches(void)
         CHECK(reply_len == 5U);
         CHECK(memcmp(reply, full, 5U) == 0);
     }
-    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN); /* not adopted */
+    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR); /* not adopted */
     CHECK(ao.b1 != 0U);
 
     /* The fault word exposes the latch through the input area; b0 is also
@@ -712,7 +709,7 @@ static void test_bad_address(void)
     world_start();
 
     CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
-    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.addr_ok == 0U);
     {
         const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&ao);
@@ -728,7 +725,7 @@ static void test_bad_address(void)
 
     /* The next boot is healthy again. */
     scenario_begin();
-    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.addr_ok == 1U);
     scenario_end();
 }

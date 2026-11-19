@@ -20,17 +20,18 @@ CH_IN/SYS）、`reg_span_t`（space/base/n/kind/channel）。一张按 `space` �
 
 - **8 位置单源**：通道行由 `app.h` 的 `APP_BOARD_POSITIONS` X 宏展开（与 KV
   默认表同源），行数编译期守卫——不存在第二份手维护的位置清单。
-- **SKU 装配数过滤**：表描述底板 8 位置全布局，`reg_map_find` 把未装配位置
-  （`channel >= CH_CONFIG_CHANNEL_COUNT`）过滤为 EX 02——既有通道地址不随装配数
-  变化。
+- **SKU 装配数过滤**：表描述底板 8 位置全布局，`reg_map_find`（文件内 static）
+  把未装配位置（`channel >= CH_CONFIG_CHANNEL_COUNT`）过滤为 EX 02——既有通道地址
+  不随装配数变化。
 - 字段一律枚举类型直用（类型安全、自文档），表在 ROM。几何常量
   （`REG_MAP_CH_CFG_LEN`、`REG_MAP_DEV_BASE`、`REG_MAP_CH_IN_LEN/_STRIDE`、
-  `REG_MAP_SYS_BASE`、`REG_MAP_DEV_ADDR_MIN/MAX`）定义在 `reg_map.h`。
+  `REG_MAP_SYS_BASE`、`REG_MAP_DEFAULT_DEV_ADDR`）定义在 `reg_map.h`。
 
 ## 2. 寻址与异常口径
 
-`reg_map_find(space, start, count)`：[start, start+count) 整体落在某跨度内 → 该
-跨度；否则 NULL。`reg_map_check(...)`：回调统一入口，异常码 + 命中跨度输出。
+`reg_map_find(space, start, count)`（文件内 static）：[start, start+count) 整体落在
+某跨度内 → 该跨度；否则 NULL。`reg_map_check(...)`：唯一对外入口，异常码 + 命中
+跨度输出。
 
 | 情形 | 码 | 归属 |
 | --- | --- | --- |
@@ -51,8 +52,11 @@ EX 01 口径：空间整体不存在 = 函数不支持（比 EX 02 诚实——�
   的读-改-写（encode(当前) → 帧覆盖 → decode(全块)）由写事务编排，任意单寄存器
   写天然正确。往返无损：`decode(encode(x)) == normalize(x)`。
 - **设备寄存器 codec**：`reg_map_dev_encode/decode`（u16 直通；范围校验归写事务）。
-- **输入区编码**：`reg_map_input_encode(in, start, count, buf)` 从
-  `reg_map_input_encode()`（值/状态/CJC/故障字逐段拼装，保留槽读 0；无写路径）。
+- **输入区编码**：`reg_map_input_encode(value, status, cjc_temp, fault_word,
+  span, start, count, buf)`（值/状态/CJC/故障字逐段拼装，保留槽读 0；无写路径）。
+  按 `span->kind` 分派（与保持寄存器路径同式）：`CH_IN` 用 `span->channel` 与
+  `addr - span->base` 偏移，`SYS` 用 CJC/故障字；`span` 由 `reg_map_check` 命中
+  后传入。
 
 ## 4. 故障字合成
 

@@ -32,10 +32,8 @@ static const reg_span_t spans[] = {
     {REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS, SPAN_NO_CHANNEL}};
 
 /* Compile-time guard: two rows per board position plus the two device rows. */
-typedef char span_count_check[((sizeof(spans) / sizeof(spans[0]))
-                               == (2U * APP_BOARD_POSITION_COUNT + 2U))
-                                  ? 1
-                                  : -1];
+Q_ASSERT_STATIC((sizeof(spans) / sizeof(spans[0]))
+                == (2U * APP_BOARD_POSITION_COUNT + 2U));
 
 /**
  * @brief Write one big-endian float32 as two registers (high word first).
@@ -63,9 +61,18 @@ static float get_float(const uint8_t* buf)
     return value;
 }
 
-const reg_span_t* reg_map_find(reg_space_t space,
-                               uint16_t start,
-                               uint16_t count)
+/**
+ * @brief Find the span wholly containing one address range.
+ *
+ * @param space Data space to search.
+ * @param start First address (0-based).
+ * @param count Number of registers or bits; must be >= 1.
+ * @return The containing span, or NULL when the range is empty, crosses a
+ *         block boundary, falls into an unmapped gap or leaves the space.
+ */
+static const reg_span_t* reg_map_find(reg_space_t space,
+                                      uint16_t start,
+                                      uint16_t count)
 {
     uint32_t end;
     size_t i;
@@ -196,10 +203,26 @@ uint16_t reg_map_dev_decode(const uint8_t* buf)
     return modbus_slave_get_u16(&buf[0]);
 }
 
+/**
+ * @brief Return one word of a big-endian float32 register pair.
+ *
+ * @param value Value to split.
+ * @param index 0 for the high word, 1 for the low word.
+ */
+static uint16_t float_word(float value,
+                           uint16_t index)
+{
+    uint32_t bits;
+
+    memcpy(&bits, &value, sizeof(bits));
+    return (uint16_t)((index == 0U) ? (bits >> 16) : (bits & 0xFFFFU));
+}
+
 void reg_map_input_encode(const float* value,
                           const uint16_t* status,
                           float cjc_temp,
                           uint16_t fault_word,
+                          const reg_span_t* span,
                           uint16_t start,
                           uint16_t count,
                           uint8_t* buf)
@@ -207,50 +230,32 @@ void reg_map_input_encode(const float* value,
     uint16_t i;
 
     for ( i = 0U; i < count; ++i ) {
-        uint16_t addr = (uint16_t)(start + i);
+        uint16_t off  = (uint16_t)(start + i - span->base);
         uint16_t word = 0U;
 
-        if ( addr < REG_MAP_SYS_BASE ) {
-            uint16_t ch  = (uint16_t)(addr / REG_MAP_CH_IN_STRIDE);
-            uint16_t off = (uint16_t)(addr % REG_MAP_CH_IN_STRIDE);
-
+        if ( span->kind == REG_SPAN_CH_IN ) {
             if ( off == 0U ) {
-                uint32_t bits;
-
-                memcpy(&bits, &value[ch], sizeof(bits));
-                word = (uint16_t)(bits >> 16);
+                word = float_word(value[span->channel], 0U);
             } else if ( off == 1U ) {
-                uint32_t bits;
-
-                memcpy(&bits, &value[ch], sizeof(bits));
-                word = (uint16_t)(bits & 0xFFFFU);
+                word = float_word(value[span->channel], 1U);
             } else if ( off == 2U ) {
-                word = status[ch];
+                word = status[span->channel];
             } else {
                 word = 0U; /* reserved */
             }
-        } else if ( addr < (REG_MAP_SYS_BASE + REG_MAP_CH_IN_LEN) ) {
-            uint16_t off = (uint16_t)(addr - REG_MAP_SYS_BASE);
-
+        } else if ( span->kind == REG_SPAN_SYS ) {
             if ( off == 0U ) {
-                uint32_t bits;
-
-                memcpy(&bits, &cjc_temp, sizeof(bits));
-                word = (uint16_t)(bits >> 16);
+                word = float_word(cjc_temp, 0U);
             } else if ( off == 1U ) {
-                uint32_t bits;
-
-                memcpy(&bits, &cjc_temp, sizeof(bits));
-                word = (uint16_t)(bits & 0xFFFFU);
+                word = float_word(cjc_temp, 1U);
             } else if ( off == 4U ) {
                 word = fault_word;
             } else {
                 word = 0U; /* reserved */
             }
         } else {
-            word = 0U; /* defensive: outside every span */
+            word = 0U; /* defensive: holding kinds never reach this codec */
         }
-
         modbus_slave_put_u16(&buf[2U * i], word);
     }
 }

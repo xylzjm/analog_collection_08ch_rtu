@@ -31,8 +31,8 @@ workspace file adds both folders; without them nothing compiles.
 - Firmware builds only through EIDE: VS Code tasks `build`, `rebuild`, `clean`,
   `flash`, `build and flash`, or the EIDE MCP tools with project uid
   `2b2c107904df4cdb1e97e57d6947db29` (`rebuild` is the reliable full check).
-- A clean build is 69 C files + 1 assembly file, ROM about 52.6/60 KB (87.7 %),
-  RAM 9.4/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
+- A clean build is 66 C files + 1 assembly file, ROM about 51.9/60 KB (86.6 %),
+  RAM 9.15/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
   KV layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
   the `fdb_kvdb` parameter partition, and ROM is linked to 60 KB (`0xF000`).
@@ -147,10 +147,12 @@ workspace file adds both folders; without them nothing compiles.
    table. `tests/stubs` must stay first in the
    include order so the host `qp_port.h` and `elog.h` shadows win
    over the firmware headers.
-   - Six executables, all in `tests/` (flat): `test_reg_map` (pure map),
+   - Seven executables, all in `tests/` (flat): `test_reg_map` (pure map),
      `test_modbus_data` (write transaction + persistence driven directly
      through the data-space callbacks with `kv_mem`, no frames), `test_channel_ao`
-     and `test_modbus_ao` (event/tick-injected AO tests), `test_boot` (startup
+     and `test_modbus_ao` (event/tick-injected AO tests), `test_cold_junction_ao`
+     (cold junction heartbeat, failure freeze and recovery over
+     `tmp75_port_fake`), `test_boot` (startup
      integration; takes a scenario argument 1, 2 because the QP registry is not
      rebuilt twice inside one process) and `test_analog_input_convert` (the
      pure board conversion module against hand-derived electrical anchors, no

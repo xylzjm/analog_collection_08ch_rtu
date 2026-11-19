@@ -61,19 +61,12 @@ static modbus_slave_t slave;
 static modbus_port_fake_t port;
 static kv_mem_t kv;
 
-#define POOL_A_BLOCKS 16U
-#define POOL_B_BLOCKS 16U
-
 static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
 static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
 static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
-
-static uint8_t ch_started;
-static uint8_t cjc_started;
-static uint8_t modbus_started;
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
 /*----------------------------------------------------------------------------*/
 /* Harness                                                                    */
@@ -128,32 +121,6 @@ static void run_ticks(uint32_t n)
     }
 }
 
-/** @brief Tear down every started AO so the next scenario can re-register. */
-static void unregister_all(void)
-{
-    uint8_t i;
-
-    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        if ( ch_started != 0U ) {
-            (void)QTimeEvt_disarm(&channels[i].te_sample);
-            (void)QTimeEvt_disarm(&channels[i].te_settle);
-            (void)QTimeEvt_disarm(&channels[i].te_break);
-            QActive_unregister_(Q_ACTIVE_UPCAST(&channels[i]));
-        }
-    }
-    if ( cjc_started != 0U ) {
-        (void)QTimeEvt_disarm(&cold_junction.te_tick);
-        QActive_unregister_(Q_ACTIVE_UPCAST(&cold_junction));
-    }
-    if ( modbus_started != 0U ) {
-        QActive_unregister_(Q_ACTIVE_UPCAST(&modbus));
-    }
-    ch_started     = 0U;
-    cjc_started    = 0U;
-    modbus_started = 0U;
-    all_count      = 0U;
-}
-
 /** @brief Read the device fault word through the Modbus data-space map. */
 static uint16_t read_fault_word(void)
 {
@@ -177,7 +144,6 @@ static void boot_scenario(uint8_t fail_ch)
     modbus_slave_config_t cfg;
     tmp75_port_t cjc_port_if;
 
-    unregister_all();
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
@@ -203,12 +169,11 @@ static void boot_scenario(uint8_t fail_ch)
         analog_input_fake_init(&inputs[i]);
         channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base);
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
-                      Q_PRIO((uint8_t)(2U + i), 0U),
+                      Q_PRIO((uint8_t)(APP_PRIO_CH_FIRST + i), 0U),
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
         all_aos[i] = Q_ACTIVE_UPCAST(&channels[i]);
     }
-    ch_started = 1U;
-    all_count  = CH_CONFIG_CHANNEL_COUNT;
+    all_count = CH_CONFIG_CHANNEL_COUNT;
 
     /* AoModbus: its boot load publishes CONFIG_SET_SIG to the channels. */
     cfg.baudrate    = 9600U;
@@ -223,17 +188,15 @@ static void boot_scenario(uint8_t fail_ch)
     cfg.identity  = *modbus_ao_identity();
     CHECK(modbus_slave_ctor(&slave, &cfg) == MODBUS_SLAVE_OK);
     modbus_ao_attach(&modbus, &slave);
-    QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(11U, 0U),
+    QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(APP_PRIO_MODBUS, 0U),
                   modbus_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
-    modbus_started     = 1U;
     all_aos[all_count] = Q_ACTIVE_UPCAST(&modbus);
     ++all_count;
 
     /* AoColdJunction last: its first heartbeat reaches every subscriber. */
     cold_junction_ao_ctor(&cold_junction, &cjc_dev);
-    QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(10U, 0U),
+    QActive_start(Q_ACTIVE_UPCAST(&cold_junction), Q_PRIO(APP_PRIO_CJC, 0U),
                   cjc_queue, COLD_JUNCTION_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
-    cjc_started        = 1U;
     all_aos[all_count] = Q_ACTIVE_UPCAST(&cold_junction);
     ++all_count;
 }
@@ -260,10 +223,10 @@ static void test_full_boot(void)
     /* The burst fits the capacity budget of docs/qp-application-design.md
      * section 7: depth 13 covers 8 publishes + 1 heartbeat + margin. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        CHECK(QActive_getQueueMin((uint_fast8_t)(2U + i)) >= 3U);
+        CHECK(QActive_getQueueMin((uint_fast8_t)(APP_PRIO_CH_FIRST + i)) >= 3U);
     }
-    CHECK(QActive_getQueueMin(11U) >= 8U);
-    CHECK(QActive_getQueueMin(10U) >= 1U);
+    CHECK(QActive_getQueueMin(APP_PRIO_MODBUS) >= 8U);
+    CHECK(QActive_getQueueMin(APP_PRIO_CJC) >= 1U);
 
     /* Settle every channel, then sample: 10 Hz needs 100 ms per value. */
     run_ticks(1200U);

@@ -43,8 +43,8 @@
 | `FRAME_SIG` | 无 | TMR14 T3.5 ISR | `modbus_slave_advance()`（NONE/HANDLED/SENDING 均安全） |
 | `TX_DONE_SIG`/`TX_TIMEOUT_SIG` | 无 | TX ISR | 诊断计数，核心已自行恢复 |
 | `MEASURE_SIG` | `{ch,value,status}` | 发布（AoChannel） | `value/status[ch]` 覆盖写 |
-| `CJC_SIG` | `{temp_c,valid}` | 发布（AoColdJunction） | `cjc` 覆盖写 + b0 判定；兼诊断节拍 |
-| `CFG_APPLIED_SIG` | `{ch}` | 发布（AoChannel） | `applied[ch]=1`（替代已删除的 `on_applied` 回调） |
+| `CJC_SIG` | `{temp_c,valid}` | 发布（AoColdJunction） | `cjc_temp/cjc_valid` 覆盖写 + b0 判定；兼诊断节拍 |
+| `CFG_APPLIED_SIG` | `{ch}` | 发布（AoChannel） | `applied[ch]=1`（接受路径记账） |
 | `CONFIG_SET_SIG` | `{ch,cfg}` | **输出**：本 AO（启动加载 / 写帧提交成功）→ 8×`AoChannel` | 每通道一条；仅提交成功后发布 |
 
 ## 4. 寄存器映射（0 基线地址）
@@ -90,7 +90,7 @@
 
 | 位 | 含义 | 置位/清除语义 |
 | --- | --- | --- |
-| b0 | 冷端故障 | 实时：`cjc` 无效（含未就绪/传感器失效）——冷端有效性唯一上报点 |
+| b0 | 冷端故障 | 实时：冷端无效（`!cjc_valid`，含未就绪/传感器失效）——冷端有效性唯一上报点 |
 | b1 | 参数写入失败 | 锁存（写侧）：写回调固化失败（EX 04 路径）置位；下一次成功固化清除 |
 | b2 | 参数加载失败 | 锁存（读侧）：启动加载失败置位；对应参数随后成功固化后清除；该参数不下发、对应通道不投入运行 |
 | b3 | FlashDB 初始化失败 | 锁存（不可恢复，产品报废级）：`kv->init`（`fdb_kvdb_init`）失败置位；**复位前不清除**；无任何配置可下发，Modbus 按默认地址运行 |

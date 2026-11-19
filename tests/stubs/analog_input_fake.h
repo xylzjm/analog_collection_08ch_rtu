@@ -23,15 +23,11 @@ typedef enum {
 /** @brief Upper bound on the recorded calls of one scenario. */
 #define ANALOG_INPUT_FAKE_LOG_MAX 64U
 
-/** @brief One recorded call with its observable arguments. */
+/** @brief One recorded call stamped with the virtual tick and the rate. */
 typedef struct {
     uint8_t  op;     /**< analog_input_fake_op_t of the call. */
     uint32_t tick;   /**< g_test_tick when the call happened. */
-    uint8_t  type;   /**< configure: analog_input_type_t value. */
     uint32_t rate;   /**< Effective config rate in mHz at call time. */
-    int32_t  code;   /**< read_sample: the code handed out. */
-    float    raw;    /**< convert: the raw value handed out. */
-    uint8_t  wire;   /**< check_wire_break: analog_input_wire_status_t value. */
 } analog_input_fake_call_t;
 
 /** @brief Fake analog input: scriptable results, records every call. */

@@ -39,15 +39,12 @@ static int failures;
 /* Harness                                                                    */
 /*----------------------------------------------------------------------------*/
 
-#define POOL_A_BLOCKS 16U
-#define POOL_B_BLOCKS 16U
-
 static modbus_ao_t ao;
 static kv_mem_t kv;
 
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
 /* Publish observer for CONFIG_SET_SIG. */
 static QActive recorder;
@@ -226,8 +223,8 @@ static void test_init_state(void)
     CHECK(kv.set_calls == 0U); /* materialization is not a commit */
     CHECK(ao.db_ok == 1U);
     CHECK(ao.b1 == 0U);
-    CHECK(ao.addr == REG_MAP_DEV_ADDR_MIN);
-    CHECK(cb->address(cb->ctx) == (uint8_t)REG_MAP_DEV_ADDR_MIN);
+    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
+    CHECK(cb->address(cb->ctx) == (uint8_t)REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.status[0] == (uint16_t)CH_STATUS_UNCONFIGURED);
     CHECK(ao.applied[0] == 0U);
     CHECK(ao.cfg_ok[0] == 0U);
@@ -491,7 +488,7 @@ static void test_commit_failure(void)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
     kv.corrupt_read = 0U;
     CHECK(ao.b1 != 0U);
-    CHECK(ao.cfg[0].rate_code == 9U); /* snapshot untouched */
+    CHECK(ao.cfg[0].rate_code == 9U); /* change-check base untouched */
     read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block);
     CHECK(memcmp(block, before, sizeof(block)) == 0);
     rec_collect();
@@ -501,7 +498,7 @@ static void test_commit_failure(void)
      * level: without a boot load cfg_ok stays 0, b0 needs a CJC heartbeat). */
     CHECK((read_fault(cb) & REG_MAP_FAULT_PARAM_WRITE) != 0U);
 
-    /* The retry is not short-circuited (the snapshot never moved). */
+    /* The retry is not short-circuited (the change-check base never moved). */
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, next_block) == MODBUS_SLAVE_EX_NONE);
     CHECK(kv.set_calls == 3U);
     CHECK(ao.b1 == 0U);

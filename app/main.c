@@ -9,6 +9,7 @@
 #include "app.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
+#include "kv_flashdb.h"
 #include "modbus_ao.h"
 #include "modbus_slave_board.h"
 #include "tmp75_board.h"
@@ -47,12 +48,6 @@ static void log_init(void)
 /* Composition root                                                           */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Pool A block count (MEASURE/CFG_APPLIED/CJC events). */
-#define POOL_A_BLOCKS 16U
-
-/** @brief Pool B block count (CONFIG_SET events). */
-#define POOL_B_BLOCKS 16U
-
 static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
 static cold_junction_ao_t cold_junction;
 static modbus_ao_t modbus;
@@ -63,8 +58,8 @@ static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
 
 static QSubscrList subscrSto[MAX_SIG];
 
-static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
 int main(void)
 {
@@ -104,20 +99,20 @@ int main(void)
      */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
-                      Q_PRIO((uint8_t)(2U + i), 0U),
+                      Q_PRIO((uint8_t)(APP_PRIO_CH_FIRST + i), 0U),
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN,
                       (void*)0, 0U,
                       (void*)0);
     }
 
     QActive_start(Q_ACTIVE_UPCAST(&modbus),
-                  Q_PRIO(11U, 0U),
+                  Q_PRIO(APP_PRIO_MODBUS, 0U),
                   modbus_queue, MODBUS_AO_QUEUE_LEN,
                   (void*)0, 0U,
                   (void*)0);
 
     QActive_start(Q_ACTIVE_UPCAST(&cold_junction),
-                  Q_PRIO(10U, 0U),
+                  Q_PRIO(APP_PRIO_CJC, 0U),
                   cjc_queue, COLD_JUNCTION_AO_QUEUE_LEN,
                   (void*)0, 0U,
                   (void*)0);

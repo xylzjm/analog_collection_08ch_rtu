@@ -107,8 +107,6 @@ static int mem_get(void* ctx,
     kv_mem_entry_t* entry;
     size_t n;
 
-    ++mem->get_calls;
-
     entry = find_entry(mem, key);
     if ( entry == NULL ) {
         return -1;
@@ -176,14 +174,4 @@ void kv_mem_put(kv_mem_t* mem,
                 size_t len)
 {
     put_entry(mem, key, value, len);
-}
-
-void kv_mem_erase(kv_mem_t* mem,
-                  const char* key)
-{
-    kv_mem_entry_t* entry = find_entry(mem, key);
-
-    if ( entry != NULL ) {
-        memset(entry, 0, sizeof(*entry));
-    }
 }

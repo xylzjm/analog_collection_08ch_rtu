@@ -7,16 +7,16 @@
  * every access runs in the AoModbus RTC context.
  */
 
-#include "modbus_ao.h"
+#include "kv_flashdb.h"
 
 #include "elog.h"
 #include "flashdb.h"
 
 /** @brief FAL partition that backs the key-value database. */
-#define KV_STORE_FDB_PATH "fdb_kvdb"
+#define KV_FLASHDB_PATH "fdb_kvdb"
 
 /** @brief FlashDB database name (diagnostics only). */
-#define KV_STORE_FDB_NAME "param"
+#define KV_FLASHDB_NAME "param"
 
 /** @brief The single KV database instance owned by this adapter. */
 static struct fdb_kvdb kvdb;
@@ -35,8 +35,8 @@ static int flashdb_init(void* ctx,
 
     (void)ctx;
 
-    if ( count > (APP_BOARD_POSITION_COUNT + 1U) ) {
-        elog_error("kv_store", "too many defaults (%u)", (unsigned)count);
+    if ( count > (sizeof(default_nodes) / sizeof(default_nodes[0])) ) {
+        elog_error("kv_flashdb", "too many defaults (%u)", (unsigned)count);
         return -1;
     }
 
@@ -49,13 +49,13 @@ static int flashdb_init(void* ctx,
     default_kv.num = count;
 
     if ( fal_init() <= 0 ) {
-        elog_error("kv_store", "fal_init failed");
+        elog_error("kv_flashdb", "fal_init failed");
         return -1;
     }
-    if ( fdb_kvdb_init(&kvdb, KV_STORE_FDB_NAME, KV_STORE_FDB_PATH,
+    if ( fdb_kvdb_init(&kvdb, KV_FLASHDB_NAME, KV_FLASHDB_PATH,
                        &default_kv, NULL)
          != FDB_NO_ERR ) {
-        elog_error("kv_store", "fdb_kvdb_init failed");
+        elog_error("kv_flashdb", "fdb_kvdb_init failed");
         return -1;
     }
     return 0;

@@ -88,6 +88,15 @@ $tests = @(
         Extra = @()
     },
     @{
+        Name = 'test_cold_junction_ao'
+        Sources = @('tests/test_cold_junction_ao.c',
+                    'app/cold_junction_ao.c',
+                    '../library/device/tmp75/src/tmp75.c',
+                    'tests/stubs/tmp75_port_fake.c',
+                    'tests/stubs/host_support.c') + $qpSources
+        Extra = @()
+    },
+    @{
         Name = 'test_modbus_ao'
         Sources = @('tests/test_modbus_ao.c',
                     'app/modbus_ao.c',

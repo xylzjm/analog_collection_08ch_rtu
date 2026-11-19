@@ -44,7 +44,6 @@ typedef struct {
     uint8_t fail_write;                         /**< Script: set returns -1 and stores nothing. */
     uint8_t corrupt_read;                       /**< Script: get returns a modified copy. */
     uint16_t init_calls;                        /**< init invocations. */
-    uint16_t get_calls;                         /**< get invocations. */
     uint16_t set_calls;                         /**< set invocations (not default materialization). */
     char last_key[KV_MEM_MAX_KEY];              /**< Key of the last set. */
     uint8_t last_value[KV_MEM_MAX_VALUE];       /**< Body of the last set. */
@@ -76,15 +75,6 @@ void kv_mem_put(kv_mem_t* mem,
                 const char* key,
                 const void* value,
                 size_t len);
-
-/**
- * @brief Remove one key from the store.
- *
- * @param mem Store to modify.
- * @param key NUL-terminated key.
- */
-void kv_mem_erase(kv_mem_t* mem,
-                  const char* key);
 
 #ifdef __cplusplus
 }

@@ -4,12 +4,12 @@
  *
  * Drives the real QHsm dispatch loop (QActive_get_ -> QASM_DISPATCH ->
  * QF_gc, the same triple the QV kernel runs) with tick injection through
- * QTIMEEVT_TICK_X. This replaces the deleted reconfiguration model test:
- * the interleaving sweep runs against the real state machine, and the fake
- * analog input's call log is the trajectory evidence.
+ * QTIMEEVT_TICK_X. The interleaving sweep runs against the real state
+ * machine, and the fake analog input's call log is the trajectory
+ * evidence.
  *
- * The recorder AO observes MEASURE_SIG and CFG_APPLIED_SIG: the acceptance
- * event replaces the old apply-result callback.
+ * The recorder AO observes MEASURE_SIG and CFG_APPLIED_SIG: CFG_APPLIED_SIG
+ * is the acceptance path.
  *
  * Host-scope note: the sweep proves the queue-order discipline of
  * docs/ao/channel_ao.md section 6 (a timer event already queued when the
@@ -48,15 +48,12 @@ static int failures;
 /* Harness                                                                    */
 /*----------------------------------------------------------------------------*/
 
-#define POOL_A_BLOCKS 16U
-#define POOL_B_BLOCKS 16U
-
 static channel_ao_t ao;
 static analog_input_fake_t fake;
 static QEvtPtr ao_queue[CHANNEL_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
-static QF_MPOOL_EL(measure_evt_t) pool_a[POOL_A_BLOCKS];
-static QF_MPOOL_EL(config_set_evt_t) pool_b[POOL_B_BLOCKS];
+static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
+static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
 /* Publish observer: a plain QActive whose queue the test drains directly. */
 static QActive recorder;
@@ -196,7 +193,7 @@ static void scenario_begin(void)
     applied_ch    = 0xFFU;
 
     channel_ao_ctor(&ao, 0U, &fake.base);
-    QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(2U, 0U),
+    QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(APP_PRIO_CH_FIRST, 0U),
                   ao_queue, CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     ao_started = 1U;
 
@@ -251,8 +248,6 @@ static void publish_cjc(float temp_c,
 
 /**
  * @brief Feed one configuration and run the AO into Measuring.
- *
- * @param settle_ticks Milliseconds to wait on each settle deadline.
  */
 static void drive_to_measuring(uint8_t type,
                                uint8_t tc_type,
@@ -271,7 +266,7 @@ static void drive_to_measuring(uint8_t type,
 /* Batch 1: the reconfiguration race, swept against the real state machine    */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Start states of the sweep, mirroring the deleted model test. */
+/** @brief Start states of the reconfiguration sweep. */
 enum {
     SW_UNCONFIG = 0,
     SW_DETECTING,
@@ -526,8 +521,8 @@ static void test_wire_break_reveal_and_freeze(void)
 /**
  * @brief The wire verdict matrix through the detection loop.
  *
- * The status mapping (reg_map's old wire_status_code cases) is observable
- * exactly here: a completed check publishes the verdict immediately.
+ * The wire_status_code() status mapping is observable exactly here: a
+ * completed check publishes the verdict immediately.
  */
 static void test_wire_code_matrix(void)
 {
@@ -584,8 +579,8 @@ static void test_wire_code_matrix(void)
  *
  * The wire verdict survives reconfiguration and is mapped through the new
  * type on every frozen sample; a non-detectable type can never run a new
- * check, so the front-end violation code holds (the old wire status code
- * matrix rows for 4-20 mA / 0-10 V).
+ * check, so the front-end violation code holds (the 4-20 mA / 0-10 V rows
+ * of the wire code matrix).
  */
 static void test_wire_code_frozen_non_detectable(void)
 {

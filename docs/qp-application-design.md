@@ -16,7 +16,7 @@
 | --- | --- |
 | 需求 | 8 路独立模拟输入（TC/PT100/4-20 mA/0-10 V），冷端单片 TMP75；TC/PT100 断线检测与测量互斥、3 s 切换、先检后测；Modbus 按通道配置（类型/速率/线性上下限/校准）与设备参数（从站地址）；通道故障经状态寄存器独立上报，冷端+设备故障合并为设备故障位域；配置写经变化检查后同步固化 |
 | 平台/执行 | AT32F421C8T7（120 MHz，60 KB ROM/16 KB SRAM），armclang -O1 + microlib（-O0 超 ROM 预算）；QP/C 8.1.3，QV 协作内核（AO 间不抢占，ISR 只投递）；SysTick 1 ms 唯一 tick 源；QHsm 手写状态处理函数 |
-| 构建/测试 | EIDE（uid `2b2c107904df4cdb1e97e57d6947db29`）；断言统一 `Q_ASSERT`/`Q_onError`（RTT 直写）；`tests/` 6 个宿主测试可执行（§9） |
+| 构建/测试 | EIDE（uid `2b2c107904df4cdb1e97e57d6947db29`）；断言统一 `Q_ASSERT`/`Q_onError`（RTT 直写）；`tests/` 7 个宿主测试可执行（§9） |
 
 ### 架构形状的理由（why）
 
@@ -192,7 +192,7 @@ QV 协作内核：任一 AO 的响应窗口 = 他人最长 RTC（AoModbus 写回
 ```c
 log_init();                       /* RTT + EasyLogger，必须最先 */
 board_init();
-QF_init(); QF_psInit(subscrSto, MAX_SIG); QF_poolInit(...);   /* 池A、池B */
+QF_init(); QActive_psInit(subscrSto, MAX_SIG); QF_poolInit(...);   /* 池A、池B */
 modbus_ao_ctor(&modbus, kv_flashdb_ops(), NULL); /* 存储经 ctor 注入，构造期打开 */
 channel_ao_ctor(...); cold_junction_ao_ctor(...);            /* 设备注入 */
 modbus_slave_board_ctor(modbus_ao_callbacks(&modbus), modbus_ao_identity());
@@ -223,8 +223,9 @@ FlashDB 分阶段写 + CRC + 上电恢复托管（`modbus_ao.md` §6）：配置
 
 - 日志：`elog`（转换关键点、固化 key/结果、队列低水位）；异常现场 `Q_onError` RTT
   直写（ISR 安全）；不使用 QS/QSpy。
-- 宿主测试 6 个可执行（`tests/run_host_tests.ps1`）：`test_reg_map`（纯映射）、
+- 宿主测试 7 个可执行（`tests/run_host_tests.ps1`）：`test_reg_map`（纯映射）、
   `test_modbus_data`（写事务+持久化，回调级直驱）、`test_channel_ao`、
+  `test_cold_junction_ao`（冷端心跳/失效/自愈，tmp75_port_fake 注入）、
   `test_modbus_ao`、`test_boot`（场景 1/2）、`test_analog_input_convert`。
 - 上板验证要点（尚未在硬件收口）：写事务全路径（EX 00=已固化 / 03 整帧拒绝 /
   04+b1）、掉电循环（旧值或新值）、断线码（TC 2 / PT100 3、4）、冷端失效 1 s 内
