@@ -196,7 +196,10 @@ uint16_t reg_map_dev_decode(const uint8_t* buf)
     return modbus_slave_get_u16(&buf[0]);
 }
 
-void reg_map_input_encode(const reg_map_input_image_t* in,
+void reg_map_input_encode(const float* value,
+                          const uint16_t* status,
+                          float cjc_temp,
+                          uint16_t fault_word,
                           uint16_t start,
                           uint16_t count,
                           uint8_t* buf)
@@ -214,15 +217,15 @@ void reg_map_input_encode(const reg_map_input_image_t* in,
             if ( off == 0U ) {
                 uint32_t bits;
 
-                memcpy(&bits, &in->value[ch], sizeof(bits));
+                memcpy(&bits, &value[ch], sizeof(bits));
                 word = (uint16_t)(bits >> 16);
             } else if ( off == 1U ) {
                 uint32_t bits;
 
-                memcpy(&bits, &in->value[ch], sizeof(bits));
+                memcpy(&bits, &value[ch], sizeof(bits));
                 word = (uint16_t)(bits & 0xFFFFU);
             } else if ( off == 2U ) {
-                word = in->status[ch];
+                word = status[ch];
             } else {
                 word = 0U; /* reserved */
             }
@@ -232,15 +235,15 @@ void reg_map_input_encode(const reg_map_input_image_t* in,
             if ( off == 0U ) {
                 uint32_t bits;
 
-                memcpy(&bits, &in->cjc_temp, sizeof(bits));
+                memcpy(&bits, &cjc_temp, sizeof(bits));
                 word = (uint16_t)(bits >> 16);
             } else if ( off == 1U ) {
                 uint32_t bits;
 
-                memcpy(&bits, &in->cjc_temp, sizeof(bits));
+                memcpy(&bits, &cjc_temp, sizeof(bits));
                 word = (uint16_t)(bits & 0xFFFFU);
             } else if ( off == 4U ) {
-                word = in->fault_word;
+                word = fault_word;
             } else {
                 word = 0U; /* reserved */
             }

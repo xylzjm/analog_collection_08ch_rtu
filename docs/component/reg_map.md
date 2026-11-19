@@ -52,7 +52,7 @@ EX 01 口径：空间整体不存在 = 函数不支持（比 EX 02 诚实——�
   写天然正确。往返无损：`decode(encode(x)) == normalize(x)`。
 - **设备寄存器 codec**：`reg_map_dev_encode/decode`（u16 直通；范围校验归写事务）。
 - **输入区编码**：`reg_map_input_encode(in, start, count, buf)` 从
-  `reg_map_input_image_t`（值/状态/CJC/故障字）逐段拼装，保留槽读 0；无写路径。
+  `reg_map_input_encode()`（值/状态/CJC/故障字逐段拼装，保留槽读 0；无写路径）。
 
 ## 4. 故障字合成
 

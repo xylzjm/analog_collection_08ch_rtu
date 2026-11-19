@@ -422,7 +422,10 @@ static void test_span_identity(void)
 /* Input area layout                                                          */
 /*----------------------------------------------------------------------------*/
 
-static uint16_t expect_input_word(const reg_map_input_image_t* in,
+static uint16_t expect_input_word(const float* value,
+                                  const uint16_t* status,
+                                  float cjc_temp,
+                                  uint16_t fault_word,
                                   uint16_t addr)
 {
     if ( addr < 64U ) {
@@ -430,13 +433,13 @@ static uint16_t expect_input_word(const reg_map_input_image_t* in,
         uint16_t off = (uint16_t)(addr % 8U);
 
         if ( off == 0U ) {
-            return (uint16_t)(float_to_bits(in->value[ch]) >> 16);
+            return (uint16_t)(float_to_bits(value[ch]) >> 16);
         }
         if ( off == 1U ) {
-            return (uint16_t)(float_to_bits(in->value[ch]) & 0xFFFFU);
+            return (uint16_t)(float_to_bits(value[ch]) & 0xFFFFU);
         }
         if ( off == 2U ) {
-            return in->status[ch];
+            return status[ch];
         }
         return 0U;
     }
@@ -444,13 +447,13 @@ static uint16_t expect_input_word(const reg_map_input_image_t* in,
         uint16_t off = (uint16_t)(addr - 64U);
 
         if ( off == 0U ) {
-            return (uint16_t)(float_to_bits(in->cjc_temp) >> 16);
+            return (uint16_t)(float_to_bits(cjc_temp) >> 16);
         }
         if ( off == 1U ) {
-            return (uint16_t)(float_to_bits(in->cjc_temp) & 0xFFFFU);
+            return (uint16_t)(float_to_bits(cjc_temp) & 0xFFFFU);
         }
         if ( off == 4U ) {
-            return in->fault_word;
+            return fault_word;
         }
         return 0U;
     }
@@ -459,24 +462,29 @@ static uint16_t expect_input_word(const reg_map_input_image_t* in,
 
 static void test_input_layout(void)
 {
-    reg_map_input_image_t in;
+    float value[CH_CONFIG_CHANNEL_COUNT];
+    uint16_t status[CH_CONFIG_CHANNEL_COUNT];
+    float cjc_temp;
+    uint16_t fault_word;
     uint8_t buf[72U * 2U];
     uint16_t i;
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        in.value[i]  = (float)(i + 1U) * 1.5f;
-        in.status[i] = (uint16_t)(100U + i);
+        value[i]  = (float)(i + 1U) * 1.5f;
+        status[i] = (uint16_t)(100U + i);
     }
-    in.cjc_temp   = -12.5f;
-    in.fault_word = 0x000FU;
+    cjc_temp   = -12.5f;
+    fault_word = 0x000FU;
 
-    reg_map_input_encode(&in, 0U, 72U, buf);
+    reg_map_input_encode(value, status, cjc_temp, fault_word, 0U, 72U, buf);
     for ( i = 0U; i < 72U; ++i ) {
-        if ( modbus_slave_get_u16(&buf[2U * i]) != expect_input_word(&in, i) ) {
+        if ( modbus_slave_get_u16(&buf[2U * i])
+             != expect_input_word(value, status, cjc_temp, fault_word, i) ) {
             CHECK(0);
             printf("  addr=%u got=%u want=%u\n", (unsigned)i,
                    (unsigned)modbus_slave_get_u16(&buf[2U * i]),
-                   (unsigned)expect_input_word(&in, i));
+                   (unsigned)expect_input_word(value, status, cjc_temp,
+                                               fault_word, i));
         } else {
             CHECK(1);
         }
@@ -496,18 +504,21 @@ static void test_input_layout(void)
     CHECK(modbus_slave_get_u16(&buf[69U * 2U]) == 0U);
 
     /* Partial windows assemble the same registers. */
-    reg_map_input_encode(&in, 64U, 8U, buf);
+    reg_map_input_encode(value, status, cjc_temp, fault_word, 64U, 8U, buf);
     for ( i = 64U; i < 72U; ++i ) {
-        CHECK(modbus_slave_get_u16(&buf[2U * (i - 64U)]) == expect_input_word(&in, i));
+        CHECK(modbus_slave_get_u16(&buf[2U * (i - 64U)])
+              == expect_input_word(value, status, cjc_temp, fault_word, i));
     }
 
-    reg_map_input_encode(&in, 10U, 3U, buf);
+    reg_map_input_encode(value, status, cjc_temp, fault_word, 10U, 3U, buf);
     for ( i = 10U; i < 13U; ++i ) {
-        CHECK(modbus_slave_get_u16(&buf[2U * (i - 10U)]) == expect_input_word(&in, i));
+        CHECK(modbus_slave_get_u16(&buf[2U * (i - 10U)])
+              == expect_input_word(value, status, cjc_temp, fault_word, i));
     }
 
-    reg_map_input_encode(&in, 63U, 1U, buf);
-    CHECK(modbus_slave_get_u16(&buf[0]) == expect_input_word(&in, 63U));
+    reg_map_input_encode(value, status, cjc_temp, fault_word, 63U, 1U, buf);
+    CHECK(modbus_slave_get_u16(&buf[0])
+          == expect_input_word(value, status, cjc_temp, fault_word, 63U));
 }
 
 /*----------------------------------------------------------------------------*/

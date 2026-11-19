@@ -395,7 +395,6 @@ static modbus_slave_exception_t input(void* ctx,
                                       modbus_slave_register_mode_t mode)
 {
     modbus_ao_t* me = (modbus_ao_t*)ctx;
-    reg_map_input_image_t image;
     modbus_slave_exception_t ex;
 
     ex = reg_map_check(REG_SPACE_INPUT, start, count, NULL);
@@ -406,11 +405,8 @@ static modbus_slave_exception_t input(void* ctx,
         return MODBUS_SLAVE_EX_ILLEGAL_FUNCTION;
     }
 
-    memcpy(image.value, me->value, sizeof(image.value));
-    memcpy(image.status, me->status, sizeof(image.status));
-    image.cjc_temp   = me->cjc_temp;
-    image.fault_word = fault_word(me);
-    reg_map_input_encode(&image, start, count, buffer);
+    reg_map_input_encode(me->value, me->status, me->cjc_temp, fault_word(me),
+                         start, count, buffer);
     return MODBUS_SLAVE_EX_NONE;
 }
 

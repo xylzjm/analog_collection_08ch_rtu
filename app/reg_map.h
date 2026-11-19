@@ -145,26 +145,23 @@ uint16_t reg_map_dev_decode(const uint8_t* buf);
 /*----------------------------------------------------------------------------*/
 
 /**
- * @brief Typed mirror of the input register area.
+ * @brief Assemble input registers from the input-area state.
  *
- * Reserved registers read back as zero and need no mirror fields.
- */
-typedef struct {
-    float value[CH_CONFIG_CHANNEL_COUNT];     /**< Latest measured value per channel. */
-    uint16_t status[CH_CONFIG_CHANNEL_COUNT]; /**< Channel status code per channel. */
-    float cjc_temp;                           /**< Cold junction temperature. */
-    uint16_t fault_word;                      /**< Device fault word (register 68). */
-} reg_map_input_image_t;
-
-/**
- * @brief Assemble input registers from the typed mirror.
+ * The parameter lists are the raw state of the input area (the mirror the
+ * caller owns); reserved registers read back as zero and need no state.
  *
- * @param in Typed image to read from.
+ * @param value Latest measured value per channel (CH_CONFIG_CHANNEL_COUNT).
+ * @param status Channel status code per channel.
+ * @param cjc_temp Cold junction temperature.
+ * @param fault_word Device fault word (register 68).
  * @param start First register address (0-based).
  * @param count Number of registers.
  * @param buf Receives count * 2 bytes in wire order.
  */
-void reg_map_input_encode(const reg_map_input_image_t* in,
+void reg_map_input_encode(const float* value,
+                          const uint16_t* status,
+                          float cjc_temp,
+                          uint16_t fault_word,
                           uint16_t start,
                           uint16_t count,
                           uint8_t* buf);
