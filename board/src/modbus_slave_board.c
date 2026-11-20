@@ -155,35 +155,25 @@ static void critical_exit(void* ctx)
     board_critical_exit();
 }
 
-modbus_slave_status_t modbus_slave_board_ctor(
-    const modbus_slave_callbacks_t* callbacks,
-    const modbus_slave_identity_t* identity)
+/*
+ * The platform half of the construction config: line/timer/critical ports,
+ * the rx/tx buffers and the baudrate. Callbacks and identity stay zeroed;
+ * the Modbus AO overwrites them before modbus_slave_ctor().
+ */
+static const modbus_slave_config_t slave_config = {
+    BOARD_MODBUS_BAUDRATE,
+    rx_buffer,
+    (uint16_t)MB_BUFFER_SIZE,
+    tx_buffer,
+    (uint16_t)MB_BUFFER_SIZE,
+    {(void*)&line_ctx, line_direction, line_put_byte, line_tx_done},
+    {(void*)&timer_ctx, timer_arm, timer_cancel},
+    {NULL, critical_enter, critical_exit},
+};
+
+const modbus_slave_config_t* modbus_slave_board_config(void)
 {
-    modbus_slave_config_t config;
-
-    if ( callbacks == NULL || identity == NULL ) {
-        return MODBUS_SLAVE_ERR_ARG;
-    }
-
-    config.baudrate       = BOARD_MODBUS_BAUDRATE;
-    config.rx_buffer      = rx_buffer;
-    config.rx_capacity    = (uint16_t)MB_BUFFER_SIZE;
-    config.tx_buffer      = tx_buffer;
-    config.tx_capacity    = (uint16_t)MB_BUFFER_SIZE;
-    config.line.ctx       = (void*)&line_ctx;
-    config.line.direction = line_direction;
-    config.line.put_byte  = line_put_byte;
-    config.line.tx_done   = line_tx_done;
-    config.timer.ctx      = (void*)&timer_ctx;
-    config.timer.arm      = timer_arm;
-    config.timer.cancel   = timer_cancel;
-    config.critical.ctx   = NULL;
-    config.critical.enter = critical_enter;
-    config.critical.exit  = critical_exit;
-    config.callbacks      = *callbacks;
-    config.identity       = *identity;
-
-    return modbus_slave_ctor(&slave, &config);
+    return &slave_config;
 }
 
 modbus_slave_t* modbus_slave_board_get(void)

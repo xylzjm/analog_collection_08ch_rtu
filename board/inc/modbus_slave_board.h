@@ -10,17 +10,12 @@ extern "C" {
 #endif
 
 /**
- * @brief Construct the slave instance.
- *
- * @param callbacks Data-space callbacks and shared context.
- * @param identity Report-Slave-ID data.
- * @return MODBUS_SLAVE_OK, or the failing constructor status.
- * @note Does not touch hardware or start the core; the application attaches
- *       the event port and calls modbus_slave_start().
+ * @brief Platform half of the slave construction config (ports, buffers,
+ *        baudrate). The callbacks and identity fields are left zeroed and are
+ *        filled by the Modbus AO.
+ * @return Pointer to a file-static const config.
  */
-modbus_slave_status_t modbus_slave_board_ctor(
-    const modbus_slave_callbacks_t* callbacks,
-    const modbus_slave_identity_t* identity);
+const modbus_slave_config_t* modbus_slave_board_config(void);
 
 /** @brief Return the board's Modbus slave instance. */
 modbus_slave_t* modbus_slave_board_get(void);

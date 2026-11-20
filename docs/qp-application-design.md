@@ -193,10 +193,10 @@ QV 协作内核：任一 AO 的响应窗口 = 他人最长 RTC（AoModbus 写回
 log_init();                       /* RTT + EasyLogger，必须最先 */
 board_init();
 QF_init(); QActive_psInit(subscrSto, MAX_SIG); QF_poolInit(...);   /* 池A、池B */
-modbus_ao_ctor(&modbus, kv_flashdb_ops(), NULL); /* 存储经 ctor 注入，构造期打开 */
+modbus_ao_ctor(&modbus, kv_flashdb_ops(), NULL,
+               modbus_slave_board_get(), modbus_slave_board_config());
+        /* 存储与平台半配置经 ctor 注入；回调/身份在 AO 内补齐，一步构造 */
 channel_ao_ctor(...); cold_junction_ao_ctor(...);            /* 设备注入 */
-modbus_slave_board_ctor(modbus_ao_callbacks(&modbus), modbus_ao_identity());
-modbus_ao_attach(&modbus, modbus_slave_board_get());
 QActive_start(ch1..ch8);          /* prio 2..9 */
 QActive_start(modbus);            /* prio 11：初始转换内启动加载并发布 CONFIG_SET_SIG */
 QActive_start(cold_junction);     /* prio 10：首拍 CJC 晚于全部订阅者 */

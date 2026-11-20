@@ -610,7 +610,9 @@ static const modbus_slave_identity_t identity = {
 
 void modbus_ao_ctor(modbus_ao_t* me,
                     const modbus_kv_ops_t* kv,
-                    void* kv_ctx)
+                    void* kv_ctx,
+                    modbus_slave_t* slave,
+                    const modbus_slave_config_t* slave_cfg)
 {
     uint8_t ch;
 
@@ -657,29 +659,29 @@ void modbus_ao_ctor(modbus_ao_t* me,
     } else {
         elog_error("modbus_ao", "kv store not bound");
     }
-}
 
-const modbus_slave_callbacks_t* modbus_ao_callbacks(const modbus_ao_t* me)
-{
-    return &me->cb;
-}
+    /* Full mode supplies slave and config; data-only mode supplies neither. */
+    Q_ASSERT((slave == NULL) == (slave_cfg == NULL));
 
-const modbus_slave_identity_t* modbus_ao_identity(void)
-{
-    return &identity;
-}
+    if ( slave != NULL ) {
+        modbus_slave_config_t config = *slave_cfg;
 
-void modbus_ao_attach(modbus_ao_t* me,
-                      modbus_slave_t* slave)
-{
-    me->slave = slave;
+        /* This module owns the callbacks and identity half of the config. */
+        config.callbacks = me->cb;
+        config.identity  = identity;
+        if ( modbus_slave_ctor(slave, &config) != MODBUS_SLAVE_OK ) {
+            /* Defect: the config was vetted at assembly. */
+            Q_ERROR();
+        }
+        me->slave = slave;
 
-    /* ISR events become AO events; attach requires the stopped state. */
-    me->ev.ctx               = me;
-    me->ev.on_frame_received = on_frame;
-    me->ev.on_frame_sent     = on_sent;
-    me->ev.on_tx_timeout     = on_timeout;
-    (void)modbus_slave_set_event_port(me->slave, &me->ev);
+        /* ISR events become AO events; the core is still stopped here. */
+        me->ev.ctx               = me;
+        me->ev.on_frame_received = on_frame;
+        me->ev.on_frame_sent     = on_sent;
+        me->ev.on_tx_timeout     = on_timeout;
+        (void)modbus_slave_set_event_port(me->slave, &me->ev);
+    }
 }
 
 /*----------------------------------------------------------------------------*/
@@ -722,6 +724,7 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
 
     switch ( e->sig ) {
         case Q_ENTRY_SIG: {
+            Q_ASSERT(me->slave != NULL); /* data-only mode never reaches Serving */
             if ( modbus_slave_start(me->slave) != MODBUS_SLAVE_OK ) {
                 /* Board-level defect; the port was vetted at construction. */
                 Q_ERROR();

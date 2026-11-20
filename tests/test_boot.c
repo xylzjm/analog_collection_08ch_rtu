@@ -124,7 +124,7 @@ static void run_ticks(uint32_t n)
 /** @brief Read the device fault word through the Modbus data-space map. */
 static uint16_t read_fault_word(void)
 {
-    const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&modbus);
+    const modbus_slave_callbacks_t* cb = &modbus.cb;
     uint8_t reply[2];
 
     CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
@@ -141,7 +141,7 @@ static uint16_t read_fault_word(void)
 static void boot_scenario(uint8_t fail_ch)
 {
     uint8_t i;
-    modbus_slave_config_t cfg;
+    modbus_slave_config_t cfg = {0};
     tmp75_port_t cjc_port_if;
 
     memset(subscr, 0, sizeof(subscr));
@@ -161,8 +161,16 @@ static void boot_scenario(uint8_t fail_ch)
     tmp75_port_fake_port(&cjc_port, &cjc_port_if);
     CHECK(tmp75_ctor(&cjc_dev, &cjc_port_if, TMP75_ADDRESS_0) == TMP75_OK);
 
-    /* AoModbus owns its storage; the store opens in its construction. */
-    modbus_ao_ctor(&modbus, kv_mem_ops(), (void*)&kv);
+    /* AoModbus owns its storage and builds its slave core in one step. */
+    cfg.baudrate    = 9600U;
+    cfg.rx_buffer   = rx_buffer;
+    cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
+    cfg.tx_buffer   = tx_buffer;
+    cfg.tx_capacity = (uint16_t)sizeof(tx_buffer);
+    modbus_port_fake_line(&port, &cfg.line);
+    modbus_port_fake_timer(&port, &cfg.timer);
+    modbus_port_fake_critical(&port, &cfg.critical);
+    modbus_ao_ctor(&modbus, kv_mem_ops(), (void*)&kv, &slave, &cfg);
 
     /* Channels first: every AO subscribes inside its initial transition. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
@@ -176,18 +184,6 @@ static void boot_scenario(uint8_t fail_ch)
     all_count = CH_CONFIG_CHANNEL_COUNT;
 
     /* AoModbus: its boot load publishes CONFIG_SET_SIG to the channels. */
-    cfg.baudrate    = 9600U;
-    cfg.rx_buffer   = rx_buffer;
-    cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
-    cfg.tx_buffer   = tx_buffer;
-    cfg.tx_capacity = (uint16_t)sizeof(tx_buffer);
-    modbus_port_fake_line(&port, &cfg.line);
-    modbus_port_fake_timer(&port, &cfg.timer);
-    modbus_port_fake_critical(&port, &cfg.critical);
-    cfg.callbacks = *modbus_ao_callbacks(&modbus);
-    cfg.identity  = *modbus_ao_identity();
-    CHECK(modbus_slave_ctor(&slave, &cfg) == MODBUS_SLAVE_OK);
-    modbus_ao_attach(&modbus, &slave);
     QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(APP_PRIO_MODBUS, 0U),
                   modbus_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     all_aos[all_count] = Q_ACTIVE_UPCAST(&modbus);

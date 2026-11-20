@@ -13,7 +13,7 @@
 | 需求 | 通道配置写（类型/速率/线性上下限/校准）、遥测读、从站地址写；通道故障经状态寄存器独立上报，冷端+设备故障合并为设备故障位域经输入寄存器读取 |
 | 协议 | Modbus RTU 9600 8N1；FC03/FC06/FC16 保持寄存器、FC04 输入寄存器、FC17 报告 ID；FC01/02/05/15 无数据空间（回 01） |
 | 数值编码 | **float32（IEEE-754），2 寄存器，大端字序（高字在低地址）**；u16 单寄存器 |
-| 独占资源 | `modbus_slave_board_get()` 实例、RX/TX 缓冲（板级 256 B 各）、参数分区（经 `modbus_kv_ops_t`） |
+| 独占资源 | `modbus_slave_board_get()` 实例与 `modbus_slave_board_config()` 平台配置、RX/TX 缓冲（板级 256 B 各）、参数分区（经 `modbus_kv_ops_t`） |
 | 镜像（本 AO 字段） | `cfg[]`（已固化配置，**兼变化检查基准**）、`cfg_ok[]`、`applied[]`、`value[]/status[]`、`cjc_temp/cjc_valid`、`addr/addr_ok`、锁存 `b1`、`db_ok` |
 | 假设 | 从站地址经保持寄存器 128 可写（1..247）并固化（KV `dev/addr`，出厂默认 1）；波特率可配置列为扩展（届时在设备级块新增定义） |
 
@@ -35,6 +35,14 @@
 5. **同步可读**：寄存器回调在 `modbus_slave_advance()`（本 AO RTC）内同步执行，
    事件之外无共享数据旁路。帧事件用静态事件（核心 CAPTURED 期丢弃字节，至多一条
    在途）。
+6. **单步构造（消除装配环）**：`modbus_ao_ctor(me, kv, kv_ctx, slave, slave_cfg)`
+   接收板级从站实例与平台半配置（`modbus_slave_board_config()`：端口表、收发缓冲、
+   波特率），在 AO 内补齐自己的半边（回调表 ctx=me、身份）后调用
+   `modbus_slave_ctor()` 并安装事件端口——回调/身份单源在本模块，配置组装不绕
+   组合根，板级因此只是纯提供者（存储 + 平台配置）。事件端口安装是构造的内部
+   细节（此时核心必处停止态），启动仍在 Serving entry 的 `modbus_slave_start()`；
+   `slave` 与 `slave_cfg` 同为 NULL 是数据-only 模式（回调级测试直驱 `cb`，
+   不进 Serving）。
 
 ## 3. 事件契约（本 AO 相关行）
 

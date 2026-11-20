@@ -232,12 +232,10 @@ static void world_preload_addr(uint16_t addr)
     kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
 }
 
-/** @brief Construct the AO and the slave, attach and bring the AO up. */
+/** @brief Construct the AO with its slave core and bring the AO up. */
 static void world_start(void)
 {
-    modbus_slave_config_t cfg;
-
-    modbus_ao_ctor(&ao, kv_mem_ops(), (void*)&kv);
+    modbus_slave_config_t cfg = {0};
 
     cfg.baudrate    = 9600U;
     cfg.rx_buffer   = rx_buffer;
@@ -247,11 +245,8 @@ static void world_start(void)
     modbus_port_fake_line(&port, &cfg.line);
     modbus_port_fake_timer(&port, &cfg.timer);
     modbus_port_fake_critical(&port, &cfg.critical);
-    cfg.callbacks = *modbus_ao_callbacks(&ao);
-    cfg.identity  = *modbus_ao_identity();
-    CHECK(modbus_slave_ctor(&slave, &cfg) == MODBUS_SLAVE_OK);
 
-    modbus_ao_attach(&ao, &slave);
+    modbus_ao_ctor(&ao, kv_mem_ops(), (void*)&kv, &slave, &cfg);
 
     QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(APP_PRIO_MODBUS, 0U),
                   ao_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
@@ -689,7 +684,7 @@ static void test_boot_load_failure(void)
 
     /* The fault word shows the load failure (b0: no heartbeat yet). */
     {
-        const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&ao);
+        const modbus_slave_callbacks_t* cb = &ao.cb;
         uint8_t reply[2];
 
         CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
@@ -712,7 +707,7 @@ static void test_bad_address(void)
     CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.addr_ok == 0U);
     {
-        const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&ao);
+        const modbus_slave_callbacks_t* cb = &ao.cb;
         uint8_t reply[2];
 
         CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,

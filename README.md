@@ -132,7 +132,7 @@ elog_* / FDB_PRINT / printf
 - T3.5 / TX 看门狗：TMR14。
 - RX/TX 缓冲区各 256 B。
 - USART1 与 TMR14 共用优先级 5，不能互相抢占。
-- 板级只拥有一个从站实例；`modbus_slave_board_ctor()` 需要应用传入 callbacks/identity。
+- 板级只拥有一个从站实例，并提供平台半配置（`modbus_slave_board_config()`：端口表、收发缓冲、波特率）；callbacks/identity 由 AoModbus 在 `modbus_ao_ctor()` 构造时补齐，板级不参与组装。
 - 应用必须把 `on_frame_received` 事件接到 `modbus_slave_advance()`，并在自己的上下文中调用。
 - 从站地址由 `callbacks.address` 提供，核心不保存地址。
 - 临界区使用 board 的可嵌套中断屏蔽，与 QP 的 QF 临界区共享同一个嵌套计数。

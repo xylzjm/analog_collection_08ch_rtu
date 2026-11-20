@@ -73,22 +73,15 @@ int main(void)
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
-    /* The Modbus AO owns its storage: the KV database opens in the ctor. */
-    modbus_ao_ctor(&modbus, kv_flashdb_ops(), (void*)0);
+    /* full mode: one line, protocol invisible */
+    modbus_ao_ctor(&modbus, kv_flashdb_ops(), (void*)0,
+                   modbus_slave_board_get(), modbus_slave_board_config());
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         channel_ao_ctor(&channels[i], (uint8_t)i,
                         analog_input_board_get((uint8_t)(i + 1U)));
     }
     cold_junction_ao_ctor(&cold_junction, tmp75_board_get_device());
-
-    /*
-     * The slave is composed from the AO's data-space callbacks (the typed
-     * mirror and the write transaction live inside the AO), then attached
-     * so its ISR events route back into it.
-     */
-    (void)modbus_slave_board_ctor(modbus_ao_callbacks(&modbus), modbus_ao_identity());
-    modbus_ao_attach(&modbus, modbus_slave_board_get());
 
     /*
      * Start order: channels first, then AoModbus (its boot load publishes

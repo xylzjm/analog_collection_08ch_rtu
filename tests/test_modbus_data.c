@@ -2,9 +2,9 @@
  * @file test_modbus_data.c
  * @brief Callback-level tests of the write transaction and persistence.
  *
- * Drives modbus_ao_callbacks() directly with the in-memory KV store - no
- * frames, no slave core, no dispatch of the AO under test - so the whole
- * transaction discipline runs exactly as the core would invoke it:
+ * Drives the AO's data-space callbacks (ao.cb) directly with the in-memory
+ * KV store - no frames, no slave core, no dispatch of the AO under test - so
+ * the whole transaction discipline runs exactly as the core would invoke it:
  * validate, commit (through the real persistence code over kv_mem with a
  * read-back check), then mirror, then publish. Publishes are observed on
  * a recorder AO. Boot loading (the initial transition) and the
@@ -118,7 +118,8 @@ static void setup(uint8_t db_fail,
 
     modbus_ao_ctor(&ao,
                    (unbound != 0U) ? NULL : kv_mem_ops(),
-                   (unbound != 0U) ? NULL : (void*)&kv);
+                   (unbound != 0U) ? NULL : (void*)&kv,
+                   NULL, NULL); /* data-only mode: no slave core */
 }
 
 static void setup_normal(void)
@@ -129,7 +130,7 @@ static void setup_normal(void)
 /** @brief The callback table of the constructed AO, as the core gets it. */
 static const modbus_slave_callbacks_t* wiring(void)
 {
-    const modbus_slave_callbacks_t* cb = modbus_ao_callbacks(&ao);
+    const modbus_slave_callbacks_t* cb = &ao.cb;
 
     CHECK(cb->ctx == &ao);
     CHECK(cb->holding_registers != NULL);

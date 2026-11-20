@@ -76,7 +76,7 @@ typedef struct {
 /** @brief AoModbus active object: protocol routing, mirror and persistence. */
 typedef struct {
     QActive super;                /**< Active object base. */
-    modbus_slave_t* slave;        /**< Slave instance, attached after construction. */
+    modbus_slave_t* slave;        /**< Slave instance built by the ctor; NULL in data-only mode. */
     modbus_slave_port_event_t ev; /**< ISR event port routed into this AO. */
     modbus_slave_callbacks_t cb;  /**< Data-space callbacks bound to this instance. */
     ch_config_t cfg[CH_CONFIG_CHANNEL_COUNT];  /**< Committed configs; also the change-check base. */
@@ -98,49 +98,23 @@ typedef struct {
 } modbus_ao_t;
 
 /**
- * @brief Construct the Modbus active object (no slave attached yet).
- *
- * Binds the storage backend and opens it (kv->init): @p kv NULL or a failed
- * init leaves the store unbound (db_ok = 0, fault word b3) and every later
- * commit fails safe with EX 04.
+ * @brief Construct the Modbus active object and its slave core in one step.
  *
  * @param me Storage owned by the caller.
- * @param kv Storage operations; NULL leaves the store unbound.
- * @param kv_ctx Context handed to every storage operation.
+ * @param kv KV storage port; NULL leaves the store unbound (db_ok = 0, fault b3).
+ * @param kv_ctx Context handed to every kv operation.
+ * @param slave Caller-owned slave storage (board's static instance). NULL and
+ *        @p slave_cfg NULL together select data-only mode (no slave core; for
+ *        callback-level tests). Mixing NULL and non-NULL is a defect (Q_ASSERT).
+ * @param slave_cfg Platform half of modbus_slave_config_t: line/timer/critical
+ *        ports, rx/tx buffers, baudrate. The callbacks and identity fields are
+ *        overwritten by this module and their input values are ignored.
  */
 void modbus_ao_ctor(modbus_ao_t* me,
                     const modbus_kv_ops_t* kv,
-                    void* kv_ctx);
-
-/**
- * @brief Data-space callbacks of this AO, for slave construction.
- *
- * Bound to this instance (ctx = me). The composition root passes the result
- * to modbus_slave_board_ctor() (target) or modbus_slave_ctor() (host
- * tests).
- *
- * @param me Active object whose mirror the callbacks serve.
- * @return Callback table bound to @p me.
- */
-const modbus_slave_callbacks_t* modbus_ao_callbacks(const modbus_ao_t* me);
-
-/**
- * @brief Slave identity reported by function code 0x11.
- *
- * @return Identity table; no per-instance state.
- */
-const modbus_slave_identity_t* modbus_ao_identity(void);
-
-/**
- * @brief Attach a constructed slave and route its ISR events into this AO.
- *
- * @param me Storage owned by the caller.
- * @param slave Slave instance built from modbus_ao_callbacks(); must not be
- *        started yet, because the event port attach requires the stopped
- *        state.
- */
-void modbus_ao_attach(modbus_ao_t* me,
-                      modbus_slave_t* slave);
+                    void* kv_ctx,
+                    modbus_slave_t* slave,
+                    const modbus_slave_config_t* slave_cfg);
 
 #ifdef __cplusplus
 }

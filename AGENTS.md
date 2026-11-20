@@ -96,9 +96,10 @@ workspace file adds both folders; without them nothing compiles.
   directly: no passive module ever calls back into an active object.
 - Active objects take their device objects by constructor injection (no board
   singletons inside `app/`): `main.c` passes the board singletons to the
-  channel and cold-junction constructors, injects the KV store into
-  `modbus_ao_ctor()`, and composes the Modbus slave from `modbus_ao_callbacks()`
-  / `modbus_ao_identity()` before `modbus_ao_attach()`.
+  channel and cold-junction constructors and gives `modbus_ao_ctor()` the KV
+  store plus the board's slave storage and platform config
+  (`modbus_slave_board_get()` / `modbus_slave_board_config()`). The board is
+  a pure provider; the AO assembles the full config and builds the core.
 - Start order: channels, then AoModbus, then AoColdJunction. Every AO subscribes
   inside its own initial transition (QP/C example style; `QActive_start()`
   registers the AO before running it), and the boot load (load_all + publish)
@@ -115,11 +116,12 @@ workspace file adds both folders; without them nothing compiles.
 - `log_init()` must run before `board_init()`, or that function's `elog_error()`
   diagnostics are lost. No logging from interrupt context:
   `elog_port_output_lock` is empty.
-- The KV store is injected via `modbus_ao_ctor()`: `main.c` passes
-  `kv_flashdb_ops()` (whose `init` runs in the ctor and opens the FlashDB
-  database), host tests pass `kv_mem`. An unbound store or a failed init
-  leaves `db_ok = 0` (fault word b3) and every later commit fails safe with
-  EX 04.
+- The KV store and the slave core are injected via the one-step
+  `modbus_ao_ctor()`: `main.c` passes `kv_flashdb_ops()` (whose `init` runs
+  in the ctor and opens the FlashDB database) together with the board's slave
+  storage and platform config, host tests pass `kv_mem`. An unbound store or
+  a failed init leaves `db_ok = 0` (fault word b3) and every later commit
+  fails safe with EX 04.
 - Critical sections only through `board_critical_enter()` /
   `board_critical_exit()` (`board/inc/board.h`). The nest counter is shared with
   QP, which reaches it via the strong `QF_crit_entry_`/`QF_crit_exit_` overrides
