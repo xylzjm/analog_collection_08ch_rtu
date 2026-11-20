@@ -35,8 +35,8 @@
 
 ```text
 AoColdJunction (top, 初始 → Starting)
-├── Starting   （一次性配置 + 首读）
-└── Sampling   （1 Hz 周期采样）
+└── Starting      （一次性配置 + 首读）
+    └── Sampling  （1 Hz 周期采样）
 ```
 
 | 状态 | entry | 定性含义 |
@@ -50,8 +50,7 @@ AoColdJunction (top, 初始 → Starting)
 | Sampling | `TICK_SIG` | 读成功且在带内（-30..+85） | 内部 | `err_cnt=0`；`temp_c` 更新；发布 valid=1 | 不变 |
 | Sampling | `TICK_SIG` | 读失败/越界 | 内部 | `err_cnt++`；发布 `{temp_c, err_cnt<3}` | 不变 |
 
-动作轨迹（Starting→Sampling）：entry 动作完成即初始转换到 Sampling（Working 结构极简，
-无复合超状态）。故障自愈不设故障态：失败仅体现为 `err_cnt` 与 invalid 心跳，读成功即恢复。
+动作轨迹（Starting→Sampling）：entry 动作完成即初始转换到 Sampling。故障自愈不设故障态：失败仅体现为 `err_cnt` 与 invalid 心跳，读成功即恢复。
 
 ## 5. 定时与 RTC
 
@@ -79,15 +78,8 @@ AoColdJunction (top, 初始 → Starting)
 | 上电首读 0 °C 假值窗口 | **已消除** | 板级契约：`board_init()` 返回时至少一次转换已完成（将来板级改配置须延时 `tmp75_conversion_time_ms()`） |
 | 上电探测 NACK | 合法异常 | board 层已记录；本 AO 不阻塞启动，靠心跳揭示 |
 
-## 8. 验证矩阵（本 AO）
+## 8. 验证要点（本 AO）
 
-| 测试 | 激励 | 预期 | 证据 |
-| --- | --- | --- | --- |
-| 心跳/失效/自愈（宿主） | `tests/test_cold_junction_ao.c`，tmp75_port_fake 注入 | 首读即发布、1 Hz 心跳；连续 3 次失败→invalid（温度冻结）；恢复读→valid | 宿主测试 |
-| 正常心跳 | 上电 | 1 Hz 发布，温度随环境变化 | RTT 日志 |
-| 失效注入 | 断开 SDA/SCL | ≤3 s 内 invalid 心跳；TC 通道状态 5 | 拔线实验 |
-| 自愈 | 恢复接线 | 下一条心跳即 valid | 日志 |
-| 量化步进 | 对照标准温度计 | 9-bit 默认，读数呈 0.5 °C 步进（精度已接受） | 读数对比 |
-| 越界注入 | 调试构建伪造越界读数 | 按读失败计，连续 3 次→invalid 心跳 | 调试构建 |
-| 上电首读 | 冷启动（环境温度 ≠ 0 °C） | 首条 `CJC_SIG` 即真实值，无 0 °C 假值 | RTT 日志 |
-| RTC 压测 | 与 8×100 Hz 并行 | I2C 步不被插入（QV 串行），无总线冲突 | 逻辑分析仪 |
+宿主测试 `tests/test_cold_junction_ao.c`（tmp75_port_fake 注入）：心跳/失效/自愈全轨迹。
+上板失效注入（断开/恢复 SDA/SCL）：≤3 s 内 invalid 心跳、TC 通道状态 5，接线恢复后下一条心跳即 valid。
+上板冷启动首读（环境温度 ≠ 0 °C）：首条 `CJC_SIG` 即真实值，无上电 0 °C 假值。

@@ -183,18 +183,11 @@ DEV：  addr_valid（1..247）；非法 → EX 03
   `config_validate` 归一化保证；固化 = `param_commit()`（`fdb_kv_set_blob` 写入
   + `fdb_kv_get_blob` 读回 memcmp），成败以读回
   为准。**不做任何兜底**（无自动重试/补写/延迟合并）。
-- **边界面**：`modbus_ao.c` 直接调用四个 FlashDB 入口
-  （`fdb_kvdb_init`/`fdb_kv_get_blob`/`fdb_kv_set_blob`/`fdb_blob_make`，唯一碰
-  FlashDB 的生产文件），全部操作在本 AO RTC 内执行（QV 串行，
-  无锁）。`fdb_kvdb` 分区
-  `0x0800F000..0x0800FFFF`（名单源 `BOARD_PARAM_PARTITION`，`fal_cfg.h` 与
-  `fdb_kvdb_init()` 共同消费），掉电安全由 FlashDB 分阶段写+CRC+上电恢复托管：任意写
-  时刻断电只可能得到旧值或完整新值。宿主测试以
-  `tests/stubs/fdb_fake.c` 在链接边界替换这四个入口（可注入读回不一致；
-  `test_fake_medium()` 钉住其契约）。
-  `fdb_kvdb_init()` 在 `modbus_ao_ctor()` 内执行（FlashDB 在 `_fdb_init_ex` 内
-  自行调用 `fal_init()`）；打开失败 → `store.db_ok=0`（b3）
-  且后续提交恒 EX 04。
+- **边界面**：`modbus_ao.c` 直接调用四个 FlashDB 入口（`fdb_kvdb_init`/`fdb_kv_get_blob`/
+  `fdb_kv_set_blob`/`fdb_blob_make`；modbus_ao.c 是唯一包含 flashdb.h 的生产 TU）；
+  `fdb_kvdb` 分区名单源 `BOARD_PARAM_PARTITION`（`fal_cfg.h` 与 `fdb_kvdb_init()` 共同
+  消费）；宿主测试以 `tests/stubs/fdb_fake.c` 在链接边界替换这四个入口（可注入读回
+  不一致；`test_fake_medium()` 钉住其契约）。
 - 固化为**同步**执行是协议决策（EX 04 语义要求固化在写回调返回前完成）；异步方案
   否决理由：先生效后固化会掉电静默回退，先应答后生效破坏"应答即提交"语义。
 
@@ -205,7 +198,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
 | 队列 | 16 | QV 抽干性质 + 发布收敛（本 AO 最高优先级），论证见总体设计 §7；水位经 `QActive_getQueueMin()` 取证 |
 | RTC（写帧，含同步固化） | ≤30 ms | advance + 校验 + 1 次 KV 固化 + 读回校验（写帧限单块）——本 AO 最长 RTC |
 | RTC（普通帧/遥测事件） | ≤0.5 ms | advance + 镜像覆盖写 |
-| 应答延迟 | ≤30 ms 最坏 | 仅写帧含固化；读帧 ≤1 ms |
+| 应答延迟 | ≤30 ms 最坏 | 仅写帧含固化；读帧 ≤1 ms（端到端应答延迟，含排队等待，区别于上方单步 RTC） |
 | 静态事件 | 3（FRAME/TX_DONE/TX_TIMEOUT） | 在途 ≤1 的互斥已证 |
 
 ## 8. 故障路径与验证要点
@@ -215,7 +208,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
 | 非法配置写 | 合法异常（主站错误） | EX 03 整帧拒绝 |
 | 地址越界/空档/跨块 | 合法异常 | EX 02 |
 | 固化失败 | 合法异常（不可恢复） | EX 04 整笔拒绝 + b1 锁存；无兜底；重写寄存器重试 |
-| `modbus_slave_start()` 失败 | Bug | `Q_ASSERT` |
+| `modbus_slave_start()` 失败 | Bug | `Q_ERROR()`（断言） |
 | TX 看门狗超时 | 合法异常 | 核心 resync + `TX_TIMEOUT_SIG`，诊断计数 |
 
 宿主测试（存储介质为 `tests/stubs/fdb_fake.c` 假件）：`tests/test_modbus_data.c`（回调级直驱写事务+持久化：校验矩阵、提交/读回、同值免写计数、提交失败 EX 04+b1、同值重写重通知、地址写、初始化失败存储、假件契约 `test_fake_medium()`）与

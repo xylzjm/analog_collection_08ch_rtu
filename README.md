@@ -15,7 +15,7 @@ tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 ```
 
 - `app/`：组合根 `main.c`（含事件池容量）、日志初始化、共享词汇头 `app.h`（通道模型、信号、事件载荷）与应用对象：一个活动对象一对 `*_ao.h/.c` 文件（`channel_ao`、`cold_junction_ao`、`modbus_ao`），纯寄存器映射 `reg_map.h/.c`。
-- `tests/`：7 个宿主测试可执行（`test_reg_map`、`test_modbus_data`、`test_channel_ao`、`test_cold_junction_ao`、`test_modbus_ao`、`test_boot`、`test_analog_input_convert`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器）与 FlashDB 链接边界（`fdb_fake`，以真实厂商头文件编译、链接期替换四个 FlashDB 入口）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
+- `tests/`：7 个宿主测试可执行（`test_reg_map`、`test_modbus_data`、`test_channel_ao`、`test_cold_junction_ao`、`test_modbus_ao`、`test_boot`、`test_analog_input_convert`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器/临界区）与 FlashDB 链接边界（`fdb_fake`，以真实厂商头文件编译、链接期替换四个 FlashDB 入口）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
 - `board/`：时钟、外设、SysTick/NVIC 与板级设备对象；不初始化日志、不在 `board_init()` 内打开 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
@@ -32,12 +32,13 @@ board_init();   /* 时钟、外设、板级设备；末尾等 TMP75 首次转换
 `board_init()` 只负责板级硬件：
 
 1. 120 MHz 时钟树、Flash 等待周期、外设时钟门控
-2. SysTick 1 ms、NVIC 优先级
-3. TMR6 1 MHz 时基
-4. GPIO、USART1、SPI1、TMR14
-5. SIG24131 设备对象构造与上电复位
-6. 软 I2C 总线构造与初始化、TMP75 构造、0x48 探测
-7. analog_input 板级对象构造
+2. TMR6 1 MHz 时基
+3. GPIO、USART1、SPI1、TMR14
+4. SIG24131 设备对象构造与上电复位
+5. 软 I2C 总线构造与初始化、TMP75 构造、0x48 探测
+6. analog_input 板级对象构造
+
+SysTick/NVIC 在 `QF_onStartup()` 配置（SysTick 1 ms、NVIC 优先级），不在 `board_init()` 内。
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
@@ -89,7 +90,7 @@ elog_* / FDB_PRINT / printf
 - 多片 SIG24131 共用 SPI1，每片独立 GPIO 片选。
 - 构造时释放片选；上电后统一复位，共享一次 43 ms 等待。
 - SPI 传输带超时，超时返回 `SIG24131_ERR_IO`。
-- 板级通道数统一在 `board/inc/board_config.h` 定义（`BOARD_CHANNEL_COUNT`，SKU 旋钮 `-DSIG24131_BOARD_COUNT=N`，最大 8）；各层语义名（`SIG24131_BOARD_INSTANCE_COUNT`、`ANALOG_INPUT_BOARD_CHANNEL_COUNT`、`CH_CONFIG_CHANNEL_COUNT`）都从它派生。
+- 板级通道数统一在 `board/inc/board_config.h` 定义（`BOARD_CHANNEL_COUNT`，SKU 旋钮 `SIG24131_BOARD_COUNT=N`，最大 8）；各层语义名（`SIG24131_BOARD_INSTANCE_COUNT`、`ANALOG_INPUT_BOARD_CHANNEL_COUNT`、`CH_CONFIG_CHANNEL_COUNT`）都从它派生。
 
 ### I2C 软总线
 

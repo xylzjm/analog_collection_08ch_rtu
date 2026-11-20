@@ -30,7 +30,7 @@ CH_IN/SYS）、`reg_span_t`（space/base/n/kind/channel）。一张按 `space` �
 ## 2. 寻址与异常口径
 
 `reg_map_find(space, start, count)`（文件内 static）：[start, start+count) 整体落在
-某跨度内 → 该跨度；否则 NULL。`reg_map_check(...)`：唯一对外入口，异常码 + 命中
+某跨度内 → 该跨度；否则 NULL。`reg_map_check(...)`：唯一的寻址入口，异常码 + 命中
 跨度输出。
 
 | 情形 | 码 | 归属 |

@@ -123,20 +123,16 @@ last_value 更新；发布 MEASURE_SIG(ch, value, 0)
 "就绪"（提前 `check_wire_break` = 假断线报警，提前 `do_sample` = 违先检后测）。
 QP 不自动丢弃迟到事件（`QTimeEvt_disarm` 契约明言由状态机处理）。
 
-规避机制：**改配经 Unconfigured 隔离 + `APPLY_SIG` 跨派发延迟重入**。改配转换
-**先撤防三个定时器**，再"缓存 `pending` + post `APPLY_SIG` + 转 Unconfigured"
-（exit 撤防保留，无锁存故无毒）。顺序不可颠倒：撤防先于 post 保证任何迟到到期都
+规避机制：**改配经 Unconfigured 隔离 + `APPLY_SIG` 跨派发延迟重入**。定理依赖三条
+结构事实（评审可机械检查，违反即定理失效）：Unconfigured 不 arm 任何定时器、
+唯一出边（转换）是 `APPLY_SIG`；定时器 arm 只发生在 Detecting/Settling/Measuring
+的 entry；叶 exit 无条件撤防自己的定时器（返回值忽略——无锁存，误调无毒）。改配转换
+**先撤防三个定时器**，再"缓存 `pending` + post `APPLY_SIG` + 转 Unconfigured"。
+顺序不可颠倒：撤防先于 post 保证任何迟到到期都
 入队在 `APPLY_SIG` 之前（撤防前已到期 = 先入队；撤防后定时器停摆 = 不可能再投）。
 由 FIFO 全序：迟到事件必先于 `APPLY_SIG` 派发 ⇒ 落点恒为 Unconfigured ⇒ 被默认
 忽略；`APPLY_SIG` 派发时队列已无同类定时器事件，新 arm 代永不与旧事件混淆。
 **零守卫、零旗标、零计数**，无挂死失败模式。
-
-结构纪律（评审可机械检查，违反即定理失效）：
-
-1. Unconfigured 不 arm 任何定时器，唯一出边（转换）是 `APPLY_SIG`；
-2. 定时器 arm 只发生在 Detecting/Settling/Measuring 的 entry；
-3. 叶 exit 无条件撤防自己的定时器（返回值忽略——无锁存，误调无毒）；
-4. 取消转换内**先撤防、后 post** `APPLY_SIG`（FIFO 前提，顺序不可颠倒）。
 
 不采用 `QTimeEvt_wasDisarmed` 守卫（锁存有双改配覆盖、boot 毒化等缺陷，失败模式
 是静默挂死）；纯信号拆分方案因迟到事件与真事件代际不可辨识而不可行。
@@ -145,7 +141,7 @@ QP 不自动丢弃迟到事件（`QTimeEvt_disarm` 契约明言由状态机处�
 
 | 项目 | 数值 |
 | --- | --- |
-| 队列 | 13（启动 8×CONFIG_SET + 1×CJC + ≤3 tick + 1×APPLY + 裕量；×8 = 104 槽） |
+| 队列 | 13（启动 8×CONFIG_SET + 1×CJC + ≤3 tick + 1×APPLY = 13，无显式余量，安全来自总体设计 §7 的抽干性质——四项并不同时出现；×8 = 104 槽） |
 | QTimeEvt | 3/通道（24 个）；静态 `APPLY_SIG` 8 通道共用 1 个 |
 | RTC | SPI ≈0.3 ms + 浮点换算 ≈0.5 ms（-O1 估算，**实测收口**）≤ 1 ms |
 
@@ -156,7 +152,7 @@ QP 不自动丢弃迟到事件（`QTimeEvt_disarm` 契约明言由状态机处�
 | 冷端失效 | 合法异常 | TC 状态 5 值冻结，CJC 恢复后自动续测 |
 | `convert` 超量程 | 合法异常 | 状态 7，值冻结，下一拍继续 |
 | configure 失败 | 合法异常 | 状态 6 + 降级 Unconfigured 等待重配 |
-| 队列/池耗尽 | Bug/容量缺陷 | `QACTIVE_POST_X` 带裕量断言暴露，不静默丢 |
+| 队列/池耗尽 | Bug/容量缺陷 | 满队由 `QActive_post_` 的自检（<130>）断言暴露，不静默丢 |
 
 ## 8. 验证要点
 

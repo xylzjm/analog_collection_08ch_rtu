@@ -144,6 +144,9 @@ void QV_onIdle(void)
 /* Board bring-up                                                             */
 /*----------------------------------------------------------------------------*/
 
+/** @brief TMP75 power-on settle wait at the end of board_init (ms). */
+#define TMP75_SETTLE_WAIT_MS 300U
+
 void board_init(void)
 {
     sig24131_status_t sig_status;
@@ -209,5 +212,5 @@ void board_init(void)
                    (int)analog_status);
     }
 
-    wk_delay_ms(300U);
+    wk_delay_ms(TMP75_SETTLE_WAIT_MS);
 }

@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-/** @brief Queue depth (boot burst plus tick events plus margin). */
+/** @brief Queue depth (boot burst + CJC + tick + APPLY events = 13; no explicit margin, safety comes from the QV drain property). */
 #define CHANNEL_AO_QUEUE_LEN 13U
 
 /** @brief Wire break check period in ticks (3 s). */

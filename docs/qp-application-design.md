@@ -64,10 +64,10 @@
 | 类别 | 要求 |
 | --- | --- |
 | 外部输入 | Modbus RTU 帧（9600 8N1，USART1 ISR）；TMP75 温度（软 I2C）；8 通道 SIG24131 采样（SPI1） |
-| 周期/响应 | 每通道 2.5~100 Hz（13 档 `rate_code_t`）；冷端 1 Hz；断线检测窗口 3 s + 4 拍切换空窗；Modbus 应答 ≤ 一个最长他人 RTC（目标 ≤ 40 ms） |
+| 周期/响应 | 每通道 2.5~100 Hz（13 档 `rate_code_t`）；冷端 1 Hz；断线检测窗口 3 s + 4 拍切换空窗（稳定规则：enable 后 2 个转换 + disable 后 2 个转换，`ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS` = 2）；Modbus 应答 ≤ 一个最长他人 RTC（目标 ≤ 40 ms） |
 | 最坏突发 | 启动 ≤8×`CONFIG_SET_SIG`；写帧限单通道块（1 帧 1 条配置事件）；测量发布 8×100 Hz = 800 事件/s |
 | 最长 RTC | 通道采样步 ≤ 1 ms；冷端步 ≤ 3 ms；Modbus 读帧 ≤ 0.5 ms；写帧（含同步固化）≤ 30 ms |
-| RAM 预算 | 新增 ≈ 4.5~5 KB，目标总占用 ≤ 10/16 KB |
+| RAM 预算 | 新增 ≈ 5~5.5 KB，目标总占用 ≤ 10/16 KB |
 | 故障与安全 | 故障位域与通道状态实时上报；加载失败不下发不顶替（b2）；固化失败整笔拒绝（EX 04 + b1）；断言 fail-safe 停机留现场 |
 
 ## 3. 活动对象划分与职责
@@ -175,7 +175,7 @@ QV 协作内核：任一 AO 的响应窗口 = 他人最长 RTC（AoModbus 写回
 
 | 队列 | 深度 | 依据 | RAM |
 | --- | --- | --- | --- |
-| AoChannel[ch] ×8 | 13 | 启动 8×CONFIG_SET + 1×CJC + ≤3 tick + 1×APPLY + 裕量 | 416 B |
+| AoChannel[ch] ×8 | 13 | 启动 8×CONFIG_SET + 1×CJC + ≤3 tick + 1×APPLY = 13，无显式余量；安全来自本节的抽干性质（四项并不同时出现） | 416 B |
 | AoColdJunction | 4 | 1 Hz tick + 裕量 | 16 B |
 | AoModbus | 16 | 峰值 ≈ 单次 RTC 扇出（≤8×MEASURE+1×CJC）+ 1×FRAME ≈ 10 + 裕量 | 64 B |
 
@@ -184,8 +184,9 @@ QV 协作内核：任一 AO 的响应窗口 = 他人最长 RTC（AoModbus 写回
 | 池A（MEASURE/CFG_APPLIED/CJC） | 20 B | 16 | 一轮发布 8×MEASURE+1×CJC + 裕量 | 320 B |
 | 池B（CONFIG_SET） | 32 B | 16 | 启动 ≤8 实例 + 裕量 | 512 B |
 
-其余：QTimeEvt 25 个 ≈ 800 B；静态事件 4 个（ROM）；AO 结构 ≈ 1.2 KB；Modbus
-缓冲 512 B；FDB 缓存 1.5~2 KB——合计新增 ≈ 4.5~5 KB。CPU 预算**待实测**（-O1）：
+其余：静态事件 4 个（ROM）；AO 结构实测 1.8 KB（8×通道 180 B + 冷端 76 B + Modbus
+284 B；25 个 QTimeEvt 内嵌其中，不另计）；Modbus 缓冲 512 B；FDB 缓存 1.5~2 KB——
+加队列 496 B 与事件池 832 B，合计新增 ≈ 5.0~5.5 KB。CPU 预算**待实测**（-O1）：
 8 通道全开 100 Hz ≈ 64% CPU 估算；超预算处置顺序：限 Σ 采样率 → `analog_input_math`
 单独 -O1 → 降最大档位，不得丢样本维持"稳定"。
 
@@ -230,5 +231,5 @@ FlashDB 分阶段写 + CRC + 上电恢复托管（`modbus_ao.md` §6）：配置
   `test_cold_junction_ao`（冷端心跳/失效/自愈，tmp75_port_fake 注入）、
   `test_modbus_ao`、`test_boot`（场景 1/2）、`test_analog_input_convert`。
 - 上板验证要点（尚未在硬件收口）：写事务全路径（EX 00=已固化 / 03 整帧拒绝 /
-  04+b1）、掉电循环（旧值或新值）、断线码（TC 2 / PT100 3、4）、冷端失效 1 s 内
+  04+b1）、掉电循环（旧值或新值）、断线码（TC 2 / PT100 3、4）、冷端失效 ≤3 s（3 拍）内
   b0、8×100 Hz 压测低水位、Modbus 应答时序。
