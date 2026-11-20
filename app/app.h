@@ -221,30 +221,23 @@ Q_ASSERT_STATIC(sizeof(cjc_evt_t) <= sizeof(measure_evt_t));
 #define APP_POOL_B_BLOCK_NUM 16U
 
 /*----------------------------------------------------------------------------*/
-/* Board positions                                                            */
+/* Board position drift guards                                                */
 /*----------------------------------------------------------------------------*/
 
-/**
- * @brief The one board position list (8-slot backplane layout).
- *
- * Every layer derives its per-position rows from this expansion: the
- * register map span table and the KV default table (which keeps the
- * 8-position key set even on SKUs that populate fewer channels). There
- * must be no second hand-maintained position list.
+/*
+ * The position list itself (BOARD_POSITIONS, BOARD_POSITION_COUNT) is a
+ * board fact and lives in board_config.h. Only the compile-time guards
+ * stay here: they need Q_ASSERT_STATIC from qpc.h.
  */
-#define APP_BOARD_POSITIONS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
 
-/** @brief Number of board positions listed by APP_BOARD_POSITIONS. */
-#define APP_BOARD_POSITION_COUNT 8U
-
-/* Drift guard: the count macro must match the position list above. */
+/* Drift guard: the count macro must match BOARD_POSITIONS in board_config.h. */
 #define APP_POSITION_COUNT_ONE(pos) +1U
-Q_ASSERT_STATIC((0U APP_BOARD_POSITIONS(APP_POSITION_COUNT_ONE)) == APP_BOARD_POSITION_COUNT);
+Q_ASSERT_STATIC((0U BOARD_POSITIONS(APP_POSITION_COUNT_ONE)) == BOARD_POSITION_COUNT);
 #undef APP_POSITION_COUNT_ONE
 
 /* Drift guard: the SKU channel count must fit the board position list; the
  * modbus_ao bitmasks and the KV key table index by position. */
-Q_ASSERT_STATIC(CH_CONFIG_CHANNEL_COUNT <= APP_BOARD_POSITION_COUNT);
+Q_ASSERT_STATIC(CH_CONFIG_CHANNEL_COUNT <= BOARD_POSITION_COUNT);
 
 #ifdef __cplusplus
 }

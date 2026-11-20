@@ -13,7 +13,7 @@
  * space with no spans (coils, discrete inputs) answers "unmapped" from the
  * table itself. Holding: 8 channel configuration blocks at 16n + device
  * register 128. Input: 8 channel telemetry blocks at 8n + system block 64.
- * The channel rows derive from the board position list in app.h.
+ * The channel rows derive from the board position list in board_config.h.
  */
 /** @brief Channel field of a span that does not belong to one channel. */
 #define SPAN_NO_CHANNEL 0xFFU
@@ -23,17 +23,17 @@
 
 static const reg_span_t spans[] = {
 #define X(pos) {REG_SPACE_HOLDING, (uint16_t)((pos) * SPAN_HOLDING_STRIDE), REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, (uint8_t)(pos)},
-    APP_BOARD_POSITIONS(X)
+    BOARD_POSITIONS(X)
 #undef X
     {REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV, SPAN_NO_CHANNEL},
 #define X(pos) {REG_SPACE_INPUT, (uint16_t)((pos) * REG_MAP_CH_IN_STRIDE), REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, (uint8_t)(pos)},
-    APP_BOARD_POSITIONS(X)
+    BOARD_POSITIONS(X)
 #undef X
     {REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS, SPAN_NO_CHANNEL}};
 
 /* Compile-time guard: two rows per board position plus the two device rows. */
 Q_ASSERT_STATIC((sizeof(spans) / sizeof(spans[0]))
-                == (2U * APP_BOARD_POSITION_COUNT + 2U));
+                == (2U * BOARD_POSITION_COUNT + 2U));
 
 /**
  * @brief Write one big-endian float32 as two registers (high word first).

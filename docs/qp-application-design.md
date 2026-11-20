@@ -50,7 +50,7 @@
 6. **速率 tick 表算出来，8 位置表只有一个宏**：13 档速率只有两个用途——驱动配置
    （mHz）与采样节拍（tick 数）。`APP_RATE_LIST` 一个 X 宏生成枚举与 mHz 表，tick
    数由 `ceil(1e6/mHz)` 现算（每次 Measuring entry 一次整数除法），不存在第二份
-   手写表。同理 `APP_BOARD_POSITIONS` 是唯一 8 位置清单：`reg_map` 跨度表与 KV
+   手写表。同理 `board_config.h` 的 `BOARD_POSITIONS` 是唯一 8 位置清单：`reg_map` 跨度表与 KV
    默认表都由它展开，SKU 布局不可能漂移。
 
 ### 冻结的 wire 契约（各归其文）
@@ -140,7 +140,7 @@
 速率：13 档 `rate_code_t`（`APP_RATE_LIST` 展开，2.5 Hz..100 Hz）；驱动配置用 mHz
 （表值即 `ANALOG_INPUT_BOARD_RATE_*`），采样节拍 tick = `ceil(1e6/mHz)` 现算，
 速率恒 ≤ 标称（13 档中 9 档恰为整毫秒，15/30/60/80 Hz 向上取整，误差 ≤ 3.8%）。
-8 位置板卡布局由 `APP_BOARD_POSITIONS` 单宏承载：`reg_map` 跨度表与 KV 默认表
+8 位置板卡布局由 `board_config.h` 的 `BOARD_POSITIONS` 单宏承载：`reg_map` 跨度表与 KV 默认表
 （`cfg/ch0..7` + `dev/addr`，共 9 行，编译期守卫）都由它展开。
 
 ### 持久化格式（无版本管理）

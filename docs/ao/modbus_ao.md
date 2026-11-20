@@ -173,7 +173,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
 | `dev/addr` | u16 本体（2 B） | 从站地址 1..247 |
 
 - **KV 布局单源**：键名与出厂默认值在 `modbus_ao.c` 的默认表（由
-  `APP_BOARD_POSITIONS` 展开 + `dev/addr` 行，行数编译期守卫）；键集是底板 8 位置
+  `BOARD_POSITIONS` 展开 + `dev/addr` 行，行数编译期守卫）；键集是底板 8 位置
   布局，少通道 SKU 的未装配键仍被物化但不加载/不使用。
 - **加载语义（绝不顶替）**：键缺失/损坏/语义非法 = 加载失败——不下发、不顶替、报
   b2（§5）；空 flash 首启由默认表物化（FlashDB `fdb_kv_set_default`），加载即有效值，

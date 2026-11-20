@@ -10,7 +10,7 @@
 
 #include "kv_store_board.h"
 
-#include "app.h"
+#include "board_config.h"
 #include "elog.h"
 #include "flashdb.h"
 #include "qpc.h"
@@ -27,7 +27,7 @@ Q_DEFINE_THIS_MODULE("kv_store_board")
 static struct fdb_kvdb kvdb;
 
 /** @brief Default nodes handed to fdb_kvdb_init(). */
-static struct fdb_default_kv_node default_nodes[APP_BOARD_POSITION_COUNT + 1U];
+static struct fdb_default_kv_node default_nodes[BOARD_POSITION_COUNT + 1U];
 
 /** @brief Default table wrapper handed to fdb_kvdb_init(). */
 static struct fdb_default_kv default_kv;

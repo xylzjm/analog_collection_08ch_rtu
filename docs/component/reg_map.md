@@ -18,7 +18,7 @@ CH_IN/SYS）、`reg_span_t`（space/base/n/kind/channel）。一张按 `space` �
 `DEV` @ 128）、input 段 9 项（8×`CH_IN` @ 8n + `SYS` @ 64..71）、coil/discrete
 段**为空**。"空间有无映射"由表回答，产品裁剪零成本。
 
-- **8 位置单源**：通道行由 `app.h` 的 `APP_BOARD_POSITIONS` X 宏展开（与 KV
+- **8 位置单源**：通道行由 `board_config.h` 的 `BOARD_POSITIONS` X 宏展开（与 KV
   默认表同源），行数编译期守卫——不存在第二份手维护的位置清单。
 - **SKU 装配数过滤**：表描述底板 8 位置全布局，`reg_map_find`（文件内 static）
   把未装配位置（`channel >= CH_CONFIG_CHANNEL_COUNT`）过滤为 EX 02——既有通道地址

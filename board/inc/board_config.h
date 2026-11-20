@@ -10,11 +10,21 @@
  * channel model derive their own semantic names from BOARD_CHANNEL_COUNT.
  */
 
-/** @brief Channel positions the backplane physically provides. */
-#define BOARD_CHANNEL_POSITIONS_MAX 8U
+/**
+ * @brief The one board position list (8-slot backplane layout).
+ *
+ * Every layer derives its per-position rows from this expansion: the
+ * register map span table and the KV default table (which keeps the
+ * 8-position key set even on SKUs that populate fewer channels). There
+ * must be no second hand-maintained position list.
+ */
+#define BOARD_POSITIONS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+
+/** @brief Number of board positions listed by BOARD_POSITIONS. */
+#define BOARD_POSITION_COUNT 8U
 
 /**
- * @brief Populated channel positions (1..BOARD_CHANNEL_POSITIONS_MAX).
+ * @brief Populated channel positions (1..BOARD_POSITION_COUNT).
  *
  * The SKU knob is the preprocessor define SIG24131_BOARD_COUNT=N; without
  * it every position is populated.
@@ -23,12 +33,12 @@
 #ifdef SIG24131_BOARD_COUNT
 #define BOARD_CHANNEL_COUNT SIG24131_BOARD_COUNT
 #else
-#define BOARD_CHANNEL_COUNT BOARD_CHANNEL_POSITIONS_MAX
+#define BOARD_CHANNEL_COUNT BOARD_POSITION_COUNT
 #endif
 #endif
 
 #if ( BOARD_CHANNEL_COUNT < 1U ) \
-    || ( BOARD_CHANNEL_COUNT > BOARD_CHANNEL_POSITIONS_MAX )
+    || ( BOARD_CHANNEL_COUNT > BOARD_POSITION_COUNT )
 #error "BOARD_CHANNEL_COUNT must be between 1 and 8"
 #endif
 

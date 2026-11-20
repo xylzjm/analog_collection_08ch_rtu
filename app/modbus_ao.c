@@ -98,13 +98,13 @@ static const uint16_t default_dev_addr = REG_MAP_DEFAULT_DEV_ADDR;
  */
 static const kv_store_default_t defaults[] = {
 #define X(pos) {"cfg/ch" #pos, &default_ch_cfg, sizeof(default_ch_cfg)},
-    APP_BOARD_POSITIONS(X)
+    BOARD_POSITIONS(X)
 #undef X
     {"dev/addr", &default_dev_addr, sizeof(default_dev_addr)},
 };
 
 /* Compile-time guard: 8 board positions plus the dev/addr row. */
-Q_ASSERT_STATIC((sizeof(defaults) / sizeof(defaults[0])) == (APP_BOARD_POSITION_COUNT + 1U));
+Q_ASSERT_STATIC((sizeof(defaults) / sizeof(defaults[0])) == (BOARD_POSITION_COUNT + 1U));
 
 /** @brief KV key of one channel configuration row. */
 static const char* key_cfg(uint8_t ch)
@@ -115,7 +115,7 @@ static const char* key_cfg(uint8_t ch)
 /** @brief KV key of the device address row. */
 static const char* key_addr(void)
 {
-    return defaults[APP_BOARD_POSITION_COUNT].key;
+    return defaults[BOARD_POSITION_COUNT].key;
 }
 
 /**
