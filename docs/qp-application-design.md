@@ -44,9 +44,9 @@
    （地址、编解码、异常口径），无状态、可独立宿主测试、读回调与写事务共用——独立
    成模块的理由不变。存储则与写事务同呼吸（变化检查基准=镜像、EX 00 ⟺ 读回一致、
    b1/b2 记账），拆成 `param` 组件时接口只是把 AO 字段搬出搬进（旧回调网正源于此）；
-   折叠后持久化是 `modbus_ao.c` 的私有 static，存储介质经 `kv_store_t` 句柄
-   注入（目标 `board/src/kv_store_board.c`，宿主
-   `library/interface/kv_store/test/kv_mem.c`）。
+   折叠后持久化是 `modbus_ao.c` 的私有 static，直接使用 FlashDB（`fdb_kvdb`；
+   四个 `fdb_*` 入口构成本 TU 的 FlashDB 边界面，宿主测试在链接边界以
+   `tests/stubs/fdb_fake.c` 替换这四个入口）。
 6. **速率 tick 表算出来，8 位置表只有一个宏**：13 档速率只有两个用途——驱动配置
    （mHz）与采样节拍（tick 数）。`APP_RATE_LIST` 一个 X 宏生成枚举与 mHz 表，tick
    数由 `ceil(1e6/mHz)` 现算（每次 Measuring entry 一次整数除法），不存在第二份
@@ -76,7 +76,7 @@
                     ┌────────────────────────────┐
    USART1/TMR14 ─── │ AoModbus         prio 11   │ 镜像 / 写事务 / 持久化 / 故障位域
    (板级端口)        │  modbus_ao.c               │◄── MEASURE_SIG ──┐
-   kv_store_board ─ │  （reg_map 纯映射被调用）  │◄── CJC_SIG ──┐   │
+   FlashDB(param) ─ │  （reg_map 纯映射被调用）  │◄── CJC_SIG ──┐   │
                     └──────────┬─────────────────┘        ┌───┴───┴────────┐
                   发布 CONFIG_SET_SIG                      │ AoColdJunction │ TMP75+软I2C
                   订阅 CFG_APPLIED_SIG                     │    prio 10     │
@@ -89,7 +89,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `AoChannel` ×8 | 该通道采集全生命周期：配置应用、采样换算、校准、断线检测循环、通道状态；不变量：测量/断线硬件模式互斥 | 本通道 `analog_input_t` | 2..9 | ≤ 1 ms | 8 路各有速率/模式/故障生命周期 |
 | `AoColdJunction` | 冷端温度供给与有效性；不变量：`CJC_SIG` 每 1 s 心跳（含失败时 invalid） | TMP75 + 软 I2C 总线 | 10 | ≤ 3 ms | 整板唯一 TMP75/I2C 主，多 TC 共享一个冷端源 |
-| `AoModbus` | 协议终结；镜像=已固化配置+各事件最近状态；写事务（校验→同步固化+读回→镜像→发布）；持久化；故障位域合成 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、参数分区（经 `kv_store_t`） | 11 | ≤ 30 ms（写帧）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR 需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
+| `AoModbus` | 协议终结；镜像=已固化配置+各事件最近状态；写事务（校验→同步固化+读回→镜像→发布）；持久化；故障位域合成 | `modbus_slave` 实例（USART1/TMR14 经板级端口）、参数分区（FlashDB `fdb_kvdb`） | 11 | ≤ 30 ms（写帧）/ ≤ 0.5 ms（其余） | 帧事件来自 ISR 需独立队列吸收；EX 04 语义要求固化在写回调返回前完成 |
 
 被动模块只有 `reg_map`：纯函数无状态、无独立时限，由 AoModbus 的数据空间回调内联
 调用。曾并列的"被动组件"（配置校验、类型化镜像、写事务、参数存储）已折叠进
@@ -115,7 +115,8 @@
 
 **已删除的旁路**（重构要点）：`on_applied` 回调（apply 结果）、`cfg_notifier`
 （提交通知）、`param_bind_store`/`param_boot_load` 胶合一并删除——apply 结果走
-`CFG_APPLIED_SIG`，提交直接发布 `CONFIG_SET_SIG`，存储经 `modbus_ao_ctor()` 注入，
+`CFG_APPLIED_SIG`，提交直接发布 `CONFIG_SET_SIG`，存储是 `modbus_ao.c` 的私有
+static（FlashDB 直连），
 启动加载是 AoModbus 初始转换内的普通函数调用。已知良性差异：同值重写在通道的
 `CFG_APPLIED` 排空前到达时可能多触发一次重通知（配置相同，主站看到的 EX 00 不变）。
 
@@ -194,10 +195,9 @@ QV 协作内核：任一 AO 的响应窗口 = 他人最长 RTC（AoModbus 写回
 log_init();                       /* RTT + EasyLogger，必须最先 */
 board_init();
 QF_init(); QActive_psInit(subscrSto, MAX_SIG); QF_poolInit(...);   /* 池A、池B */
-kv_store_board_ctor();
-modbus_ao_ctor(&modbus, kv_store_board_get(),
+modbus_ao_ctor(&modbus,
                modbus_slave_board_get(), modbus_slave_board_config());
-        /* 存储与平台半配置经 ctor 注入；回调/身份在 AO 内补齐，一步构造 */
+        /* 参数库在 ctor 内打开；回调/身份在 AO 内补齐，一步构造 */
 channel_ao_ctor(...); cold_junction_ao_ctor(...);            /* 设备注入 */
 QActive_start(ch1..ch8);          /* prio 2..9 */
 QActive_start(modbus);            /* prio 11：初始转换内启动加载并发布 CONFIG_SET_SIG */
@@ -208,9 +208,9 @@ QF_run();
 1. **订阅者先于发布者**：AoModbus 初始转换（`QActive_start` 内、`QF_run` 前）加载
    参数并发布启动 `CONFIG_SET_SIG`，故 8 通道必须先启动（订阅在各 AO 初始转换内）。
    向未启动对象投递由 `QActive_post_` 断言兜底。
-2. **存储经构造注入**：`modbus_ao_ctor()` 接收 `kv_store_t*`（`main.c` 传
-   `kv_store_board_get()`，宿主测试传 `kv_mem`）并立即 `kv_store_init()` 打开；
-   未绑定或打开失败 = `store.db_ok=0` → b3、后续提交恒 EX 04（fail-safe）。
+2. **参数库在构造内打开**：`modbus_ao_ctor()` 内调用 `fdb_kvdb_init()` 打开
+   `fdb_kvdb` 分区（宿主测试以 `tests/stubs/fdb_fake.c` 在链接边界替换四个
+   FlashDB 入口）；打开失败 = `store.db_ok=0` → b3、后续提交恒 EX 04（fail-safe）。
 3. prioSpec 一律 `Q_PRIO(prio, 0U)`（QV 无抢占阈值，共享主栈）；SysTick 1 ms 经
    `QTIMEEVT_TICK_X` 接入（`board/src/board.c`）。
 4. `modbus_slave_start()` 在 AoModbus Serving entry 执行；启动前地址已加载完成，

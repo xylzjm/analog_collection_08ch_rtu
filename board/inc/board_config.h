@@ -31,14 +31,12 @@
 #define BOARD_POSITION_COUNT (0U BOARD_POSITIONS(BOARD_POSITION_ONE))
 
 /**
- * @brief Upper bound of default KV rows the board store adapter converts at
- *        init: one row per board position plus the device keys (dev/addr
- *        today).
+ * @brief FAL partition holding the parameters.
  *
- * The KV schema in modbus_ao.c must match this exactly (asserted there).
- * The "+ 1" lives here and nowhere else.
+ * Named by the FAL partition table (fal_cfg.h) and handed to
+ * fdb_kvdb_init() by modbus_ao.c, so the two call sites cannot drift apart.
  */
-#define BOARD_KV_DEFAULTS_MAX (BOARD_POSITION_COUNT + 1U)
+#define BOARD_PARAM_PARTITION "fdb_kvdb"
 
 /**
  * @brief Populated channel positions (1..BOARD_POSITION_COUNT).

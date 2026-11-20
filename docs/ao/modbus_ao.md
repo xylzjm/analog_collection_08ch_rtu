@@ -1,8 +1,8 @@
 # AoModbus — Modbus 从站活动对象
 
 协议终结者：拥有 `modbus_slave` 实例（USART1/TMR14 经板级端口）、数据空间类型化
-镜像、保持寄存器写事务与参数持久化（`kv_store_t` 接缝，目标
-`board/src/kv_store_board.c`，宿主 `library/interface/kv_store/test/kv_mem.c`）；
+镜像、保持寄存器写事务与参数持久化（FlashDB `fdb_kvdb` 直连，宿主测试在
+链接边界以 `tests/stubs/fdb_fake.c` 替换四个 FlashDB 入口）；
 `reg_map` 是它调用的纯映射。
 一个 AO 一个文件（`app/modbus_ao.h/.c`）。总体设计见
 `docs/qp-application-design.md`。
@@ -14,7 +14,7 @@
 | 需求 | 通道配置写（类型/速率/线性上下限/校准）、遥测读、从站地址写；通道故障经状态寄存器独立上报，冷端+设备故障合并为设备故障位域经输入寄存器读取 |
 | 协议 | Modbus RTU 9600 8N1；FC03/FC06/FC16 保持寄存器、FC04 输入寄存器、FC17 报告 ID；FC01/02/05/15 无数据空间（回 01） |
 | 数值编码 | **float32（IEEE-754），2 寄存器，大端字序（高字在低地址）**；u16 单寄存器 |
-| 独占资源 | `modbus_slave_board_get()` 实例与 `modbus_slave_board_config()` 平台配置、RX/TX 缓冲（板级 256 B 各）、参数分区（经 `kv_store_t`） |
+| 独占资源 | `modbus_slave_board_get()` 实例与 `modbus_slave_board_config()` 平台配置、RX/TX 缓冲（板级 256 B 各）、参数分区（FlashDB `fdb_kvdb`） |
 | 镜像（本 AO 字段，分组 `config`/`telemetry`/`store`） | `config.cfg[]`（已固化配置，**兼变化检查基准**）、`config.cfg_ok[]`、`config.applied[]`、`telemetry.value[]/status[]`、`telemetry.cjc_temp/cjc_valid`、`config.addr/addr_ok`、锁存 b1（`store.commit_failed`）、`store.db_ok` |
 | 假设 | 从站地址经保持寄存器 128 可写（1..247）并固化（KV `dev/addr`，出厂默认 1）；波特率可配置列为扩展（届时在设备级块新增定义） |
 
@@ -36,11 +36,11 @@
 5. **同步可读**：寄存器回调在 `modbus_slave_advance()`（本 AO RTC）内同步执行，
    事件之外无共享数据旁路。帧事件用静态事件（核心 CAPTURED 期丢弃字节，至多一条
    在途）。
-6. **单步构造（消除装配环）**：`modbus_ao_ctor(me, kv, slave, slave_cfg)`
+6. **单步构造（消除装配环）**：`modbus_ao_ctor(me, slave, slave_cfg)`
    接收板级从站实例与平台半配置（`modbus_slave_board_config()`：端口表、收发缓冲、
    波特率），在 AO 内补齐自己的半边（回调表 ctx=me、身份）后调用
    `modbus_slave_ctor()` 并安装事件端口——回调/身份单源在本模块，配置组装不绕
-   组合根，板级因此只是纯提供者（存储 + 平台配置）。事件端口安装是构造的内部
+   组合根，板级因此只是纯提供者（平台配置）。事件端口安装是构造的内部
    细节（此时核心必处停止态），启动仍在 Serving entry 的 `modbus_slave_start()`。
 
 ## 3. 事件契约（本 AO 相关行）
@@ -100,7 +100,7 @@
 | b0 | 冷端故障 | 实时：冷端无效（`!telemetry.cjc_valid`，含未就绪/传感器失效）——冷端有效性唯一上报点 |
 | b1 | 参数写入失败 | 锁存（写侧）：写回调固化失败（EX 04 路径）置位；下一次成功固化清除 |
 | b2 | 参数加载失败 | 锁存（读侧）：启动加载失败置位；对应参数随后成功固化后清除；该参数不下发、对应通道不投入运行 |
-| b3 | FlashDB 初始化失败 | 锁存（不可恢复，产品报废级）：`kv_store_init()`（`fdb_kvdb_init`）失败置位；**复位前不清除**；无任何配置可下发，Modbus 按默认地址运行 |
+| b3 | FlashDB 初始化失败 | 锁存（不可恢复，产品报废级）：`fdb_kvdb_init()` 失败置位；**复位前不清除**；无任何配置可下发，Modbus 按默认地址运行 |
 | b4..b15 | 保留 | 恒 0 |
 
 **b1 显式锁存、b2/b3 推导**（总体设计 §1 理由 4）：读回调现算
@@ -154,7 +154,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
 变化检查 vs me->config.cfg[]/me->config.addr（= 变化检查快照）：
     无变化且 config.applied[ch]=1 → EX 00（不写 flash、不通知）
     无变化且 config.applied[ch]=0 → EX 00（重新发布 CONFIG_SET_SIG，让通道重试 apply）
-    有变化 → save_cfg/save_addr 同步固化（kv_store_set + 读回 memcmp）：
+    有变化 → save_cfg/save_addr 同步固化（param_commit：写入 + 读回 memcmp）：
         读回=下发值 → 更新镜像、config.applied[ch]=0；发布 CONFIG_SET_SIG；清 b1 → EX 00
         读回≠下发值 → 镜像不动、不发布、b1 置位 → EX 04（SLAVE_DEVICE_FAILURE）
 ```
@@ -165,7 +165,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
 （报废级故障域）。设备寄存器写不触发 CONFIG_SET（地址变更不通知通道）。
 发布在回调内完成（`publish_cfg()`，启动加载与写事务共用）。
 
-### 持久化（本 AO 私有 static + `kv_store_t` 接缝）
+### 持久化（本 AO 私有 static，FlashDB 直连）
 
 | 键 | 值 | 说明 |
 | --- | --- | --- |
@@ -180,15 +180,20 @@ DEV：  addr_valid（1..247）；非法 → EX 03
   **出厂首启不报故障**。`FDB_KV_AUTO_UPDATE` 保持关闭：它会静默补写缺失键，把 CRC
   坏键掩盖成"从未损坏"。
 - **变化检查 + 读回**：变化检查基准就是镜像（§2.4），语义等价配置字节相等由
-  `config_validate` 归一化保证；固化 = `kv_store_set()` + `kv_store_get()` 读回 memcmp，成败以读回
+  `config_validate` 归一化保证；固化 = `param_commit()`（`fdb_kv_set_blob` 写入
+  + `fdb_kv_get_blob` 读回 memcmp），成败以读回
   为准。**不做任何兜底**（无自动重试/补写/延迟合并）。
-- **接缝**：`kv_store_t` 句柄 + `kv_store_ops_t {init,get,set}`
-  （`library/interface/kv_store`），全部操作在本 AO RTC 内执行（QV 串行，
-  无锁）。目标实现 `board/src/kv_store_board.c`（唯一碰 FlashDB 的文件，`fdb_kvdb` 分区
-  `0x0800F000..0x0800FFFF`，掉电安全由 FlashDB 分阶段写+CRC+上电恢复托管：任意写
-  时刻断电只可能得到旧值或完整新值）；宿主
-  `library/interface/kv_store/test/kv_mem.c`（可注入读回不一致）。
-  `kv_store_init()` 在 `modbus_ao_ctor()` 内执行；未绑定或失败 → `store.db_ok=0`（b3）
+- **边界面**：`modbus_ao.c` 直接调用四个 FlashDB 入口
+  （`fdb_kvdb_init`/`fdb_kv_get_blob`/`fdb_kv_set_blob`/`fdb_blob_make`，唯一碰
+  FlashDB 的生产文件），全部操作在本 AO RTC 内执行（QV 串行，
+  无锁）。`fdb_kvdb` 分区
+  `0x0800F000..0x0800FFFF`（名单源 `BOARD_PARAM_PARTITION`，`fal_cfg.h` 与
+  `fdb_kvdb_init()` 共同消费），掉电安全由 FlashDB 分阶段写+CRC+上电恢复托管：任意写
+  时刻断电只可能得到旧值或完整新值。宿主测试以
+  `tests/stubs/fdb_fake.c` 在链接边界替换这四个入口（可注入读回不一致；
+  `test_fake_medium()` 钉住其契约）。
+  `fdb_kvdb_init()` 在 `modbus_ao_ctor()` 内执行（FlashDB 在 `_fdb_init_ex` 内
+  自行调用 `fal_init()`）；打开失败 → `store.db_ok=0`（b3）
   且后续提交恒 EX 04。
 - 固化为**同步**执行是协议决策（EX 04 语义要求固化在写回调返回前完成）；异步方案
   否决理由：先生效后固化会掉电静默回退，先应答后生效破坏"应答即提交"语义。
@@ -213,8 +218,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
 | `modbus_slave_start()` 失败 | Bug | `Q_ASSERT` |
 | TX 看门狗超时 | 合法异常 | 核心 resync + `TX_TIMEOUT_SIG`，诊断计数 |
 
-宿主测试：`tests/test_modbus_data.c`（回调级直驱写事务+持久化：校验矩阵、提交/读回、
-同值免写计数、提交失败 EX 04+b1、同值重写重通知、地址写、未绑定/初始化失败存储）与
-`tests/test_modbus_ao.c`（帧级端到端）。上板验证要点（尚未在硬件收口）：读写回环、
+宿主测试（存储介质为 `tests/stubs/fdb_fake.c` 假件）：`tests/test_modbus_data.c`（回调级直驱写事务+持久化：校验矩阵、提交/读回、同值免写计数、提交失败 EX 04+b1、同值重写重通知、地址写、初始化失败存储、假件契约 `test_fake_medium()`）与
+`tests/test_modbus_ao.c`（帧级端到端，含缺键/超长本体的加载拒绝）。上板验证要点（尚未在硬件收口）：读写回环、
 掉电循环（写入瞬间反复断电，旧值或新值）、设备故障位 b0..b3 组合实验、地址变更、
 应答时序。

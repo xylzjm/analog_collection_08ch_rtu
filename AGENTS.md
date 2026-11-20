@@ -22,7 +22,7 @@ CI, lint or typecheck step exists.
 ## Dependencies live outside this repo
 
 The build reads sibling folders that are neither vendored nor submodules:
-`../library` (sig24131, tmp75, analog_input, i2c_soft, kv_store, modbus_slave) and
+`../library` (sig24131, tmp75, analog_input, i2c_soft, modbus_slave) and
 `../middleware` (qp, SEGGER RTT, EasyLogger, flashDB/FAL). The multi-root
 workspace file adds both folders; without them nothing compiles.
 
@@ -86,11 +86,13 @@ workspace file adds both folders; without them nothing compiles.
 - AoModbus owns the typed Modbus mirror, the holding-register write transaction
   (validate -> synchronous commit with read-back verify -> mirror -> publish)
   and the parameter persistence in `modbus_ao.c`; the mirror IS the change-check
-  snapshot (no separate snapshot). Storage sits behind the `kv_store_t`
-  interface at `library/interface/kv_store` (target FlashDB in
-  `board/src/kv_store_board.c`, host memory store
-  `library/interface/kv_store/test/kv_mem.c`); the KV schema (keys
-  `cfg/ch0..7`/`dev/addr`, default table) lives in `modbus_ao.c`. Fault bits b1
+  snapshot (no separate snapshot). Storage is FlashDB directly
+  (`fdb_kvdb_init`/`fdb_kv_get_blob`/`fdb_kv_set_blob`/`fdb_blob_make`;
+  `modbus_ao.c` is the only production TU that includes `flashdb.h`); host
+  tests fake those four entry points at link time (`tests/stubs/fdb_fake.c`,
+  compiled against the real vendor headers with the empty
+  `tests/stubs/fdb_cfg.h`). The KV schema (keys `cfg/ch0..7`/`dev/addr`,
+  `fdb_default_kv_node` rows) lives in `modbus_ao.c`. Fault bits b1
   is latched; b2/b3 are derived from the load outcome each read (store.db_ok
   guard, SKU mask).
 - The apply result travels as `CFG_APPLIED_SIG` (AoChannel publishes, AoModbus
@@ -98,10 +100,11 @@ workspace file adds both folders; without them nothing compiles.
   directly: no passive module ever calls back into an active object.
 - Active objects take their device objects by constructor injection (no board
   singletons inside `app/`): `main.c` passes the board singletons to the
-  channel and cold-junction constructors and gives `modbus_ao_ctor()` the KV
-  store plus the board's slave storage and platform config
+  channel and cold-junction constructors and gives `modbus_ao_ctor()` the
+  board's slave storage and platform config
   (`modbus_slave_board_get()` / `modbus_slave_board_config()`). The board is
-  a pure provider; the AO assembles the full config and builds the core.
+  a pure provider; the AO assembles the full config, builds the core and
+  opens the parameter database.
 - Start order: channels, then AoModbus, then AoColdJunction. Every AO subscribes
   inside its own initial transition (QP/C example style; `QActive_start()`
   registers the AO before running it), and the boot load (load_all + publish)
@@ -118,11 +121,12 @@ workspace file adds both folders; without them nothing compiles.
 - `log_init()` must run before `board_init()`, or that function's `elog_error()`
   diagnostics are lost. No logging from interrupt context:
   `elog_port_output_lock` is empty.
-- The KV store is injected through the one-step `modbus_ao_ctor()`, and
-  `main.c` also hands over the board's slave storage and platform half-config:
-  the AO assembles the full config and builds the slave core. `main.c` passes
-  `kv_store_board_get()` (whose `init` op runs in the ctor and opens the FlashDB
-  database), host tests pass `kv_mem`. An unbound store or a failed init
+- The parameter database is owned by `modbus_ao.c` and opens in the one-step
+  `modbus_ao_ctor()`; `main.c` also hands over the board's slave storage and
+  platform half-config: the AO assembles the full config and builds the slave
+  core. The database opens with `fdb_kvdb_init()` (before
+  `QActive_start()`/`QF_run()`); host tests replace the four FlashDB entry
+  points at link time with `tests/stubs/fdb_fake.c`. A failed open
   leaves `store.db_ok = 0` (fault word b3) and every later commit fails safe with
   EX 04.
 - Critical sections only through `board_critical_enter()` /
@@ -150,11 +154,13 @@ workspace file adds both folders; without them nothing compiles.
    (MinGW gcc on PATH; `-KeepExe` keeps the executables). The script compiles
    and runs each test separately; a new test must be added to its `$tests`
    table. `tests/stubs` must stay first in the
-   include order so the host `qp_port.h` and `elog.h` shadows win
+   include order so the host `qp_port.h`, `elog.h` and `fdb_cfg.h` shadows win
    over the firmware headers.
    - Seven executables, all in `tests/` (flat): `test_reg_map` (pure map),
      `test_modbus_data` (write transaction + persistence driven directly
-     through the data-space callbacks with `kv_mem`, no frames), `test_channel_ao`
+     through the data-space callbacks over the `fdb_fake` medium, no frames;
+     also pins the fake's own contract in `test_fake_medium()`),
+     `test_channel_ao`
      and `test_modbus_ao` (event/tick-injected AO tests), `test_cold_junction_ao`
      (cold junction heartbeat, failure freeze and recovery over
      `tmp75_port_fake`), `test_boot` (startup
@@ -169,14 +175,14 @@ workspace file adds both folders; without them nothing compiles.
      dispatch loop replicates the QV triple (`QActive_get_` -> `QASM_DISPATCH`
      -> `QF_gc`). The three device fakes sit at the device edges:
      `analog_input_fake`, `tmp75_port_fake` (behind the real `tmp75.c`) and
-     `modbus_port_fake` (behind the real slave core); `kv_mem` is the
-     library's in-memory reference store, linked behind the real persistence
-     code in `modbus_ao.c`.
+     `modbus_port_fake` (behind the real slave core); `fdb_fake` replaces the
+     four FlashDB entry points at the link seam behind the real persistence
+     code in `modbus_ao.c` (real vendor headers, fake at link time).
 3. The script prints `N checks, 0 failures` per test. `tests/` is outside the
    EIDE build, so host tests say nothing about ROM or target timing.
 4. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -
    self-contained `main()` plus a `CHECK` macro, excluded from the firmware
-   build. Five exist today (`analog_input_math`, `i2c_soft`, `kv_store`,
+   build. Four exist today (`analog_input_math`, `i2c_soft`,
    `modbus_slave`, `tmp75`) and no harness runs them automatically. Compile with
    host gcc, for example:
 

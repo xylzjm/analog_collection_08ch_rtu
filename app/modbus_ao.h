@@ -7,13 +7,11 @@
  *
  * AoModbus owns the typed mirror of the data space, the holding-register
  * write transaction (validate, synchronous commit with read-back verify,
- * then mirror) and the parameter persistence behind the kv_store_t
- * interface (library/interface/kv_store). reg_map is the pure wire map it
- * calls. See docs/ao/modbus_ao.md.
+ * then mirror) and the parameter persistence in the FlashDB parameter
+ * database. reg_map is the pure wire map it calls. See docs/ao/modbus_ao.md.
  */
 
 #include "app.h"
-#include "kv_store.h"
 #include "modbus_slave.h"
 #include "qpc.h"
 
@@ -42,10 +40,9 @@ typedef struct {
     uint8_t  cjc_valid;   /**< Fault word b0 source. */
 } modbus_ao_telemetry_image_t;
 
-/** @brief Parameter persistence: the injected handle and its outcome state. */
+/** @brief Parameter persistence outcome state. */
 typedef struct {
-    kv_store_t* kv;         /**< Borrowed store handle; NULL = unbound. */
-    uint8_t  db_ok;         /**< Store opened; fault word b3 = !db_ok. */
+    uint8_t  db_ok;         /**< Parameter database opened; fault word b3 = !db_ok. */
     uint8_t  commit_failed; /**< Latch: last commit failed (fault word b1). */
 } modbus_ao_store_t;
 
@@ -62,16 +59,18 @@ typedef struct {
     modbus_slave_t*             slave;     /**< Slave core; built in the ctor. */
     modbus_ao_config_image_t    config;    /**< Configuration-area mirror. */
     modbus_ao_telemetry_image_t telemetry; /**< Telemetry-area mirror. */
-    modbus_ao_store_t           store;     /**< KV persistence handle & state. */
+    modbus_ao_store_t           store;     /**< Persistence outcome state. */
     modbus_ao_diag_t            diag;      /**< Diagnostics. */
 } modbus_ao_t;
 
 /**
  * @brief Construct the Modbus active object and its slave core in one step.
  *
+ * The parameter database opens inside this call (before QActive_start() and
+ * QF_run()); an open failure leaves `store.db_ok` = 0 (fault b3) and every
+ * later commit fails safe.
+ *
  * @param me Storage owned by the caller.
- * @param kv KV store handle; borrowed, must outlive this AO. NULL leaves the
- *        store unbound (`store.db_ok` = 0, fault b3).
  * @param slave Caller-owned slave storage (board's static instance); required.
  * @param slave_cfg Platform half of modbus_slave_config_t: line/timer/critical
  *        ports, rx/tx buffers, baudrate; required. The callbacks and identity
@@ -79,7 +78,6 @@ typedef struct {
  *        ignored.
  */
 void modbus_ao_ctor(modbus_ao_t* me,
-                    kv_store_t* kv,
                     modbus_slave_t* slave,
                     const modbus_slave_config_t* slave_cfg);
 

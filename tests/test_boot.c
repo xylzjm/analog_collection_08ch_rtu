@@ -29,8 +29,8 @@
 #include "app.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
+#include "fdb_fake.h"
 #include "host_support.h"
-#include "kv_mem.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
 #include "reg_map.h"
@@ -59,7 +59,6 @@ static uint8_t rx_buffer[256];
 static uint8_t tx_buffer[256];
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
-static kv_mem_t kv;
 
 static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
 static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
@@ -147,7 +146,7 @@ static void boot_scenario(uint8_t fail_ch)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_mem_ctor(&kv);
+    fdb_fake_reset();
     if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
         /* A partial store is never backfilled: preload every default row
          * with its factory body, then corrupt one body - the real loader
@@ -164,15 +163,15 @@ static void boot_scenario(uint8_t fail_ch)
         uint8_t bad[4] = {0};
         uint16_t addr = REG_MAP_DEFAULT_DEV_ADDR;
         uint8_t ch;
-        char key[KV_MEM_MAX_KEY];
+        char key[FDB_FAKE_MAX_KEY];
 
         for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
             (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
-            kv_mem_put(&kv, key, &cfg, sizeof(cfg));
+            fdb_fake_put(key, &cfg, sizeof(cfg));
         }
-        kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
+        fdb_fake_put("dev/addr", &addr, sizeof(addr));
         (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)fail_ch);
-        kv_mem_put(&kv, key, bad, sizeof(bad));
+        fdb_fake_put(key, bad, sizeof(bad));
     }
     modbus_port_fake_init(&port);
     tmp75_port_fake_init(&cjc_port);
@@ -183,7 +182,7 @@ static void boot_scenario(uint8_t fail_ch)
     modbus_port_fake_config(&port, &cfg,
                             rx_buffer, (uint16_t)sizeof(rx_buffer),
                             tx_buffer, (uint16_t)sizeof(tx_buffer));
-    modbus_ao_ctor(&modbus, &kv.base, &slave, &cfg);
+    modbus_ao_ctor(&modbus, &slave, &cfg);
 
     /* Channels first: every AO subscribes inside its initial transition. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {

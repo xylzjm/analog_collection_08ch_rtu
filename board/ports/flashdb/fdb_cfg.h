@@ -13,6 +13,8 @@
 /** @brief Enable the key-value database. */
 #define FDB_USING_KVDB
 
+/* FDB_KV_AUTO_UPDATE must stay undefined: the b2 missing-key fault path depends on FlashDB never backfilling an existing store. */
+
 /** @brief Store the database through FAL. */
 #define FDB_USING_FAL_MODE
 

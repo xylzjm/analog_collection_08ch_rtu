@@ -3,13 +3,13 @@
  * @brief Callback-level tests of the write transaction and persistence.
  *
  * Builds a real (unstarted) slave core over fake line/timer/critical ports
- * and drives its data-space callbacks directly with the in-memory KV store -
- * no frames, no dispatch of the AO under test - so the whole transaction
- * discipline runs exactly as the core would invoke it: validate, commit
- * (through the real persistence code over kv_mem with a read-back check),
- * then mirror, then publish. Publishes are observed on a recorder AO. Boot
- * loading (the initial transition) and the CFG_APPLIED_SIG handler live at
- * the event level in test_modbus_ao.c.
+ * and drives its data-space callbacks directly with the in-memory FlashDB
+ * fake - no frames, no dispatch of the AO under test - so the whole
+ * transaction discipline runs exactly as the core would invoke it: validate,
+ * commit (through the real persistence code over the fdb_fake medium with a
+ * read-back check), then mirror, then publish. Publishes are observed on a
+ * recorder AO. Boot loading (the initial transition) and the CFG_APPLIED_SIG
+ * handler live at the event level in test_modbus_ao.c.
  */
 
 #include <stddef.h>
@@ -20,7 +20,8 @@
 #include "qpc.h"
 
 #include "app.h"
-#include "kv_mem.h"
+#include "fdb_fake.h"
+#include "flashdb.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
 #include "reg_map.h"
@@ -38,11 +39,115 @@ static int failures;
     } while ( 0 )
 
 /*----------------------------------------------------------------------------*/
+/* FlashDB fake medium                                                        */
+/*----------------------------------------------------------------------------*/
+
+/** @brief Factory fixture body for the fake-medium contract checks. */
+static const uint8_t fixture_body[4] = {0x11U, 0x22U, 0x33U, 0x44U};
+
+/* Same vendor-boundary casts as modbus_ao.c: the bodies stay const. */
+static struct fdb_default_kv_node fixture_nodes[2] = {
+    {(char*)"cfg/ch0", (void*)fixture_body, sizeof(fixture_body)},
+    {(char*)"dev/addr", (void*)fixture_body, sizeof(fixture_body)},
+};
+
+/**
+ * @brief Pin the contract of the fdb_fake medium.
+ *
+ * The fake is load-bearing for every persistence check in this suite, so
+ * its four faithfulness rules are pinned here next to its main consumer:
+ * fdb_blob_make() leaves saved alone; get reports the full stored length
+ * (0 on miss) and copies min(len, size); set counts and records before
+ * honouring fail_write; init materializes the default table only into an
+ * empty medium, and materialization is not a set.
+ */
+static void test_fake_medium(void)
+{
+    struct fdb_blob blob;
+    struct fdb_default_kv fixture;
+    uint8_t preset[2]  = {0xA5U, 0x5AU};
+    uint8_t body8[8]   = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U};
+    uint8_t dst[6];
+    uint8_t buf[8]     = {0};
+    size_t n;
+
+    fixture.kvs = fixture_nodes;
+    fixture.num = sizeof(fixture_nodes) / sizeof(fixture_nodes[0]);
+
+    /* fdb_blob_make sets buf/size only; saved stays untouched. */
+    blob.saved.len = 0x5A5AU;
+    CHECK(fdb_blob_make(&blob, buf, sizeof(buf)) == &blob);
+    CHECK(blob.buf == buf);
+    CHECK(blob.size == sizeof(buf));
+    CHECK(blob.saved.len == 0x5A5AU);
+
+    /* An empty medium materializes the whole default table (factory boot),
+     * and materialization is not a set. */
+    fdb_fake_reset();
+    CHECK(fdb_kvdb_init(NULL, "param", "fdb_kvdb", &fixture, NULL) == FDB_NO_ERR);
+    CHECK(fdb_fake.init_calls == 1U);
+    CHECK(fdb_fake.set_calls == 0U);
+
+    /* Round trip out of the medium; saved.len is the full stored length. */
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == sizeof(fixture_body));
+    CHECK(blob.saved.len == sizeof(fixture_body));
+    CHECK(memcmp(buf, fixture_body, sizeof(fixture_body)) == 0);
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "dev/addr", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == sizeof(fixture_body));
+
+    /* A preset body wins over the default and a second init neither
+     * overwrites nor backfills (factory-boot rule). */
+    CHECK(fdb_kv_set_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, preset, sizeof(preset)))
+          == FDB_NO_ERR);
+    CHECK(fdb_fake.set_calls == 1U);
+    CHECK(strcmp(fdb_fake.last_key, "cfg/ch0") == 0);
+    CHECK(fdb_fake.last_len == sizeof(preset));
+    CHECK(fdb_kvdb_init(NULL, "param", "fdb_kvdb", &fixture, NULL) == FDB_NO_ERR);
+    CHECK(fdb_fake.init_calls == 2U);
+    CHECK(fdb_fake.set_calls == 1U);
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == sizeof(preset));
+    CHECK(memcmp(buf, preset, sizeof(preset)) == 0);
+
+    /* fail_write: the attempt is counted and recorded before it is
+     * rejected, and the stored value survives. */
+    fdb_fake.fail_write = 1U;
+    CHECK(fdb_kv_set_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, body8, sizeof(body8)))
+          == FDB_WRITE_ERR);
+    fdb_fake.fail_write = 0U;
+    CHECK(fdb_fake.set_calls == 2U);
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == sizeof(preset));
+
+    /* Truncated copy, full length reported, tail of the buffer untouched. */
+    CHECK(fdb_kv_set_blob(NULL, "cfg/ch2", fdb_blob_make(&blob, body8, sizeof(body8)))
+          == FDB_NO_ERR);
+    memset(dst, 0xCC, sizeof(dst));
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch2", fdb_blob_make(&blob, dst, 4U));
+    CHECK(n == 4U);
+    CHECK(blob.saved.len == sizeof(body8));
+    CHECK((dst[4] == 0xCCU) && (dst[5] == 0xCCU));
+
+    /* A miss is a miss: nothing copied, saved.len 0. */
+    memset(buf, 0x5A, sizeof(buf));
+    blob.saved.len = 77U;
+    n = fdb_kv_get_blob(NULL, "absent", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == 0U);
+    CHECK(blob.saved.len == 0U);
+    CHECK(buf[0] == 0x5AU);
+}
+
+/*----------------------------------------------------------------------------*/
 /* Harness                                                                    */
 /*----------------------------------------------------------------------------*/
 
 static modbus_ao_t ao;
-static kv_mem_t kv;
 static modbus_slave_t slave_storage;
 static modbus_port_fake_t port;
 static uint8_t rx_buffer[256];
@@ -96,13 +201,11 @@ static void rec_collect(void)
 }
 
 /**
- * @brief Reset the world and construct the AO over a fresh KV store.
+ * @brief Reset the world and construct the AO over a fresh fake medium.
  *
- * @param db_fail Non-zero scripts a store init failure (b3 path).
- * @param unbound Non-zero constructs without a store at all.
+ * @param db_fail Non-zero scripts a database init failure (b3 path).
  */
-static void setup(uint8_t db_fail,
-                  uint8_t unbound)
+static void setup(uint8_t db_fail)
 {
     modbus_slave_config_t cfg = {0};
 
@@ -112,8 +215,8 @@ static void setup(uint8_t db_fail,
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_mem_ctor(&kv);
-    kv.fail_init = db_fail;
+    fdb_fake_reset();
+    fdb_fake.fail_init = db_fail;
 
     /* The observer must be up before any write can publish. */
     QActive_ctor(&recorder, Q_STATE_CAST(&rec_handler));
@@ -130,14 +233,12 @@ static void setup(uint8_t db_fail,
                             rx_buffer, (uint16_t)sizeof(rx_buffer),
                             tx_buffer, (uint16_t)sizeof(tx_buffer));
 
-    modbus_ao_ctor(&ao,
-                   (unbound != 0U) ? NULL : &kv.base,
-                   &slave_storage, &cfg);
+    modbus_ao_ctor(&ao, &slave_storage, &cfg);
 }
 
 static void setup_normal(void)
 {
-    setup(0U, 0U);
+    setup(0U);
 }
 
 /** @brief The core's own callback copy, wired to the AO under test. */
@@ -196,14 +297,14 @@ static void make_block(uint8_t type,
     reg_map_ch_encode(&cfg, block);
 }
 
-/** @brief Decode the body of the last KV write as a channel configuration. */
+/** @brief Decode the body of the last fake-medium write as a configuration. */
 static ch_config_t last_cfg(void)
 {
     ch_config_t cfg;
 
     memset(&cfg, 0, sizeof(cfg));
-    if ( kv.last_len <= sizeof(cfg) ) {
-        memcpy(&cfg, kv.last_value, kv.last_len);
+    if ( fdb_fake.last_len <= sizeof(cfg) ) {
+        memcpy(&cfg, fdb_fake.last_value, fdb_fake.last_len);
     }
     return cfg;
 }
@@ -233,8 +334,8 @@ static void test_init_state(void)
     setup_normal();
     cb = wiring();
 
-    CHECK(kv.init_calls == 1U);
-    CHECK(kv.set_calls == 0U); /* materialization is not a commit */
+    CHECK(fdb_fake.init_calls == 1U);
+    CHECK(fdb_fake.set_calls == 0U); /* materialization is not a commit */
     CHECK(ao.store.db_ok == 1U);
     CHECK(ao.store.commit_failed == 0U);
     CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
@@ -296,7 +397,7 @@ static void test_validation_matrix(void)
         read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block);
         CHECK(memcmp(block, before, sizeof(block)) == 0);
     }
-    CHECK(kv.set_calls == 1U); /* only the valid frame above */
+    CHECK(fdb_fake.set_calls == 1U); /* only the valid frame above */
     rec_collect();
     CHECK(published_count == 1U);
 
@@ -321,7 +422,7 @@ static void test_validation_matrix(void)
                   == MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE);
         }
     }
-    CHECK(kv.set_calls == 1U);
+    CHECK(fdb_fake.set_calls == 1U);
     rec_collect();
     CHECK(published_count == 1U);
 
@@ -352,9 +453,9 @@ static void test_write_commit(void)
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block) == MODBUS_SLAVE_EX_NONE);
 
     /* The commit happened once and the KV body is the encoded block. */
-    CHECK(kv.set_calls == 1U);
-    CHECK(strcmp(kv.last_key, "cfg/ch0") == 0);
-    CHECK(kv.last_len == sizeof(ch_config_t));
+    CHECK(fdb_fake.set_calls == 1U);
+    CHECK(strcmp(fdb_fake.last_key, "cfg/ch0") == 0);
+    CHECK(fdb_fake.last_len == sizeof(ch_config_t));
     saved = last_cfg();
     CHECK(saved.type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(saved.rate_code == 9U);
@@ -450,7 +551,7 @@ static void test_no_change_retries(void)
     make_block((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 9U,
                0.0f, 0.0f, 0.0f, 1.0f, block);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block) == MODBUS_SLAVE_EX_NONE);
-    CHECK(kv.set_calls == 1U);
+    CHECK(fdb_fake.set_calls == 1U);
     rec_collect();
     CHECK(published_count == 1U);
 
@@ -459,7 +560,7 @@ static void test_no_change_retries(void)
      * same block. Once the channel answers with CFG_APPLIED_SIG the same
      * value is a true no-op (covered in test_modbus_ao.c). */
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block) == MODBUS_SLAVE_EX_NONE);
-    CHECK(kv.set_calls == 1U);
+    CHECK(fdb_fake.set_calls == 1U);
     rec_collect();
     CHECK(published_count == 2U);
     CHECK(published[1].ch == 0U);
@@ -470,9 +571,9 @@ static void test_no_change_retries(void)
 
         modbus_slave_put_u16(one, 1U);
         CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one) == MODBUS_SLAVE_EX_NONE);
-        CHECK(kv.set_calls == 2U); /* first address write commits */
+        CHECK(fdb_fake.set_calls == 2U); /* first address write commits */
         CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one) == MODBUS_SLAVE_EX_NONE);
-        CHECK(kv.set_calls == 2U); /* same value: store untouched */
+        CHECK(fdb_fake.set_calls == 2U); /* same value: store untouched */
     }
     rec_collect();
     CHECK(published_count == 2U); /* address writes never publish */
@@ -497,10 +598,10 @@ static void test_commit_failure(void)
     /* A changed value whose read-back is wrong is not committed. */
     make_block((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 10U,
                0.0f, 0.0f, 0.0f, 3.0f, next_block);
-    kv.corrupt_read = 1U;
+    fdb_fake.corrupt_read = 1U;
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, next_block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
-    kv.corrupt_read = 0U;
+    fdb_fake.corrupt_read = 0U;
     CHECK(ao.store.commit_failed != 0U);
     CHECK(ao.config.cfg[0].rate_code == 9U); /* change-check base untouched */
     read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block);
@@ -514,7 +615,7 @@ static void test_commit_failure(void)
 
     /* The retry is not short-circuited (the change-check base never moved). */
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, next_block) == MODBUS_SLAVE_EX_NONE);
-    CHECK(kv.set_calls == 3U);
+    CHECK(fdb_fake.set_calls == 3U);
     CHECK(ao.store.commit_failed == 0U);
     CHECK((read_fault(cb) & REG_MAP_FAULT_PARAM_WRITE) == 0U);
     rec_collect();
@@ -523,13 +624,13 @@ static void test_commit_failure(void)
     /* A failed write behaves like a wrong read-back. */
     make_block((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 11U,
                0.0f, 0.0f, 0.0f, 1.0f, block);
-    kv.fail_write = 1U;
+    fdb_fake.fail_write = 1U;
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
-    kv.fail_write = 0U;
+    fdb_fake.fail_write = 0U;
     CHECK(ao.store.commit_failed != 0U);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block) == MODBUS_SLAVE_EX_NONE);
-    CHECK(kv.set_calls == 5U);
+    CHECK(fdb_fake.set_calls == 5U);
     CHECK(ao.store.commit_failed == 0U);
 }
 
@@ -552,8 +653,8 @@ static void test_address_register(void)
     CHECK(ao.config.addr == 247U);
     CHECK(ao.config.addr_ok == 1U);
     CHECK(cb->address(cb->ctx) == 247U);
-    CHECK(kv.set_calls == 1U);
-    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
+    CHECK(fdb_fake.set_calls == 1U);
+    CHECK(strcmp(fdb_fake.last_key, "dev/addr") == 0);
     rec_collect();
     CHECK(published_count == 0U); /* address writes never publish */
 
@@ -574,10 +675,10 @@ static void test_address_register(void)
 
     /* A failing address commit behaves like a failing config commit. */
     modbus_slave_put_u16(one, 200U);
-    kv.corrupt_read = 1U;
+    fdb_fake.corrupt_read = 1U;
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
-    kv.corrupt_read = 0U;
+    fdb_fake.corrupt_read = 0U;
     CHECK(ao.store.commit_failed != 0U);
     CHECK(ao.config.addr == 247U); /* not adopted */
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one) == MODBUS_SLAVE_EX_NONE);
@@ -589,35 +690,33 @@ static void test_address_register(void)
 /* Store lifecycle and fault word                                             */
 /*----------------------------------------------------------------------------*/
 
-/** @brief An unbound store or a failed init fails safe (EX 04, b3, no b2). */
-static void test_unbound_and_init_failure(void)
+/** @brief A failed database open fails safe (EX 04, b3, no b2). */
+static void test_init_failure(void)
 {
     const modbus_slave_callbacks_t* cb;
     uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
     uint8_t one[2];
 
-    /* Store never bound: every commit fails and b3 is latched. */
-    setup(0U, 1U);
+    /* The database never opened: b3 latched and nothing materialized. */
+    setup(1U);
     cb = wiring();
-    CHECK(kv.init_calls == 0U);
+    CHECK(fdb_fake.init_calls == 1U);
     CHECK(ao.store.db_ok == 0U);
+    CHECK(read_fault(cb) == (uint16_t)(REG_MAP_FAULT_FDB_INIT | REG_MAP_FAULT_CJC));
 
+    /* Every commit fails safe: EX 04, b1 latched, the store untouched. */
     make_block((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 9U,
                0.0f, 0.0f, 0.0f, 1.0f, block);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
-    CHECK(kv.set_calls == 0U);
+    CHECK(fdb_fake.set_calls == 0U);
     CHECK(ao.store.commit_failed != 0U);
     CHECK(read_fault(cb) == (uint16_t)(REG_MAP_FAULT_FDB_INIT
                                        | REG_MAP_FAULT_PARAM_WRITE
                                        | REG_MAP_FAULT_CJC));
-
-    /* A store whose init fails is equivalent to no store. */
-    setup(1U, 0U);
-    cb = wiring();
-    CHECK(kv.init_calls == 1U);
     CHECK(ao.store.db_ok == 0U);
-    CHECK(read_fault(cb) == (uint16_t)(REG_MAP_FAULT_FDB_INIT | REG_MAP_FAULT_CJC));
+
+    /* An address commit behaves exactly the same. */
     modbus_slave_put_u16(one, 247U);
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
@@ -670,6 +769,7 @@ int main(void)
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
+    test_fake_medium();
     test_init_state();
     test_validation_matrix();
     test_write_commit();
@@ -677,7 +777,7 @@ int main(void)
     test_no_change_retries();
     test_commit_failure();
     test_address_register();
-    test_unbound_and_init_failure();
+    test_init_failure();
     test_telemetry_mirror();
 
     printf("%d checks, %d failures\n", checks, failures);

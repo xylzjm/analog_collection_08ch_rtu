@@ -4,7 +4,7 @@
  *
  * The slave core is the real modbus_slave library driven over fake
  * line/timer/critical ports; the persistence code runs over the in-memory
- * KV store. Frames are fed byte by byte through modbus_slave_rx_byte(),
+ * FlashDB fake. Frames are fed byte by byte through modbus_slave_rx_byte(),
  * captured by modbus_slave_timer_expired() (which posts FRAME_SIG through
  * the event port) and concluded by the real AO dispatch of advance().
  * Expected replies are spelled out as literal bytes with an independent
@@ -19,8 +19,8 @@
 #include "qpc.h"
 
 #include "app.h"
+#include "fdb_fake.h"
 #include "host_support.h"
-#include "kv_mem.h"
 #include "modbus_ao.h"
 #include "modbus_port_fake.h"
 #include "reg_map.h"
@@ -44,7 +44,6 @@ static uint8_t tx_buffer[256];
 static modbus_ao_t ao;
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
-static kv_mem_t kv;
 static QEvtPtr ao_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
 static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
@@ -187,7 +186,7 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
     return Q_TRAN(&rec_state);
 }
 
-/** @brief Tear the world down and prepare a fresh KV store and observer. */
+/** @brief Tear the world down and prepare a fresh fake medium and observer. */
 static void world_begin(uint8_t db_fail)
 {
     if ( ao_started != 0U ) {
@@ -199,8 +198,8 @@ static void world_begin(uint8_t db_fail)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_mem_ctor(&kv);
-    kv.fail_init = db_fail;
+    fdb_fake_reset();
+    fdb_fake.fail_init = db_fail;
     modbus_port_fake_init(&port);
     published_count = 0U;
 
@@ -220,25 +219,28 @@ static void world_begin(uint8_t db_fail)
 static void world_preload_cfg_bad(uint8_t ch)
 {
     uint8_t bad[4] = {0};
-    char key[KV_MEM_MAX_KEY];
+    char key[FDB_FAKE_MAX_KEY];
 
     (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
-    kv_mem_put(&kv, key, bad, sizeof(bad));
+    fdb_fake_put(key, bad, sizeof(bad));
 }
 
 /** @brief Script one boot load failure: a bad stored slave address. */
 static void world_preload_addr(uint16_t addr)
 {
-    kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
+    fdb_fake_put("dev/addr", &addr, sizeof(addr));
 }
 
 /**
  * @brief Script a healthy store: every default row with its factory body.
  *
- * A partial store is never backfilled, so a scenario that corrupts one
- * key must preload the healthy rows it still expects to load.
+ * A partial store is never backfilled, so a scenario that corrupts or
+ * omits one key must preload the healthy rows it still expects to load.
+ *
+ * @param skip_ch Zero-based channel whose key is left unplanted (255 for
+ *        none): a hole is a miss, never a default.
  */
-static void world_preload_defaults(void)
+static void world_preload_defaults(uint8_t skip_ch)
 {
     static const ch_config_t cfg = {
         (uint8_t)CH_TYPE_TC,   /**< type */
@@ -253,12 +255,15 @@ static void world_preload_defaults(void)
     uint8_t ch;
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        char key[KV_MEM_MAX_KEY];
+        char key[FDB_FAKE_MAX_KEY];
 
+        if ( ch == skip_ch ) {
+            continue;
+        }
         (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
-        kv_mem_put(&kv, key, &cfg, sizeof(cfg));
+        fdb_fake_put(key, &cfg, sizeof(cfg));
     }
-    kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
+    fdb_fake_put("dev/addr", &addr, sizeof(addr));
 }
 
 /** @brief Construct the AO with its slave core and bring the AO up. */
@@ -270,7 +275,7 @@ static void world_start(void)
                             rx_buffer, (uint16_t)sizeof(rx_buffer),
                             tx_buffer, (uint16_t)sizeof(tx_buffer));
 
-    modbus_ao_ctor(&ao, &kv.base, &slave, &cfg);
+    modbus_ao_ctor(&ao, &slave, &cfg);
 
     QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(APP_PRIO_MODBUS, 0U),
                   ao_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
@@ -305,14 +310,14 @@ static void scenario_begin(void)
     scenario_begin_ex(0U);
 }
 
-/** @brief Decode the body of the last KV write as a channel configuration. */
+/** @brief Decode the body of the last fake-medium write as a configuration. */
 static ch_config_t last_cfg(void)
 {
     ch_config_t cfg;
 
     memset(&cfg, 0, sizeof(cfg));
-    if ( kv.last_len <= sizeof(cfg) ) {
-        memcpy(&cfg, kv.last_value, kv.last_len);
+    if ( fdb_fake.last_len <= sizeof(cfg) ) {
+        memcpy(&cfg, fdb_fake.last_value, fdb_fake.last_len);
     }
     return cfg;
 }
@@ -432,8 +437,8 @@ static void test_fc16_write_pipeline(void)
     }
 
     /* The commit happened once, the mirror and the publish agree with it. */
-    CHECK(kv.set_calls == 1U);
-    CHECK(strcmp(kv.last_key, "cfg/ch0") == 0);
+    CHECK(fdb_fake.set_calls == 1U);
+    CHECK(strcmp(fdb_fake.last_key, "cfg/ch0") == 0);
     {
         ch_config_t saved = last_cfg();
 
@@ -466,7 +471,7 @@ static void test_fc16_write_pipeline(void)
     drain();
     pump_tx();
     (void)tx_take(reply, sizeof(reply)); /* EX 00 echo */
-    CHECK(kv.set_calls == 1U);
+    CHECK(fdb_fake.set_calls == 1U);
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     scenario_end();
@@ -524,7 +529,7 @@ static void test_invalid_write_rejected(void)
         CHECK(memcmp(reply, full, 5U) == 0);
     }
 
-    CHECK(kv.set_calls == 0U);
+    CHECK(fdb_fake.set_calls == 0U);
     CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_TC);
     rec_collect();
     CHECK(published_count == boot_publish_count);
@@ -550,8 +555,8 @@ static void test_address_change(void)
     pump_tx();
     reply_len = tx_take(reply, sizeof(reply));
     CHECK(reply_len == 8U);
-    CHECK(kv.set_calls == 1U);
-    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
+    CHECK(fdb_fake.set_calls == 1U);
+    CHECK(strcmp(fdb_fake.last_key, "dev/addr") == 0);
     CHECK(ao.config.addr == 247U);
     CHECK(modbus_slave_get_address(&slave) == 247U);
 
@@ -586,13 +591,13 @@ static void test_commit_failure_latches(void)
     uint8_t pdu_fault[5] = {0x04U, 0x00U, 0x44U, 0x00U, 0x01U}; /* reg 68 */
 
     scenario_begin();
-    kv.corrupt_read = 1U;
+    fdb_fake.corrupt_read = 1U;
 
     build_frame(frame, &frame_len, 1U, pdu_set, 5U);
     feed_frame(frame, frame_len);
     drain();
     pump_tx();
-    kv.corrupt_read = 0U;
+    fdb_fake.corrupt_read = 0U;
 
     {
         static const uint8_t head[] = {0x01U, 0x86U, 0x04U};
@@ -651,8 +656,8 @@ static void test_silence_paths(void)
     drain();
     pump_tx();
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
-    CHECK(kv.set_calls == 1U);
-    CHECK(strcmp(kv.last_key, "dev/addr") == 0);
+    CHECK(fdb_fake.set_calls == 1U);
+    CHECK(strcmp(fdb_fake.last_key, "dev/addr") == 0);
     CHECK(ao.config.addr == 150U);
     scenario_end();
 }
@@ -692,7 +697,7 @@ static void test_boot_load_failure(void)
     uint8_t ch;
 
     world_begin(0U);
-    world_preload_defaults(); /* the store holds content: no backfill */
+    world_preload_defaults(255U); /* the store holds content: no backfill */
     world_preload_cfg_bad(2U);
     world_start();
 
@@ -725,7 +730,7 @@ static void test_boot_load_failure(void)
 static void test_bad_address(void)
 {
     world_begin(0U);
-    world_preload_defaults(); /* the store holds content: no backfill */
+    world_preload_defaults(255U); /* the store holds content: no backfill */
     world_preload_addr(0U);
     world_start();
 
@@ -748,6 +753,66 @@ static void test_bad_address(void)
     scenario_begin();
     CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.config.addr_ok == 1U);
+    scenario_end();
+}
+
+/** @brief A missing key in a populated store fails only its channel (b2). */
+static void test_boot_missing_key(void)
+{
+    uint8_t ch;
+
+    world_begin(0U);
+    world_preload_defaults(5U); /* every row but cfg/ch5: a hole is a miss */
+    world_start();
+
+    /* b2 for ch5 only: nothing is backfilled into a populated store. */
+    CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
+    CHECK(ao.config.cfg_ok[5] == 0U);
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        if ( ch != 5U ) {
+            CHECK(ao.config.cfg_ok[ch] == 1U);
+        }
+    }
+
+    /* The fault word shows the load failure (b0: no heartbeat yet). */
+    {
+        const modbus_slave_callbacks_t* cb = &slave.callbacks;
+        uint8_t reply[2];
+
+        CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
+                                  MODBUS_SLAVE_REG_READ)
+              == MODBUS_SLAVE_EX_NONE);
+        CHECK(modbus_slave_get_u16(reply)
+              == (uint16_t)(REG_MAP_FAULT_PARAM_LOAD | REG_MAP_FAULT_CJC));
+    }
+    scenario_end();
+}
+
+/**
+ * @brief An oversize body fails as a load-size error, not an acceptance.
+ *
+ * The loader must see the full stored length (24 != 20) even though its
+ * copy was truncated to the 20-byte configuration.
+ */
+static void test_boot_oversize_body(void)
+{
+    uint8_t big[24];
+    uint8_t ch;
+
+    memset(big, 0x5A, sizeof(big));
+
+    world_begin(0U);
+    world_preload_defaults(3U);
+    fdb_fake_put("cfg/ch3", big, sizeof(big));
+    world_start();
+
+    CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
+    CHECK(ao.config.cfg_ok[3] == 0U);
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        if ( ch != 3U ) {
+            CHECK(ao.config.cfg_ok[ch] == 1U);
+        }
+    }
     scenario_end();
 }
 
@@ -810,6 +875,8 @@ int main(void)
     test_boot_failures_latch();
     test_boot_load_failure();
     test_bad_address();
+    test_boot_missing_key();
+    test_boot_oversize_body();
     test_measure_mirror();
 
     printf("test_modbus_ao: %d checks, %d failures\n", checks, failures);

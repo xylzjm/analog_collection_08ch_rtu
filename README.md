@@ -15,8 +15,8 @@ tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 ```
 
 - `app/`：组合根 `main.c`（含事件池容量）、日志初始化、共享词汇头 `app.h`（通道模型、信号、事件载荷）与应用对象：一个活动对象一对 `*_ao.h/.c` 文件（`channel_ao`、`cold_junction_ao`、`modbus_ao`），纯寄存器映射 `reg_map.h/.c`。
-- `tests/`：7 个宿主测试可执行（`test_reg_map`、`test_modbus_data`、`test_channel_ao`、`test_cold_junction_ao`、`test_modbus_ao`、`test_boot`、`test_analog_input_convert`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器）与存储接缝（`kv_mem`）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
-- `board/`：时钟、外设、SysTick/NVIC、板级设备对象与 FlashDB 存储适配 `kv_store_board.c`；不初始化日志、不在 `board_init()` 内打开 FlashDB。
+- `tests/`：7 个宿主测试可执行（`test_reg_map`、`test_modbus_data`、`test_channel_ao`、`test_cold_junction_ao`、`test_modbus_ao`、`test_boot`、`test_analog_input_convert`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器）与 FlashDB 链接边界（`fdb_fake`，以真实厂商头文件编译、链接期替换四个 FlashDB 入口）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
+- `board/`：时钟、外设、SysTick/NVIC 与板级设备对象；不初始化日志、不在 `board_init()` 内打开 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
 
@@ -41,7 +41,7 @@ board_init();   /* 时钟、外设、板级设备；末尾等 TMP75 首次转换
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储的初始化不在 `board_init()` 内。存储经 `kv_store_t` 句柄注入 `modbus_ao_ctor()`：目标实现 `board/src/kv_store_board.c` 拥有 `fdb_kvdb`，构造期内 `kv_store_init()` 执行 `fal_init()` / `fdb_kvdb_init()`（`QF_run()` 之前）；宿主测试绑定 `library/interface/kv_store/test/kv_mem.c` 的内存实现。日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储的初始化不在 `board_init()` 内。`modbus_ao.c` 直接使用 FlashDB：构造期内 `fdb_kvdb_init()` 打开 `fdb_kvdb` 分区（FlashDB 在 `_fdb_init_ex` 内自行调用 `fal_init()`，无需显式调用；`QF_run()` 之前）；宿主测试在链接边界用 `tests/stubs/fdb_fake.c` 替换四个 FlashDB 入口（以真实厂商头文件编译，`tests/stubs/fdb_cfg.h` 为空配置）。日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 
@@ -63,7 +63,7 @@ elog_* / FDB_PRINT / printf
 ## FlashDB / FAL
 
 - 片内 Flash：64 KB，1 KB 扇区，支持字节编程。
-- 参数分区：`fdb_kvdb`，`0x0800F000..0x0800FFFF`，偏移 60 KB，长度 4 KB。
+- 参数分区：`fdb_kvdb`，`0x0800F000..0x0800FFFF`，偏移 60 KB，长度 4 KB；分区名单源 `board_config.h` 的 `BOARD_PARAM_PARTITION`（`fal_cfg.h` 与 `fdb_kvdb_init()` 共同消费）。
 - 固件 ROM 区域为 `0x08000000..0x0800EFFF`（60 KB）。
 - FAL 设备：`at32f421_onchip`，`blk_size = 1024`，`write_gran = FDB_WRITE_GRAN`（单源：FAL 端口直接消费 `fdb_cfg.h` 的值）。
 - FlashDB：`FDB_USING_KVDB`、`FDB_USING_FAL_MODE`、`FDB_WRITE_GRAN = 8`。

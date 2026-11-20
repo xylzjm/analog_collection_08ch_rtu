@@ -7,6 +7,8 @@
 #ifndef _FAL_CFG_H_
 #define _FAL_CFG_H_
 
+#include "board_config.h"
+
 /** @brief On-chip flash device. */
 extern const struct fal_flash_dev at32f421_onchip_flash;
 
@@ -22,7 +24,7 @@ extern const struct fal_flash_dev at32f421_onchip_flash;
 /** @brief Parameter partition at 0x0800F000, 4 KB. */
 #define FAL_PART_TABLE                                                               \
 {                                                                                    \
-    {FAL_PART_MAGIC_WORD, "fdb_kvdb", "at32f421_onchip", 60*1024, 4*1024, 0}, \
+    {FAL_PART_MAGIC_WORD, BOARD_PARAM_PARTITION, "at32f421_onchip", 60*1024, 4*1024, 0}, \
 }
 
 #endif

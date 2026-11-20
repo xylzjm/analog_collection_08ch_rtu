@@ -7,8 +7,9 @@
  * modbus core calls the data-space callbacks directly in this AO's
  * execution context. reg_map is the pure wire map it calls. The write
  * transaction holds the project's atomicity discipline - validate, commit
- * through the KV store with a read-back check, then touch the mirror -
- * and a committed channel configuration is published as CONFIG_SET_SIG.
+ * into the FlashDB parameter database with a read-back check, then touch
+ * the mirror - and a committed channel configuration is published as
+ * CONFIG_SET_SIG.
  */
 
 #include "modbus_ao.h"
@@ -18,6 +19,7 @@
 #include <string.h>
 
 #include "elog.h"
+#include "flashdb.h"
 #include "reg_map.h"
 
 Q_DEFINE_THIS_MODULE("modbus_ao")
@@ -89,33 +91,107 @@ static const ch_config_t default_ch_cfg = {
 /** @brief Factory default Modbus slave address. */
 static const uint16_t default_dev_addr = REG_MAP_DEFAULT_DEV_ADDR;
 
+/** @brief FlashDB database name (diagnostics only). */
+#define PARAM_DB_NAME "param"
+
+/** @brief The one parameter database; owned here, opened in the ctor. */
+static struct fdb_kvdb param_db;
+
 /**
- * @brief Default KV table: the single source of keys and default bodies.
+ * @brief Default parameter table: the single source of keys and default bodies.
  *
+ * Rows are fdb_default_kv_node so fdb_kvdb_init() consumes them directly.
  * The key set is the 8-position board layout even when fewer channels are
  * populated, so a SKU variant keeps the same KV layout. The last entry is
  * the device address.
+ *
+ * Vendor type forces non-const node fields; the bodies stay const (.rodata).
+ * The initializer casts are the one vendor-boundary compromise. Nothing ever
+ * writes the array: fdb_kvdb_init() retains the kvs pointer for the DB
+ * lifetime, which is why the array is static.
  */
-static const kv_store_default_t defaults[] = {
-#define X(pos) {"cfg/ch" #pos, &default_ch_cfg, sizeof(default_ch_cfg)},
+static struct fdb_default_kv_node param_defaults[] = {
+#define X(pos) {(char*)"cfg/ch" #pos, (void*)&default_ch_cfg, sizeof(default_ch_cfg)},
     BOARD_POSITIONS(X)
 #undef X
-    {"dev/addr", &default_dev_addr, sizeof(default_dev_addr)},
+    {(char*)"dev/addr", (void*)&default_dev_addr, sizeof(default_dev_addr)},
 };
 
-/* Compile-time guard: the schema must match BOARD_KV_DEFAULTS_MAX exactly. */
-Q_ASSERT_STATIC((sizeof(defaults) / sizeof(defaults[0])) == BOARD_KV_DEFAULTS_MAX);
+/* Tripwire: deleting the dev/addr row would push key_addr() out of bounds.
+ * Derived-vs-derived: the schema row count is not hand-maintained. */
+Q_ASSERT_STATIC((sizeof(param_defaults) / sizeof(param_defaults[0]))
+                == BOARD_POSITION_COUNT + 1U);
 
 /** @brief KV key of one channel configuration row. */
 static const char* key_cfg(uint8_t ch)
 {
-    return defaults[ch].key;
+    return param_defaults[ch].key;
 }
 
 /** @brief KV key of the device address row. */
 static const char* key_addr(void)
 {
-    return defaults[BOARD_POSITION_COUNT].key;
+    return param_defaults[BOARD_POSITION_COUNT].key;
+}
+
+/**
+ * @brief Read one key's body from the parameter database.
+ *
+ * Owns the fdb_blob lifecycle and the saved.len contract: FlashDB reports
+ * the full stored length even when the copy was truncated, and 0 means the
+ * key is missing. blob.saved.len is pre-zeroed because fdb_blob_make() does
+ * not touch the saved block. No default substitution ever happens here.
+ *
+ * @param key NUL-terminated key.
+ * @param buf Destination buffer.
+ * @param cap Capacity of @p buf.
+ * @param stored_len Receives the full stored length (0 when the key is missing).
+ * @return true when the key exists, false when it is missing.
+ */
+static bool param_read(const char* key, void* buf, size_t cap, size_t* stored_len)
+{
+    struct fdb_blob blob;
+
+    blob.saved.len = 0U;
+    (void)fdb_kv_get_blob(&param_db, key, fdb_blob_make(&blob, buf, cap));
+    *stored_len = blob.saved.len;
+    return blob.saved.len != 0U;
+}
+
+/**
+ * @brief Commit one body to the parameter database synchronously.
+ *
+ * Write, then read back unconditionally; the outcome is decided by the
+ * read-back comparison, never by the library return code (which is only
+ * logged). This is the one home of "commit = write then read back".
+ *
+ * @param key NUL-terminated key.
+ * @param body Body to store.
+ * @param len Body length in bytes.
+ * @return COMMIT_OK only when the stored bytes equal the requested ones,
+ *         COMMIT_ERR otherwise.
+ */
+static commit_status_t param_commit(const char* key, const void* body, size_t len)
+{
+    uint8_t verify[sizeof(ch_config_t)]; /* the longest body */
+    struct fdb_blob blob;
+    fdb_err_t st;
+    size_t stored_len;
+
+    st = fdb_kv_set_blob(&param_db, key, fdb_blob_make(&blob, body, len));
+    (void)st; /* logged below; only the read-back decides the outcome */
+
+    /* A body longer than the verify buffer can never be confirmed equal. */
+    if ( !param_read(key, verify, sizeof(verify), &stored_len)
+         || (stored_len != len)
+         || (len > sizeof(verify))
+         || (memcmp(verify, body, len) != 0) ) {
+        elog_error("modbus_ao", "commit failed: %s (fdb %d, read back %u)",
+                   key, (int)st, (unsigned)stored_len);
+        return COMMIT_ERR;
+    }
+    elog_info("modbus_ao", "commit ok: %s (fdb %d)", key, (int)st);
+    return COMMIT_OK;
 }
 
 /**
@@ -196,11 +272,9 @@ static bool load_cfg(modbus_ao_t* me, uint8_t ch)
 {
     const char* key = key_cfg(ch);
     ch_config_t cfg;
-    kv_store_status_t st;
     size_t len;
 
-    st = kv_store_get(me->store.kv, key, &cfg, sizeof(cfg), &len);
-    if ( st != KV_STORE_OK ) {
+    if ( !param_read(key, &cfg, sizeof(cfg), &len) ) {
         elog_warn("modbus_ao", "load missing: %s", key);
         return false;
     }
@@ -227,11 +301,9 @@ static bool load_cfg(modbus_ao_t* me, uint8_t ch)
 static bool load_addr(modbus_ao_t* me, uint16_t* addr)
 {
     const char* key = key_addr();
-    kv_store_status_t st;
     size_t len;
 
-    st = kv_store_get(me->store.kv, key, addr, sizeof(*addr), &len);
-    if ( st != KV_STORE_OK ) {
+    if ( !param_read(key, addr, sizeof(*addr), &len) ) {
         elog_warn("modbus_ao", "load missing: %s", key);
         return false;
     }
@@ -281,95 +353,48 @@ static void load_all(modbus_ao_t* me)
 /**
  * @brief Persist one channel configuration synchronously.
  *
- * Change check against the mirror first; a changed value is written and
- * then read back. The outcome is decided by the read-back comparison.
+ * Change check against the mirror first; a changed value goes through
+ * param_commit() (write + read-back), which decides the outcome.
  */
 static commit_status_t save_cfg(modbus_ao_t* me,
                                 uint8_t ch,
                                 const ch_config_t* cfg)
 {
-    const char* key;
-    ch_config_t verify;
-    kv_store_status_t st;
-    kv_store_status_t rd;
-    size_t len;
-
     if ( (ch >= CH_CONFIG_CHANNEL_COUNT) || (me->store.db_ok == 0U) ) {
         return COMMIT_ERR;
     }
-
-    key = key_cfg(ch);
 
     if ( (me->config.cfg_ok[ch] != 0U)
          && (memcmp(&me->config.cfg[ch], cfg, sizeof(*cfg)) == 0) ) {
         return COMMIT_NO_CHANGE;
     }
 
-    st = kv_store_set(me->store.kv, key, cfg, sizeof(*cfg));
-
-    /* The reply follows the stored content, not the library return code. */
-    rd = kv_store_get(me->store.kv, key, &verify, sizeof(verify), &len);
-    if ( rd != KV_STORE_OK ) {
-        elog_error("modbus_ao", "commit failed: %s (kv %d, read back %d)",
-                   key, (int)st, (int)rd);
-        (void)st;
-        return COMMIT_ERR;
-    }
-    if ( (len != sizeof(verify))
-         || (memcmp(&verify, cfg, sizeof(verify)) != 0) ) {
-        elog_error("modbus_ao", "commit failed: %s (kv %d, read back %u)",
-                   key, (int)st, (unsigned)len);
-        (void)st;
+    if ( param_commit(key_cfg(ch), cfg, sizeof(*cfg)) != COMMIT_OK ) {
         return COMMIT_ERR;
     }
 
     me->config.cfg[ch]    = *cfg;
     me->config.cfg_ok[ch] = 1U;
-    elog_info("modbus_ao", "commit ok: %s (kv %d)", key, (int)st);
-    (void)st;
     return COMMIT_OK;
 }
 
 /** @brief Persist the slave address synchronously (same discipline). */
 static commit_status_t save_addr(modbus_ao_t* me, uint16_t addr)
 {
-    const char* key;
-    uint16_t verify;
-    kv_store_status_t st;
-    kv_store_status_t rd;
-    size_t len;
-
     if ( (me->store.db_ok == 0U) || !addr_valid(addr) ) {
         return COMMIT_ERR;
     }
-
-    key = key_addr();
 
     if ( (me->config.addr_ok != 0U) && (me->config.addr == addr) ) {
         return COMMIT_NO_CHANGE;
     }
 
-    st = kv_store_set(me->store.kv, key, &addr, sizeof(addr));
-
-    rd = kv_store_get(me->store.kv, key, &verify, sizeof(verify), &len);
-    if ( rd != KV_STORE_OK ) {
-        elog_error("modbus_ao", "commit failed: %s (kv %d, read back %d)",
-                   key, (int)st, (int)rd);
-        (void)st;
-        return COMMIT_ERR;
-    }
-    if ( (len != sizeof(verify)) || (verify != addr) ) {
-        elog_error("modbus_ao", "commit failed: %s (kv %d, read back %u)",
-                   key, (int)st, (unsigned)len);
-        (void)st;
+    if ( param_commit(key_addr(), &addr, sizeof(addr)) != COMMIT_OK ) {
         return COMMIT_ERR;
     }
 
     me->config.addr    = addr;
     me->config.addr_ok = 1U;
-    elog_info("modbus_ao", "commit ok: %s -> %u (kv %d)",
-              key, (unsigned)addr, (int)st);
-    (void)st;
     return COMMIT_OK;
 }
 
@@ -625,13 +650,14 @@ static const modbus_slave_identity_t identity = {
 };
 
 void modbus_ao_ctor(modbus_ao_t* me,
-                    kv_store_t* kv,
                     modbus_slave_t* slave,
                     const modbus_slave_config_t* slave_cfg)
 {
     uint8_t ch;
     modbus_slave_config_t config;
     modbus_slave_port_event_t ev;
+    struct fdb_default_kv factory;
+    fdb_err_t st;
 
     /* Both halves are required: the slave core is built in this step. */
     Q_ASSERT(slave != NULL);
@@ -640,7 +666,6 @@ void modbus_ao_ctor(modbus_ao_t* me,
     QActive_ctor(&me->super, Q_STATE_CAST(&modbus_ao_initial));
 
     me->slave               = slave;
-    me->store.kv            = kv;
     me->store.db_ok         = 0U;
     me->store.commit_failed = 0U;
     me->config.addr         = REG_MAP_DEFAULT_DEV_ADDR;
@@ -660,12 +685,16 @@ void modbus_ao_ctor(modbus_ao_t* me,
         me->telemetry.status[ch]  = (uint16_t)CH_STATUS_UNCONFIGURED;
     }
 
-    /* The store opens here; loading runs in the initial transition. */
-    if ( kv == NULL ) {
-        elog_error("modbus_ao", "kv store not bound");
-    } else if ( kv_store_init(kv, defaults, sizeof(defaults) / sizeof(defaults[0]))
-                != KV_STORE_OK ) {
-        elog_error("modbus_ao", "kv store init failed");
+    /* The parameter database opens here (FlashDB brings up FAL itself in
+     * _fdb_init_ex, so no explicit fal_init()); loading runs in the initial
+     * transition. The default_kv wrapper is a stack temp: the vendor copies
+     * it by value and retains only the kvs pointer. */
+    factory.kvs = param_defaults;
+    factory.num = sizeof(param_defaults) / sizeof(param_defaults[0]);
+    st          = fdb_kvdb_init(&param_db, PARAM_DB_NAME, BOARD_PARAM_PARTITION,
+                                &factory, NULL);
+    if ( st != FDB_NO_ERR ) {
+        elog_error("modbus_ao", "fdb kvdb init failed (fdb %d)", (int)st);
     } else {
         me->store.db_ok = 1U;
     }

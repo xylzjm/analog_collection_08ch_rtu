@@ -4,7 +4,8 @@
 # as the firmware build) through the host port in tests/stubs/qp_port.h, so
 # queue, pool, publish and time-event semantics are the real ones. Fakes
 # exist only at the device edges (analog input ops, TMP75 transfer, Modbus
-# line/timer/critical) and for the KV storage seam (kv_mem).
+# line/timer/critical) and at the FlashDB link boundary (fdb_fake, compiled
+# against the real vendor headers).
 #
 # Usage: pwsh tests/run_host_tests.ps1 [-KeepExe]
 
@@ -29,7 +30,7 @@ if ( -not (Test-Path $gcc) ) {
 $common = @('-std=c99', '-Wall', '-Wextra', '-Wno-unused-parameter')
 
 # Include order is load-bearing: tests/stubs must come first so the host
-# qp_port.h and elog.h shadows win over the firmware headers.
+# qp_port.h, elog.h and fdb_cfg.h shadows win over the firmware headers.
 $inc = @(
     '-Itests/stubs',
     '-Iapp',
@@ -40,8 +41,7 @@ $inc = @(
     '-I../library/protocol/modbus_slave/inc',
     '-I../library/device/tmp75/inc',
     '-I../library/device/sig24131/inc',
-    '-I../library/interface/kv_store',
-    '-I../library/interface/kv_store/test'
+    '-I../middleware/flashDB/inc'
 )
 
 $qpSources = @(
@@ -77,7 +77,7 @@ $tests = @(
         Sources = @('tests/test_modbus_data.c',
                     'app/modbus_ao.c',
                     'app/reg_map.c',
-                    '../library/interface/kv_store/test/kv_mem.c',
+                    'tests/stubs/fdb_fake.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
@@ -104,7 +104,7 @@ $tests = @(
         Sources = @('tests/test_modbus_ao.c',
                     'app/modbus_ao.c',
                     'app/reg_map.c',
-                    '../library/interface/kv_store/test/kv_mem.c',
+                    'tests/stubs/fdb_fake.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
@@ -120,7 +120,7 @@ $tests = @(
                     'tests/stubs/analog_input_fake.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/tmp75_port_fake.c',
-                    '../library/interface/kv_store/test/kv_mem.c',
+                    'tests/stubs/fdb_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
         Runs = @('1', '2')
