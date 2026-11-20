@@ -163,7 +163,7 @@ elog_* / FDB_PRINT / printf
 ## 构建
 
 - IDE：EIDE
-- 编译器：ARMCLANG 6，C99，`-O1`（2026-11 定夺：QP 运行时与 FlashDB KV 层全量链接后 `-O0` 需约 70 KB ROM，超出 60 KB 可用区；`-O1` 实测 52.6 KB（87.7%），纯逻辑语义仍由宿主 gcc 测试守护）
+- 编译器：ARMCLANG 6，C99，`-O1`（2026-11 定夺：QP 运行时与 FlashDB KV 层全量链接后 `-O0` 需约 70 KB ROM，超出 60 KB 可用区；`-O1` 实测 51.39 KB（85.7%），纯逻辑语义仍由宿主 gcc 测试守护）
 - 运行库：microlib
 - 调试构建定义：`AT32F421C8T7`
 - include 顺序要求：`board/ports/easylogger` 必须早于 `../middleware/EasyLogger/easylogger/inc`

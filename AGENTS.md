@@ -31,8 +31,8 @@ workspace file adds both folders; without them nothing compiles.
 - Firmware builds only through EIDE: VS Code tasks `build`, `rebuild`, `clean`,
   `flash`, `build and flash`, or the EIDE MCP tools with project uid
   `2b2c107904df4cdb1e97e57d6947db29` (`rebuild` is the reliable full check).
-- A clean build is 66 C files + 1 assembly file, ROM about 52.3/60 KB (87.1 %),
-  RAM 9.12/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
+- A clean build is 64 C files + 1 assembly file, ROM about 51.39/60 KB (85.7 %),
+  RAM 9.09/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
   KV layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
   the `fdb_kvdb` parameter partition, and ROM is linked to 60 KB (`0xF000`).

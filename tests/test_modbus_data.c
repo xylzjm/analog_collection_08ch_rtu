@@ -51,20 +51,31 @@ static struct fdb_default_kv_node fixture_nodes[2] = {
     {(char*)"dev/addr", (void*)fixture_body, sizeof(fixture_body)},
 };
 
+/* One zero-length row: the vendor reads value_len == 0 as a C string. */
+static struct fdb_default_kv_node str_nodes[1] = {
+    {(char*)"str/k", (void*)"abc", 0},
+};
+
+/** @brief FlashDB database name (diagnostics only), as modbus_ao.c names it. */
+#define PARAM_DB_NAME "param"
+
 /**
  * @brief Pin the contract of the fdb_fake medium.
  *
  * The fake is load-bearing for every persistence check in this suite, so
- * its four faithfulness rules are pinned here next to its main consumer:
+ * its faithfulness rules are pinned here next to its main consumer:
  * fdb_blob_make() leaves saved alone; get reports the full stored length
  * (0 on miss) and copies min(len, size); set counts and records before
  * honouring fail_write; init materializes the default table only into an
- * empty medium, and materialization is not a set.
+ * empty medium, reads a zero-length row as a C string, and is not a set;
+ * a hole is never backfilled; a closed database answers like the vendor's
+ * db_init_ok guards; a NULL body deletes the key.
  */
 static void test_fake_medium(void)
 {
     struct fdb_blob blob;
     struct fdb_default_kv fixture;
+    struct fdb_default_kv str_fixture;
     uint8_t preset[2]  = {0xA5U, 0x5AU};
     uint8_t body8[8]   = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U};
     uint8_t dst[6];
@@ -73,6 +84,8 @@ static void test_fake_medium(void)
 
     fixture.kvs = fixture_nodes;
     fixture.num = sizeof(fixture_nodes) / sizeof(fixture_nodes[0]);
+    str_fixture.kvs = str_nodes;
+    str_fixture.num = sizeof(str_nodes) / sizeof(str_nodes[0]);
 
     /* fdb_blob_make sets buf/size only; saved stays untouched. */
     blob.saved.len = 0x5A5AU;
@@ -84,7 +97,7 @@ static void test_fake_medium(void)
     /* An empty medium materializes the whole default table (factory boot),
      * and materialization is not a set. */
     fdb_fake_reset();
-    CHECK(fdb_kvdb_init(NULL, "param", "fdb_kvdb", &fixture, NULL) == FDB_NO_ERR);
+    CHECK(fdb_kvdb_init(NULL, PARAM_DB_NAME, BOARD_PARAM_PARTITION, &fixture, NULL) == FDB_NO_ERR);
     CHECK(fdb_fake.init_calls == 1U);
     CHECK(fdb_fake.set_calls == 0U);
 
@@ -105,7 +118,7 @@ static void test_fake_medium(void)
     CHECK(fdb_fake.set_calls == 1U);
     CHECK(strcmp(fdb_fake.last_key, "cfg/ch0") == 0);
     CHECK(fdb_fake.last_len == sizeof(preset));
-    CHECK(fdb_kvdb_init(NULL, "param", "fdb_kvdb", &fixture, NULL) == FDB_NO_ERR);
+    CHECK(fdb_kvdb_init(NULL, PARAM_DB_NAME, BOARD_PARAM_PARTITION, &fixture, NULL) == FDB_NO_ERR);
     CHECK(fdb_fake.init_calls == 2U);
     CHECK(fdb_fake.set_calls == 1U);
     blob.saved.len = 0U;
@@ -114,15 +127,19 @@ static void test_fake_medium(void)
     CHECK(memcmp(buf, preset, sizeof(preset)) == 0);
 
     /* fail_write: the attempt is counted and recorded before it is
-     * rejected, and the stored value survives. */
+     * rejected - last_* hold the FAILED attempt's values - and the
+     * targeted entry keeps its old body. */
     fdb_fake.fail_write = 1U;
-    CHECK(fdb_kv_set_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, body8, sizeof(body8)))
+    CHECK(fdb_kv_set_blob(NULL, "dev/addr", fdb_blob_make(&blob, body8, sizeof(body8)))
           == FDB_WRITE_ERR);
     fdb_fake.fail_write = 0U;
     CHECK(fdb_fake.set_calls == 2U);
+    CHECK(strcmp(fdb_fake.last_key, "dev/addr") == 0);
+    CHECK(fdb_fake.last_len == sizeof(body8));
     blob.saved.len = 0U;
-    n = fdb_kv_get_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, buf, sizeof(buf)));
-    CHECK(n == sizeof(preset));
+    n = fdb_kv_get_blob(NULL, "dev/addr", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == sizeof(fixture_body));
+    CHECK(memcmp(buf, fixture_body, sizeof(fixture_body)) == 0);
 
     /* Truncated copy, full length reported, tail of the buffer untouched. */
     CHECK(fdb_kv_set_blob(NULL, "cfg/ch2", fdb_blob_make(&blob, body8, sizeof(body8)))
@@ -141,6 +158,47 @@ static void test_fake_medium(void)
     CHECK(n == 0U);
     CHECK(blob.saved.len == 0U);
     CHECK(buf[0] == 0x5AU);
+
+    /* A hole is never backfilled: one planted row survives init and the
+     * missing default rows stay missing (factory-boot rule). */
+    fdb_fake_reset();
+    fdb_fake_put("cfg/ch0", preset, sizeof(preset));
+    CHECK(fdb_kvdb_init(NULL, PARAM_DB_NAME, BOARD_PARAM_PARTITION, &fixture, NULL) == FDB_NO_ERR);
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK((n == sizeof(preset)) && (memcmp(buf, preset, sizeof(preset)) == 0));
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "dev/addr", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK((n == 0U) && (blob.saved.len == 0U));
+
+    /* A zero-length default row is a C string (fdb_kvdb.c fdb_kv_set_default):
+     * the stored length is strlen(value), not 0. */
+    fdb_fake_reset();
+    (void)fdb_kvdb_init(NULL, PARAM_DB_NAME, BOARD_PARAM_PARTITION, &str_fixture, NULL);
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "str/k", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK((n == 3U) && (memcmp(buf, "abc", 3U) == 0));
+
+    /* set() with a NULL body deletes the key (fdb_kvdb.c set_kv). */
+    fdb_fake_put("cfg/ch4", preset, sizeof(preset));
+    (void)fdb_kv_set_blob(NULL, "cfg/ch4", fdb_blob_make(&blob, NULL, 0U));
+    blob.saved.len = 0U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch4", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK(n == 0U);
+
+    /* A closed database answers like the vendor's db_init_ok guards: get
+     * reports a miss without touching saved.len, set answers FDB_INIT_FAILED
+     * before any attempt is recorded. */
+    fdb_fake_reset();
+    fdb_fake.fail_init = 1U;
+    CHECK(fdb_kvdb_init(NULL, PARAM_DB_NAME, BOARD_PARAM_PARTITION, &fixture, NULL) == FDB_INIT_FAILED);
+    blob.saved.len = 77U;
+    n = fdb_kv_get_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, buf, sizeof(buf)));
+    CHECK((n == 0U) && (blob.saved.len == 77U));
+    CHECK(fdb_kv_set_blob(NULL, "cfg/ch0", fdb_blob_make(&blob, preset, sizeof(preset)))
+          == FDB_INIT_FAILED);
+    CHECK(fdb_fake.set_calls == 0U);
+    fdb_fake.fail_init = 0U;
 }
 
 /*----------------------------------------------------------------------------*/

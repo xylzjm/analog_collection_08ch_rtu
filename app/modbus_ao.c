@@ -179,7 +179,9 @@ static commit_status_t param_commit(const char* key, const void* body, size_t le
     size_t stored_len;
 
     st = fdb_kv_set_blob(&param_db, key, fdb_blob_make(&blob, body, len));
-    (void)st; /* logged below; only the read-back decides the outcome */
+    /* Consumed by the log lines below; the host elog stub compiles them out.
+     * Only the read-back decides the outcome. */
+    (void)st;
 
     /* A body longer than the verify buffer can never be confirmed equal. */
     if ( !param_read(key, verify, sizeof(verify), &stored_len)
