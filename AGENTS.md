@@ -2,48 +2,51 @@
 
 8-channel analog-input RTU firmware (4-20 mA, 0-10 V, PT100, thermocouple) for
 AT32F421C8T7: Cortex-M4, 120 MHz, 60 KB usable flash, 16 KB SRAM. C99, armclang
-(AC6), microlib, QP/C 8.1.3 (QV kernel), EIDE project only - no Makefile, CMake,
-CI, lint or typecheck step exists.
+(AC6), microlib, QP/C 8.1.3 (QV kernel). EIDE is the only build system - no
+Makefile, CMake, CI, lint or typecheck step exists.
 
-## Start with README.md and docs/
+## Read first
 
-- README.md is the board-level design reference: boot order, clock and interrupt
-  priorities, pin mux, SIG24131/TMP75/I2C/Modbus resources, logging chain, flash
-  partition, QP port and assertion policy.
-- The application layer lives in `docs/`: `qp-application-design.md` (AO
-  partition, event contract, capacity), `docs/ao/*.md` (one per active object)
-  and `docs/component/reg_map.md` (the pure register map).
-- When designed behavior changes, update the doc and keep source comments to
-  short Doxygen `@brief` lines.
-- Docs are UTF-8 with CRLF line endings; source and headers are pure ASCII.
-  This Windows shell mangles non-ASCII output, so judge file encoding from
-  bytes, not from printed text.
+- `README.md` is the board-level design reference: boot order, clock and
+  interrupt priorities, pin mux, SIG24131/TMP75/I2C/Modbus resources, logging
+  chain, flash partition, QP port and assertion policy.
+- The application design lives in `docs/`: `qp-application-design.md` (AO
+  partition, event contract, capacity, rationale), `docs/ao/*.md` (one per
+  active object) and `docs/component/reg_map.md` (the pure register map).
+- When designed behavior changes, update the doc; keep source comments to short
+  Doxygen `@brief` lines.
+- Docs are UTF-8 without BOM with CRLF line endings; source and headers are
+  pure ASCII. This Windows shell mangles non-ASCII output, so judge encoding
+  from bytes, not from printed text.
 
-## Dependencies live outside this repo
+## Dependencies and workspace
 
 The build reads sibling folders that are neither vendored nor submodules:
 `../library` (sig24131, tmp75, analog_input, i2c_soft, modbus_slave) and
 `../middleware` (qp, SEGGER RTT, EasyLogger, flashDB/FAL). The multi-root
-workspace file adds both folders; without them nothing compiles.
+workspace file adds both folders; without them nothing compiles. They are plain
+folders, not git repositories, so edits there are not tracked by this repo.
 
 ## Build and flash
 
-- Firmware builds only through EIDE: VS Code tasks `build`, `rebuild`, `clean`,
-  `flash`, `build and flash`, or the EIDE MCP tools with project uid
+- Build only through EIDE: VS Code tasks `build`, `rebuild`, `clean`, `flash`,
+  `build and flash`, or the EIDE MCP tools with project uid
   `2b2c107904df4cdb1e97e57d6947db29` (`rebuild` is the reliable full check).
-- A clean build is 64 C files + 1 assembly file, ROM about 51.39/60 KB (85.7 %),
-  RAM 9.09/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
-  KV layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
+- A clean build is 64 C files + 1 assembly file, ROM 51.39/60 KB (85.7 %), RAM
+  9.09/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB KV
+  layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
   the `fdb_kvdb` parameter partition, and ROM is linked to 60 KB (`0xF000`).
 - SKU variants fix the channel count at compile time: define
   `SIG24131_BOARD_COUNT=N` (1..8) in the EIDE preprocessor macros
-  (`.eide/eide.yml`). The knob resolves in `board/inc/board_config.h`
-  (`BOARD_CHANNEL_COUNT`); every layer name derives from it. Unpopulated
-  positions answer ILLEGAL_DATA_ADDRESS, KV keys stay at the 8-position board
-  layout. Host tests model the full 8-position board; verify a variant by
-  compiling the firmware plus the on-target EX 02 checks, not by re-running the
-  host tests.
+  (`.eide/eide.yml` target `defineList`). The knob resolves in
+  `board/inc/board_config.h` (`BOARD_CHANNEL_COUNT`); every layer name derives
+  from it. The current define list sets only `AT32F421C8T7`, so the default is
+  all 8 positions. Unpopulated positions answer EX 02
+  (ILLEGAL_DATA_ADDRESS); KV keys stay at the 8-position layout. Host tests
+  always model the full 8-position board; verify a variant by compiling the
+  firmware and checking the unpopulated addresses on target, not by re-running
+  the host tests.
 - `build/` is gitignored and often stale. Never treat `build/Debug/*.lnp`,
   `*.map` or `.obj` as the current file list - rebuild first.
   `build/Debug/compile_commands.json` is regenerated per build and feeds clangd.
@@ -52,7 +55,7 @@ workspace file adds both folders; without them nothing compiles.
 
 - `.eide/eide.yml` lists every file explicitly (`srcDirs: []`). A new `.c` that
   is not added to the target's virtual folder/file list is silently left out of
-  the build. Register it in the EIDE UI (or the YAML), reload/rebuild.
+  the build. Register it in the EIDE UI (or the YAML), reload, rebuild.
 - Include order in `incList` is load-bearing: `board/ports/easylogger` must stay
   before `../middleware/EasyLogger/easylogger/inc`, otherwise the template
   `elog_cfg.h` shadows `board/ports/easylogger/elog_cfg.h`.
@@ -67,8 +70,8 @@ workspace file adds both folders; without them nothing compiles.
 - No file under `board/vendor_wk/project/` carries hand edits: the DE pin,
   USART1, TMR14 and the TMR6 delay time base all live in the `.ATWP`, so
   regenerating from it is safe by construction. The board port owns its
-  peripheral preconditions regardless of the generated init state
-  (ownership comments in `board/src/modbus_slave_board.c`).
+  peripheral preconditions regardless of the generated init state (ownership
+  comments in `board/src/modbus_slave_board.c`).
 - Vendor `main.c` and `at32f421_int.c` are not part of the build. Entry point is
   `app/main.c`; IRQ handlers live in board modules (`SysTick_Handler` in
   `board/src/board.c`, `USART1_IRQHandler` / `TMR14_GLOBAL_IRQHandler` in
@@ -76,37 +79,36 @@ workspace file adds both folders; without them nothing compiles.
 
 ## Application layer
 
-- 10 active objects (8x AoChannel at prio 2..9, AoColdJunction 10, AoModbus 11)
-  plus the pure module `reg_map`. One file per AO, QP/C example style:
-  `app/channel_ao.*`, `app/cold_junction_ao.*`, `app/modbus_ao.*`; `app/app.h`
-  holds the shared vocabulary (ch_config_t, signals, event payloads). QV is
-  cooperative: active objects never preempt each other; ISRs only post events
-  to their queues. SysTick (1 ms) is the single tick source for QP time events
-  and `board_tick_get()`.
+- At full board: 10 active objects, one AoChannel per populated position at prio
+  2..9, AoColdJunction 10, AoModbus 11, plus the pure module `reg_map`. One file
+  per AO, QP/C example style: `app/channel_ao.*`, `app/cold_junction_ao.*`,
+  `app/modbus_ao.*`; `app/app.h` holds the shared vocabulary (`ch_config_t`,
+  signals, event payloads). QV is cooperative: active objects never preempt each
+  other; ISRs only post events to their queues. SysTick (1 ms) is the single
+  tick source for QP time events and `board_tick_get()`.
 - AoModbus owns the typed Modbus mirror, the holding-register write transaction
   (validate -> synchronous commit with read-back verify -> mirror -> publish)
-  and the parameter persistence in `modbus_ao.c`; the mirror IS the change-check
-  snapshot (no separate snapshot). Storage is FlashDB directly
+  and the persistence. The mirror IS the change-check snapshot (no separate
+  snapshot). Fault word: b1 is the latched write failure; b2/b3 are derived from
+  the load outcome each read (`store.db_ok` guard, SKU mask).
+- Persistence is FlashDB directly in `modbus_ao.c`
   (`fdb_kvdb_init`/`fdb_kv_get_blob`/`fdb_kv_set_blob`/`fdb_blob_make`;
-  `modbus_ao.c` is the only production TU that includes `flashdb.h`); host
-  tests fake those four entry points at link time (`tests/stubs/fdb_fake.c`,
-  compiled against the real vendor headers with the empty
-  `tests/stubs/fdb_cfg.h`). The KV schema (keys `cfg/ch0..7`/`dev/addr`,
-  `fdb_default_kv_node` rows) lives in `modbus_ao.c`. Fault bits b1
-  is latched; b2/b3 are derived from the load outcome each read (store.db_ok
-  guard, SKU mask).
+  `modbus_ao.c` is the only production TU that includes `flashdb.h`). The KV
+  schema (keys `cfg/ch0..7`/`dev/addr`, `fdb_default_kv_node` rows) lives in the
+  same file. Host tests fake those four entry points at link time
+  (`tests/stubs/fdb_fake.c`, compiled against the real vendor headers with the
+  empty `tests/stubs/fdb_cfg.h`).
 - The apply result travels as `CFG_APPLIED_SIG` (AoChannel publishes, AoModbus
   records `config.applied[]`) and a committed write publishes `CONFIG_SET_SIG`
   directly: no passive module ever calls back into an active object.
 - Active objects take their device objects by constructor injection (no board
   singletons inside `app/`): `main.c` passes the board singletons to the
   channel and cold-junction constructors and gives `modbus_ao_ctor()` the
-  board's slave storage and platform config
-  (`modbus_slave_board_get()` / `modbus_slave_board_config()`). The board is
-  a pure provider; the AO assembles the full config, builds the core and
-  opens the parameter database.
-- Start order: channels, then AoModbus, then AoColdJunction. Every AO subscribes
-  inside its own initial transition (QP/C example style; `QActive_start()`
+  board's slave storage and platform config (`modbus_slave_board_get()` /
+  `modbus_slave_board_config()`). The board is a pure provider; the AO assembles
+  the full config, builds the core and opens the parameter database.
+- Start order: channels, then AoModbus, then AoColdJunction. Each AO that subscribes
+  does so in its own initial transition (QP/C example style; `QActive_start()`
   registers the AO before running it), and the boot load (load_all + publish)
   runs inside the AoModbus initial transition before `QF_run()`.
 - Channel indices are zero-based in the app layer (events, `cfg/ch0`..`cfg/ch7`
@@ -121,14 +123,11 @@ workspace file adds both folders; without them nothing compiles.
 - `log_init()` must run before `board_init()`, or that function's `elog_error()`
   diagnostics are lost. No logging from interrupt context:
   `elog_port_output_lock` is empty.
-- The parameter database is owned by `modbus_ao.c` and opens in the one-step
-  `modbus_ao_ctor()`; `main.c` also hands over the board's slave storage and
-  platform half-config: the AO assembles the full config and builds the slave
-  core. The database opens with `fdb_kvdb_init()` (before
-  `QActive_start()`/`QF_run()`); host tests replace the four FlashDB entry
-  points at link time with `tests/stubs/fdb_fake.c`. A failed open
-  leaves `store.db_ok = 0` (fault word b3) and every later commit fails safe with
-  EX 04.
+- The parameter database is owned by `modbus_ao.c`. It opens in the one-step
+  `modbus_ao_ctor()` with `fdb_kvdb_init()` (before
+  `QActive_start()`/`QF_run()`); `main.c` hands over only the board's slave
+  storage and platform half-config. A failed open leaves `store.db_ok = 0`
+  (fault word b3) and every later commit fails safe with EX 04.
 - Critical sections only through `board_critical_enter()` /
   `board_critical_exit()` (`board/inc/board.h`). The nest counter is shared with
   QP, which reaches it via the strong `QF_crit_entry_`/`QF_crit_exit_` overrides
@@ -139,8 +138,8 @@ workspace file adds both folders; without them nothing compiles.
 - Assertions use `Q_ASSERT`/`Q_onError`; `Q_onError` writes raw RTT and is safe
   from ISRs. FlashDB and EasyLogger asserts already bridge to it.
 - `FDB_WRITE_GRAN` (8) is the single source: the FAL port builds
-  `fal_flash_dev.write_gran` from it; a hand-edited divergence corrupts the
-  KV layout silently.
+  `fal_flash_dev.write_gran` from it; a hand-edited divergence corrupts the KV
+  layout silently.
 - USART1 runs 9600 8N1. `modbus_slave_board.c` feeds the core from
   `BOARD_MODBUS_BAUDRATE` (`board_config.h`, the single home of the core's
   baud); the generated `wk_usart.c` init literal must stay in step with it.
@@ -151,24 +150,23 @@ workspace file adds both folders; without them nothing compiles.
 
 1. EIDE rebuild must succeed.
 2. Run the host tests from the repo root: `pwsh tests/run_host_tests.ps1`
-   (MinGW gcc on PATH; `-KeepExe` keeps the executables). The script compiles
-   and runs each test separately; a new test must be added to its `$tests`
-   table. `tests/stubs` must stay first in the
-   include order so the host `qp_port.h`, `elog.h` and `fdb_cfg.h` shadows win
-   over the firmware headers.
+   (`-KeepExe` keeps the executables). gcc must be on PATH; the script falls
+   back to `C:\Users\HP\mingw64\bin\gcc.exe` and throws otherwise. The script
+   compiles and runs each test separately; a new test must be added to its
+   `$tests` table. `tests/stubs` must stay first in the include order so the
+   host `qp_port.h`, `elog.h` and `fdb_cfg.h` shadows win over the firmware
+   headers.
    - Seven executables, all in `tests/` (flat): `test_reg_map` (pure map),
      `test_modbus_data` (write transaction + persistence driven directly
      through the data-space callbacks over the `fdb_fake` medium, no frames;
      also pins the fake's own contract in `test_fake_medium()`),
-     `test_channel_ao`
-     and `test_modbus_ao` (event/tick-injected AO tests), `test_cold_junction_ao`
-     (cold junction heartbeat, failure freeze and recovery over
-     `tmp75_port_fake`), `test_boot` (startup
-     integration; takes a scenario argument 1, 2 because the QP registry is not
-     rebuilt twice inside one process) and `test_analog_input_convert` (the
-     header-only conversion formulas in `board/inc/analog_input_convert.h`
-     against hand-derived electrical anchors, no QP linkage, no board
-     translation unit).
+     `test_channel_ao` and `test_modbus_ao` (event/tick-injected AO tests),
+     `test_cold_junction_ao` (cold junction heartbeat, failure freeze and
+     recovery over `tmp75_port_fake`), `test_boot` (startup integration; takes
+     a scenario argument 1 or 2 because the QP registry is not rebuilt twice
+     inside one process) and `test_analog_input_convert` (the header-only
+     conversion formulas in `board/inc/analog_input_convert.h` against
+     hand-derived electrical anchors, no QP linkage, no board translation unit).
    - The AO tests link the real QP/C sources
      (`../middleware/qp/qpc/src/qf/*` + `qv.c`) against the host port
      `tests/stubs/qp_port.h`, which shares the firmware `qp_config.h`; the
@@ -182,9 +180,9 @@ workspace file adds both folders; without them nothing compiles.
    EIDE build, so host tests say nothing about ROM or target timing.
 4. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -
    self-contained `main()` plus a `CHECK` macro, excluded from the firmware
-   build. Four exist today (`analog_input_math`, `i2c_soft`,
-   `modbus_slave`, `tmp75`) and no harness runs them automatically. Compile with
-   host gcc, for example:
+   build. Four exist today (`analog_input_math`, `i2c_soft`, `modbus_slave` and
+   `tmp75` in `tmp75_test.c`) and no harness runs them automatically. Compile
+   with host gcc, for example:
 
    ```powershell
    gcc -std=c99 -I ../library/protocol/modbus_slave/inc `
