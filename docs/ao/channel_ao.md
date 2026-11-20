@@ -87,7 +87,7 @@ AoChannel (top, 初始 → Unconfigured)
   `settle_ms=d`、发布 `CFG_APPLIED_SIG {ch}` → 可检测型进 Detecting、线性型进
   Settling（**先检后测**重入，此刻 FIFO 已无迟到事件）；失败 → 发布状态 6 留
   Unconfigured，等下一次写配置（无 ok 回调——失败不改变 AoModbus 记账，
-  `applied[ch]` 保持 0，同值重写即重试）。
+  `config.applied[ch]` 保持 0，同值重写即重试）。
 - Detecting `SETTLE_SIG`：`check_wire_break` → 断线即发布状态 2/3/4（按类型），
   完好不发布（0 随首条测量值）→ Settling。Settling `SETTLE_SIG`：`do_sample()` →
   Measuring。Measuring `SAMPLE_SIG`：`do_sample()`；`BREAK_WINDOW_SIG` → Detecting。

@@ -90,9 +90,9 @@ workspace file adds both folders; without them nothing compiles.
   seam (target FlashDB in `app/kv_flashdb.c`, host memory store
   `tests/stubs/kv_mem.c`); the KV schema (keys `cfg/ch0..7`/`dev/addr`, default
   table) lives in `modbus_ao.c`. Fault bits b1 is latched; b2/b3 are derived
-  from the load outcome each read (db_ok guard, SKU mask).
+  from the load outcome each read (store.db_ok guard, SKU mask).
 - The apply result travels as `CFG_APPLIED_SIG` (AoChannel publishes, AoModbus
-  records `applied[]`) and a committed write publishes `CONFIG_SET_SIG`
+  records `config.applied[]`) and a committed write publishes `CONFIG_SET_SIG`
   directly: no passive module ever calls back into an active object.
 - Active objects take their device objects by constructor injection (no board
   singletons inside `app/`): `main.c` passes the board singletons to the
@@ -121,7 +121,7 @@ workspace file adds both folders; without them nothing compiles.
   the AO assembles the full config and builds the slave core. `main.c` passes
   `kv_flashdb_ops()` (whose `init` runs in the ctor and opens the FlashDB
   database), host tests pass `kv_mem`. An unbound store or a failed init
-  leaves `db_ok = 0` (fault word b3) and every later commit fails safe with
+  leaves `store.db_ok = 0` (fault word b3) and every later commit fails safe with
   EX 04.
 - Critical sections only through `board_critical_enter()` /
   `board_critical_exit()` (`board/inc/board.h`). The nest counter is shared with

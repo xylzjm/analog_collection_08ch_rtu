@@ -2,13 +2,14 @@
  * @file test_modbus_data.c
  * @brief Callback-level tests of the write transaction and persistence.
  *
- * Drives the AO's data-space callbacks (ao.cb) directly with the in-memory
- * KV store - no frames, no slave core, no dispatch of the AO under test - so
- * the whole transaction discipline runs exactly as the core would invoke it:
- * validate, commit (through the real persistence code over kv_mem with a
- * read-back check), then mirror, then publish. Publishes are observed on
- * a recorder AO. Boot loading (the initial transition) and the
- * CFG_APPLIED_SIG handler live at the event level in test_modbus_ao.c.
+ * Builds a real (unstarted) slave core over fake line/timer/critical ports
+ * and drives its data-space callbacks directly with the in-memory KV store -
+ * no frames, no dispatch of the AO under test - so the whole transaction
+ * discipline runs exactly as the core would invoke it: validate, commit
+ * (through the real persistence code over kv_mem with a read-back check),
+ * then mirror, then publish. Publishes are observed on a recorder AO. Boot
+ * loading (the initial transition) and the CFG_APPLIED_SIG handler live at
+ * the event level in test_modbus_ao.c.
  */
 
 #include <stddef.h>
@@ -21,6 +22,7 @@
 #include "app.h"
 #include "kv_mem.h"
 #include "modbus_ao.h"
+#include "modbus_port_fake.h"
 #include "reg_map.h"
 
 static int checks;
@@ -41,6 +43,10 @@ static int failures;
 
 static modbus_ao_t ao;
 static kv_mem_t kv;
+static modbus_slave_t slave_storage;
+static modbus_port_fake_t port;
+static uint8_t rx_buffer[256];
+static uint8_t tx_buffer[256];
 
 static QSubscrList subscr[MAX_SIG];
 static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
@@ -98,6 +104,8 @@ static void rec_collect(void)
 static void setup(uint8_t db_fail,
                   uint8_t unbound)
 {
+    modbus_slave_config_t cfg = {0};
+
     if ( rec_started != 0U ) {
         QActive_unregister_(&recorder);
     }
@@ -116,10 +124,16 @@ static void setup(uint8_t db_fail,
 
     published_count = 0U;
 
+    /* A real but unstarted slave core: wiring() drives its callbacks. */
+    modbus_port_fake_init(&port);
+    modbus_port_fake_config(&port, &cfg,
+                            rx_buffer, (uint16_t)sizeof(rx_buffer),
+                            tx_buffer, (uint16_t)sizeof(tx_buffer));
+
     modbus_ao_ctor(&ao,
                    (unbound != 0U) ? NULL : kv_mem_ops(),
                    (unbound != 0U) ? NULL : (void*)&kv,
-                   NULL, NULL); /* data-only mode: no slave core */
+                   &slave_storage, &cfg);
 }
 
 static void setup_normal(void)
@@ -127,10 +141,10 @@ static void setup_normal(void)
     setup(0U, 0U);
 }
 
-/** @brief The callback table of the constructed AO, as the core would receive it. */
+/** @brief The core's own callback copy, wired to the AO under test. */
 static const modbus_slave_callbacks_t* wiring(void)
 {
-    const modbus_slave_callbacks_t* cb = &ao.cb;
+    const modbus_slave_callbacks_t* cb = &slave_storage.callbacks;
 
     CHECK(cb->ctx == &ao);
     CHECK(cb->holding_registers != NULL);
@@ -222,13 +236,13 @@ static void test_init_state(void)
 
     CHECK(kv.init_calls == 1U);
     CHECK(kv.set_calls == 0U); /* materialization is not a commit */
-    CHECK(ao.db_ok == 1U);
-    CHECK(ao.b1 == 0U);
-    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
+    CHECK(ao.store.db_ok == 1U);
+    CHECK(ao.store.commit_failed == 0U);
+    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(cb->address(cb->ctx) == (uint8_t)REG_MAP_DEFAULT_DEV_ADDR);
-    CHECK(ao.status[0] == (uint16_t)CH_STATUS_UNCONFIGURED);
-    CHECK(ao.applied[0] == 0U);
-    CHECK(ao.cfg_ok[0] == 0U);
+    CHECK(ao.telemetry.status[0] == (uint16_t)CH_STATUS_UNCONFIGURED);
+    CHECK(ao.config.applied[0] == 0U);
+    CHECK(ao.config.cfg_ok[0] == 0U);
 
     /* Unmapped spaces stay honest. */
     CHECK(cb->coils(cb->ctx, 0U, 1U, NULL, MODBUS_SLAVE_REG_READ)
@@ -349,11 +363,11 @@ static void test_write_commit(void)
     CHECK(saved.gain == 2.0f);
 
     /* Mirror and change-check base moved with the commit. */
-    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
-    CHECK(ao.cfg[0].gain == 2.0f);
-    CHECK(ao.cfg_ok[0] == 1U);
-    CHECK(ao.applied[0] == 0U); /* persisted, not yet applied */
-    CHECK(ao.b1 == 0U);
+    CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
+    CHECK(ao.config.cfg[0].gain == 2.0f);
+    CHECK(ao.config.cfg_ok[0] == 1U);
+    CHECK(ao.config.applied[0] == 0U); /* persisted, not yet applied */
+    CHECK(ao.store.commit_failed == 0U);
 
     /* One publish, carrying the committed configuration. */
     rec_collect();
@@ -376,9 +390,9 @@ static void test_write_commit(void)
                0.0f, 0.0f, -0.25f, 0.99f, echo);
     CHECK(read_regs(cb, 16U, REG_MAP_CH_CFG_LEN, block) == MODBUS_SLAVE_EX_NONE);
     CHECK(memcmp(block, echo, sizeof(block)) == 0);
-    CHECK(ao.cfg[1].linear_min == 0.0f);
-    CHECK(ao.cfg[1].linear_max == 0.0f);
-    CHECK(ao.cfg[1].offset == -0.25f);
+    CHECK(ao.config.cfg[1].linear_min == 0.0f);
+    CHECK(ao.config.cfg[1].linear_max == 0.0f);
+    CHECK(ao.config.cfg[1].offset == -0.25f);
     rec_collect();
     CHECK(published_count == 2U);
     CHECK(published[1].ch == 1U);
@@ -403,9 +417,9 @@ static void test_write_single_register(void)
     /* Register 1 is the rate code: 10 Hz (code 2); all else survives. */
     modbus_slave_put_u16(one, 2U);
     CHECK(write_regs(cb, 1U, 1U, one) == MODBUS_SLAVE_EX_NONE);
-    CHECK(ao.cfg[0].rate_code == 2U);
-    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_TC);
-    CHECK(ao.cfg[0].gain == 1.0f);
+    CHECK(ao.config.cfg[0].rate_code == 2U);
+    CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_TC);
+    CHECK(ao.config.cfg[0].gain == 1.0f);
 
     CHECK(read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, echo) == MODBUS_SLAVE_EX_NONE);
     CHECK(modbus_slave_get_u16(&echo[2]) == 2U);
@@ -415,14 +429,14 @@ static void test_write_single_register(void)
     /* A type write re-maps tc_type along with it and still commits. */
     modbus_slave_put_u16(one, 8U);
     CHECK(write_regs(cb, 0U, 1U, one) == MODBUS_SLAVE_EX_NONE);
-    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_PT100);
-    CHECK(ao.cfg[0].tc_type == CH_TC_TYPE_NONE);
-    CHECK(ao.cfg[0].rate_code == 2U);
+    CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_PT100);
+    CHECK(ao.config.cfg[0].tc_type == CH_TC_TYPE_NONE);
+    CHECK(ao.config.cfg[0].rate_code == 2U);
 
     /* A single invalid register rejects the whole candidate. */
     modbus_slave_put_u16(one, 13U);
     CHECK(write_regs(cb, 1U, 1U, one) == MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE);
-    CHECK(ao.cfg[0].rate_code == 2U);
+    CHECK(ao.config.cfg[0].rate_code == 2U);
 }
 
 /** @brief The same-value write short-circuits storage but re-notifies. */
@@ -488,8 +502,8 @@ static void test_commit_failure(void)
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, next_block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
     kv.corrupt_read = 0U;
-    CHECK(ao.b1 != 0U);
-    CHECK(ao.cfg[0].rate_code == 9U); /* change-check base untouched */
+    CHECK(ao.store.commit_failed != 0U);
+    CHECK(ao.config.cfg[0].rate_code == 9U); /* change-check base untouched */
     read_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block);
     CHECK(memcmp(block, before, sizeof(block)) == 0);
     rec_collect();
@@ -502,7 +516,7 @@ static void test_commit_failure(void)
     /* The retry is not short-circuited (the change-check base never moved). */
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, next_block) == MODBUS_SLAVE_EX_NONE);
     CHECK(kv.set_calls == 3U);
-    CHECK(ao.b1 == 0U);
+    CHECK(ao.store.commit_failed == 0U);
     CHECK((read_fault(cb) & REG_MAP_FAULT_PARAM_WRITE) == 0U);
     rec_collect();
     CHECK(published_count == 2U);
@@ -514,10 +528,10 @@ static void test_commit_failure(void)
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
     kv.fail_write = 0U;
-    CHECK(ao.b1 != 0U);
+    CHECK(ao.store.commit_failed != 0U);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block) == MODBUS_SLAVE_EX_NONE);
     CHECK(kv.set_calls == 5U);
-    CHECK(ao.b1 == 0U);
+    CHECK(ao.store.commit_failed == 0U);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -536,8 +550,8 @@ static void test_address_register(void)
 
     modbus_slave_put_u16(one, 247U);
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one) == MODBUS_SLAVE_EX_NONE);
-    CHECK(ao.addr == 247U);
-    CHECK(ao.addr_ok == 1U);
+    CHECK(ao.config.addr == 247U);
+    CHECK(ao.config.addr_ok == 1U);
     CHECK(cb->address(cb->ctx) == 247U);
     CHECK(kv.set_calls == 1U);
     CHECK(strcmp(kv.last_key, "dev/addr") == 0);
@@ -554,7 +568,7 @@ static void test_address_register(void)
     modbus_slave_put_u16(one, 0xFFFFU);
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_VALUE);
-    CHECK(ao.addr == 247U);
+    CHECK(ao.config.addr == 247U);
 
     CHECK(read_regs(cb, REG_MAP_DEV_BASE, 1U, echo) == MODBUS_SLAVE_EX_NONE);
     CHECK(modbus_slave_get_u16(echo) == 247U);
@@ -565,11 +579,11 @@ static void test_address_register(void)
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
     kv.corrupt_read = 0U;
-    CHECK(ao.b1 != 0U);
-    CHECK(ao.addr == 247U); /* not adopted */
+    CHECK(ao.store.commit_failed != 0U);
+    CHECK(ao.config.addr == 247U); /* not adopted */
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one) == MODBUS_SLAVE_EX_NONE);
-    CHECK(ao.b1 == 0U);
-    CHECK(ao.addr == 200U);
+    CHECK(ao.store.commit_failed == 0U);
+    CHECK(ao.config.addr == 200U);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -587,14 +601,14 @@ static void test_unbound_and_init_failure(void)
     setup(0U, 1U);
     cb = wiring();
     CHECK(kv.init_calls == 0U);
-    CHECK(ao.db_ok == 0U);
+    CHECK(ao.store.db_ok == 0U);
 
     make_block((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 9U,
                0.0f, 0.0f, 0.0f, 1.0f, block);
     CHECK(write_regs(cb, 0U, REG_MAP_CH_CFG_LEN, block)
           == MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE);
     CHECK(kv.set_calls == 0U);
-    CHECK(ao.b1 != 0U);
+    CHECK(ao.store.commit_failed != 0U);
     CHECK(read_fault(cb) == (uint16_t)(REG_MAP_FAULT_FDB_INIT
                                        | REG_MAP_FAULT_PARAM_WRITE
                                        | REG_MAP_FAULT_CJC));
@@ -603,7 +617,7 @@ static void test_unbound_and_init_failure(void)
     setup(1U, 0U);
     cb = wiring();
     CHECK(kv.init_calls == 1U);
-    CHECK(ao.db_ok == 0U);
+    CHECK(ao.store.db_ok == 0U);
     CHECK(read_fault(cb) == (uint16_t)(REG_MAP_FAULT_FDB_INIT | REG_MAP_FAULT_CJC));
     modbus_slave_put_u16(one, 247U);
     CHECK(write_regs(cb, REG_MAP_DEV_BASE, 1U, one)
@@ -629,10 +643,10 @@ static void test_telemetry_mirror(void)
     setup_normal();
     cb = wiring();
 
-    ao.value[1]   = 42.5f;
-    ao.status[1]  = (uint16_t)CH_STATUS_OK;
-    ao.cjc_temp   = 25.0f;
-    ao.cjc_valid  = 1U;
+    ao.telemetry.value[1]   = 42.5f;
+    ao.telemetry.status[1]  = (uint16_t)CH_STATUS_OK;
+    ao.telemetry.cjc_temp   = 25.0f;
+    ao.telemetry.cjc_valid  = 1U;
 
     /* Channel 2 telemetry block: registers 8..10. */
     CHECK(cb->input_registers(cb->ctx, 8U, 3U, reply, MODBUS_SLAVE_REG_READ)

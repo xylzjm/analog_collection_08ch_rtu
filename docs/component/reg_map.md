@@ -62,7 +62,7 @@ EX 01 口径：空间整体不存在 = 函数不支持（比 EX 02 诚实——�
 
 `reg_map_fault_word(cjc_valid, latched)`：b0 实时反映冷端有效性，b1..b3 携带调用方
 传入的锁存位（`REG_MAP_FAULT_*` 位定义在此），b4..15 恒 0。锁存位的**推导**（b2/b3
-从加载终局状态现算，含 `db_ok` 守卫与 SKU 掩码）归 `modbus_ao.c`，见
+从加载终局状态现算，含 `store.db_ok` 守卫与 SKU 掩码）归 `modbus_ao.c`，见
 `modbus_ao.md` §5。
 
 已迁出（勿在此找）：`reg_map_status_t` → `app.h` 的 `ch_status_t`；线位→状态码

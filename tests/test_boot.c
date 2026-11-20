@@ -124,7 +124,7 @@ static void run_ticks(uint32_t n)
 /** @brief Read the device fault word through the Modbus data-space map. */
 static uint16_t read_fault_word(void)
 {
-    const modbus_slave_callbacks_t* cb = &modbus.cb;
+    const modbus_slave_callbacks_t* cb = &slave.callbacks;
     uint8_t reply[2];
 
     CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
@@ -232,14 +232,14 @@ static void test_full_boot(void)
     /* The mirror holds the telemetry of every channel; the acceptance of
      * each configuration arrived as CFG_APPLIED_SIG. */
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        CHECK(modbus.value[ch] == 25.0f);
-        CHECK(modbus.status[ch] == (uint16_t)CH_STATUS_OK);
-        CHECK(modbus.applied[ch] == 1U);
+        CHECK(modbus.telemetry.value[ch] == 25.0f);
+        CHECK(modbus.telemetry.status[ch] == (uint16_t)CH_STATUS_OK);
+        CHECK(modbus.config.applied[ch] == 1U);
     }
-    CHECK(modbus.cjc_valid != 0U);
-    CHECK(modbus.cjc_temp == 25.0f);
-    CHECK(modbus.db_ok == 1U);
-    CHECK(modbus.addr_ok == 1U);
+    CHECK(modbus.telemetry.cjc_valid != 0U);
+    CHECK(modbus.telemetry.cjc_temp == 25.0f);
+    CHECK(modbus.store.db_ok == 1U);
+    CHECK(modbus.config.addr_ok == 1U);
     CHECK(read_fault_word() == 0U);
 
     /* Pools fully recycled: both pools have every block back. */
@@ -258,9 +258,9 @@ static void test_failed_channel_stays_down(void)
 
     run_ticks(1200U);
 
-    CHECK(modbus.cfg_ok[2] == 0U);
-    CHECK(modbus.status[2] == (uint16_t)CH_STATUS_UNCONFIGURED);
-    CHECK(modbus.applied[2] == 0U);
+    CHECK(modbus.config.cfg_ok[2] == 0U);
+    CHECK(modbus.telemetry.status[2] == (uint16_t)CH_STATUS_UNCONFIGURED);
+    CHECK(modbus.config.applied[2] == 0U);
     CHECK(analog_input_fake_count(&inputs[2],
                                   (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE)
           == 0U);
@@ -272,8 +272,8 @@ static void test_failed_channel_stays_down(void)
     /* Every other channel still runs. */
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
-            CHECK(modbus.value[ch] == 25.0f);
-            CHECK(modbus.applied[ch] == 1U);
+            CHECK(modbus.telemetry.value[ch] == 25.0f);
+            CHECK(modbus.config.applied[ch] == 1U);
         }
     }
 }

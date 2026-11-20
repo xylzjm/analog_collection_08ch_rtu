@@ -319,8 +319,8 @@ static void test_boot_load_publishes(void)
 
     scenario_begin();
     CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
-    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
-    CHECK(ao.addr_ok == 1U);
+    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
+    CHECK(ao.config.addr_ok == 1U);
     {
         uint8_t ch;
 
@@ -345,7 +345,7 @@ static void test_boot_load_publishes(void)
     reply_len = tx_take(reply, sizeof(reply));
     CHECK(reply_len == sizeof(full));
     CHECK(memcmp(reply, full, sizeof(full)) == 0);
-    CHECK(ao.tx_done_cnt == 1U);
+    CHECK(ao.diag.tx_done_cnt == 1U);
     scenario_end();
 }
 
@@ -412,10 +412,10 @@ static void test_fc16_write_pipeline(void)
         CHECK(saved.rate_code == 9U);
         CHECK(saved.linear_max == 20.0f);
     }
-    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
-    CHECK(ao.cfg[0].gain == 2.0f);
-    CHECK(ao.cfg_ok[0] == 1U);
-    CHECK(ao.applied[0] == 0U); /* committed, not yet applied */
+    CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
+    CHECK(ao.config.cfg[0].gain == 2.0f);
+    CHECK(ao.config.cfg_ok[0] == 1U);
+    CHECK(ao.config.applied[0] == 0U); /* committed, not yet applied */
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     CHECK(published[boot_publish_count].ch == 0U);
@@ -430,7 +430,7 @@ static void test_fc16_write_pipeline(void)
         QACTIVE_POST(Q_ACTIVE_UPCAST(&ao), &e->super, (void*)0);
         drain();
     }
-    CHECK(ao.applied[0] == 1U);
+    CHECK(ao.config.applied[0] == 1U);
 
     /* Once applied, the same-value rewrite is a true no-op. */
     feed_frame(frame, frame_len);
@@ -496,7 +496,7 @@ static void test_invalid_write_rejected(void)
     }
 
     CHECK(kv.set_calls == 0U);
-    CHECK(ao.cfg[0].type == (uint8_t)CH_TYPE_TC);
+    CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_TC);
     rec_collect();
     CHECK(published_count == boot_publish_count);
     scenario_end();
@@ -523,7 +523,7 @@ static void test_address_change(void)
     CHECK(reply_len == 8U);
     CHECK(kv.set_calls == 1U);
     CHECK(strcmp(kv.last_key, "dev/addr") == 0);
-    CHECK(ao.addr == 247U);
+    CHECK(ao.config.addr == 247U);
     CHECK(modbus_slave_get_address(&slave) == 247U);
 
     /* The old address no longer answers. */
@@ -579,8 +579,8 @@ static void test_commit_failure_latches(void)
         CHECK(reply_len == 5U);
         CHECK(memcmp(reply, full, 5U) == 0);
     }
-    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR); /* not adopted */
-    CHECK(ao.b1 != 0U);
+    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR); /* not adopted */
+    CHECK(ao.store.commit_failed != 0U);
 
     /* The fault word exposes the latch through the input area; b0 is also
      * set because no CJC heartbeat has arrived yet in this scenario. */
@@ -624,7 +624,7 @@ static void test_silence_paths(void)
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
     CHECK(kv.set_calls == 1U);
     CHECK(strcmp(kv.last_key, "dev/addr") == 0);
-    CHECK(ao.addr == 150U);
+    CHECK(ao.config.addr == 150U);
     scenario_end();
 }
 
@@ -634,7 +634,7 @@ static void test_boot_failures_latch(void)
     /* KV init fails: b3 is latched and no configuration is published. */
     scenario_begin_ex(1U);
 
-    CHECK(ao.db_ok == 0U);
+    CHECK(ao.store.db_ok == 0U);
     rec_collect();
     CHECK(published_count == 0U);
 
@@ -668,18 +668,18 @@ static void test_boot_load_failure(void)
 
     /* Only the healthy channels are published and adopted. */
     CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
-    CHECK(ao.cfg_ok[2] == 0U);
-    CHECK(ao.cfg_ok[0] == 1U);
+    CHECK(ao.config.cfg_ok[2] == 0U);
+    CHECK(ao.config.cfg_ok[0] == 1U);
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
-            CHECK(ao.cfg[ch].type == (uint8_t)CH_TYPE_TC);
-            CHECK(ao.cfg[ch].rate_code == 2U);
+            CHECK(ao.config.cfg[ch].type == (uint8_t)CH_TYPE_TC);
+            CHECK(ao.config.cfg[ch].rate_code == 2U);
         }
     }
 
     /* The fault word shows the load failure (b0: no heartbeat yet). */
     {
-        const modbus_slave_callbacks_t* cb = &ao.cb;
+        const modbus_slave_callbacks_t* cb = &slave.callbacks;
         uint8_t reply[2];
 
         CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
@@ -699,10 +699,10 @@ static void test_bad_address(void)
     world_start();
 
     CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
-    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
-    CHECK(ao.addr_ok == 0U);
+    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
+    CHECK(ao.config.addr_ok == 0U);
     {
-        const modbus_slave_callbacks_t* cb = &ao.cb;
+        const modbus_slave_callbacks_t* cb = &slave.callbacks;
         uint8_t reply[2];
 
         CHECK(cb->input_registers(cb->ctx, REG_MAP_SYS_BASE + 4U, 1U, reply,
@@ -715,8 +715,8 @@ static void test_bad_address(void)
 
     /* The next boot is healthy again. */
     scenario_begin();
-    CHECK(ao.addr == REG_MAP_DEFAULT_DEV_ADDR);
-    CHECK(ao.addr_ok == 1U);
+    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
+    CHECK(ao.config.addr_ok == 1U);
     scenario_end();
 }
 
@@ -739,8 +739,8 @@ static void test_measure_mirror(void)
     QACTIVE_PUBLISH(&e->super, (void*)0);
     drain();
 
-    CHECK(ao.value[1] == 42.5f);
-    CHECK(ao.status[1] == (uint16_t)CH_STATUS_OK);
+    CHECK(ao.telemetry.value[1] == 42.5f);
+    CHECK(ao.telemetry.status[1] == (uint16_t)CH_STATUS_OK);
 
     build_frame(frame, &frame_len, 1U, pdu, 5U);
     feed_frame(frame, frame_len);

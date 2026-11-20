@@ -27,17 +27,17 @@
 2. **回调网必须消失**：旧设计里被动组件经函数指针回调 AO（apply 结果 `on_applied`、
    提交通知 `cfg_notifier`）——被动模块持有指向 AO 的边，所有权倒挂、事件契约被
    旁路、测试要造假回调。现在 apply 结果就是 `CFG_APPLIED_SIG` 事件（AoChannel
-   发布，AoModbus 订阅记账 `applied[]`），提交成功由 `publish_cfg()` 直接发布
+   发布，AoModbus 订阅记账 `config.applied[]`），提交成功由 `publish_cfg()` 直接发布
    `CONFIG_SET_SIG`：AO 之间只经事件通信，被动代码不再回调活动对象。
-   `cfg_applied_evt_t` 不带 ok 字段——提交时先清 `applied[ch]` 再发布 CONFIG_SET，
+   `cfg_applied_evt_t` 不带 ok 字段——提交时先清 `config.applied[ch]` 再发布 CONFIG_SET，
    失败的 apply 无从改变镜像状态，ok 可证冗余。
 3. **镜像即变化检查快照**："同值免写"需要最近一次成功固化的值作比较基准，而类型化
-   镜像 `cfg[]` 本来就在固化成功后才更新——再存一份 snapshot 是第二个可漂移的源。
-   变化检查就是 `memcmp(新值, me->cfg[ch])`（`cfg_ok[ch]` 标记有效性）；写事务纪律
+   镜像 `config.cfg[]` 本来就在固化成功后才更新——再存一份 snapshot 是第二个可漂移的源。
+   变化检查就是 `memcmp(新值, me->config.cfg[ch])`（`config.cfg_ok[ch]` 标记有效性）；写事务纪律
    "先固化、后动镜像"同时保住"镜像=已固化配置"与比较基准的正确性。
 4. **故障位 b2/b3 是推导量**：b1（写失败）是瞬时事件的锁存，必须显式存；b2（加载
    失败）与 b3（存储初始化失败）从加载终局状态每帧现算（`modbus_ao.md` §5），
-   零维护且不可能"位与状态不一致"。推导有两道守卫：b2 仅在 `db_ok` 时存在（存储
+   零维护且不可能"位与状态不一致"。推导有两道守卫：b2 仅在 `store.db_ok` 时存在（存储
    没打开只报 b3，不把"未加载"误报成"加载失败"）；b2 扫描只看已装配通道（SKU
    掩码，未装配位置不报故障）。
 5. **reg_map 独立纯模块，存储折叠进 modbus_ao**：`reg_map` 是互操作规格的函数化
@@ -103,7 +103,7 @@
 | `TX_DONE_SIG`/`TX_TIMEOUT_SIG` | 无参 | TX ISR → `AoModbus` | 直接 FIFO | 静态 | 仅诊断计数 | ≤1 在途 |
 | `CONFIG_SET_SIG` | `{ch, cfg}`（`ch` **0 基**，与镜像/KV/寄存器块同基） | `AoModbus`（启动加载 / 写帧提交成功）→ 8×`AoChannel` | 发布—订阅 | 动态 池B | 仅提交成功后发布；接收者按 `ch` 过滤；命中→改配隔离（channel_ao.md §6） | 启动 ≤8；写帧 1 |
 | `APPLY_SIG` | 无 | `applyEvt` 自投（静态，8 通道共用） | 自投 FIFO | 静态 | 仅 Unconfigured 响应：`configure(pending)`→先检后测重入 | 每次改配 1 |
-| `CFG_APPLIED_SIG` | `{ch}` | `AoChannel` → `AoModbus` | 发布—订阅 | 动态 池A | apply 成功即发布，AoModbus 记 `applied[ch]=1`；失败不发布（状态 6 + 同值重写重试） | 每次改配成功 1 |
+| `CFG_APPLIED_SIG` | `{ch}` | `AoChannel` → `AoModbus` | 发布—订阅 | 动态 池A | apply 成功即发布，AoModbus 记 `config.applied[ch]=1`；失败不发布（状态 6 + 同值重写重试） | 每次改配成功 1 |
 | `MEASURE_SIG` | `{ch, value, status}`（status 为 `ch_status_t`） | `AoChannel` → `AoModbus` | 发布—订阅 | 动态 池A | 只保留最新，镜像覆盖写 | 8×100 Hz = 800/s |
 | `CJC_SIG` | `{temp_c, valid}` | `AoColdJunction` → 8×`AoChannel`、`AoModbus` | 发布—订阅 | 动态 池A | 心跳 1 Hz，通道缓存最近一条 | 1 Hz + 启动 1 |
 | `SAMPLE_SIG`/`SETTLE_SIG`/`BREAK_WINDOW_SIG`/`TICK_SIG` | 无参 | 各 AO 时间事件自投 | 自投 FIFO | 静态 `QTimeEvt` | 迟到事件经改配隔离落 Unconfigured（channel_ao.md §6） | 见各 AO 文档 |
@@ -208,7 +208,7 @@ QF_run();
    向未启动对象投递由 `QActive_post_` 断言兜底。
 2. **存储经构造注入**：`modbus_ao_ctor()` 接收 `modbus_kv_ops_t`（`main.c` 传
    `kv_flashdb_ops()`，宿主测试传 `kv_mem`）并立即 `kv->init()` 打开；未绑定或
-   打开失败 = `db_ok=0` → b3、后续提交恒 EX 04（fail-safe）。
+   打开失败 = `store.db_ok=0` → b3、后续提交恒 EX 04（fail-safe）。
 3. prioSpec 一律 `Q_PRIO(prio, 0U)`（QV 无抢占阈值，共享主栈）；SysTick 1 ms 经
    `QTIMEEVT_TICK_X` 接入（`board/src/board.c`）。
 4. `modbus_slave_start()` 在 AoModbus Serving entry 执行；启动前地址已加载完成，

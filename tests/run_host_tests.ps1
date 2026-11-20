@@ -76,6 +76,7 @@ $tests = @(
                     'app/modbus_ao.c',
                     'app/reg_map.c',
                     'tests/stubs/kv_mem.c',
+                    'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
     },

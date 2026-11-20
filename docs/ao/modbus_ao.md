@@ -14,7 +14,7 @@
 | 协议 | Modbus RTU 9600 8N1；FC03/FC06/FC16 保持寄存器、FC04 输入寄存器、FC17 报告 ID；FC01/02/05/15 无数据空间（回 01） |
 | 数值编码 | **float32（IEEE-754），2 寄存器，大端字序（高字在低地址）**；u16 单寄存器 |
 | 独占资源 | `modbus_slave_board_get()` 实例与 `modbus_slave_board_config()` 平台配置、RX/TX 缓冲（板级 256 B 各）、参数分区（经 `modbus_kv_ops_t`） |
-| 镜像（本 AO 字段） | `cfg[]`（已固化配置，**兼变化检查基准**）、`cfg_ok[]`、`applied[]`、`value[]/status[]`、`cjc_temp/cjc_valid`、`addr/addr_ok`、锁存 `b1`、`db_ok` |
+| 镜像（本 AO 字段，分组 `config`/`telemetry`/`store`） | `config.cfg[]`（已固化配置，**兼变化检查基准**）、`config.cfg_ok[]`、`config.applied[]`、`telemetry.value[]/status[]`、`telemetry.cjc_temp/cjc_valid`、`config.addr/addr_ok`、锁存 b1（`store.commit_failed`）、`store.db_ok` |
 | 假设 | 从站地址经保持寄存器 128 可写（1..247）并固化（KV `dev/addr`，出厂默认 1）；波特率可配置列为扩展（届时在设备级块新增定义） |
 
 ## 2. 职责与不变量
@@ -30,19 +30,17 @@
 3. **从站地址语义**：寄存器 128 同路径同步固化；成功后新地址对**下一帧**生效（本帧
    应答照常完成），失败回 04 且地址不变；`callbacks.address` 返回镜像。
 4. **镜像不变量**：保持寄存器镜像 = 当前**已固化**配置（仅固化成功后更新）；同时它
-   就是变化检查快照（总体设计 §1 理由 3），不再另存 snapshot。`applied[]` 记录通道
+   就是变化检查快照（总体设计 §1 理由 3），不再另存 snapshot。`config.applied[]` 记录通道
    是否已接受；输入寄存器镜像 = 各事件最近状态；故障锁存随镜像维护（§5）。
 5. **同步可读**：寄存器回调在 `modbus_slave_advance()`（本 AO RTC）内同步执行，
    事件之外无共享数据旁路。帧事件用静态事件（核心 CAPTURED 期丢弃字节，至多一条
    在途）。
-6. **单步构造（消除装配环）**：`modbus_ao_ctor(me, kv, kv_ctx, slave, slave_cfg)`
+6. **单步构造（消除装配环）**：`modbus_ao_ctor(me, kv, store_ctx, slave, slave_cfg)`
    接收板级从站实例与平台半配置（`modbus_slave_board_config()`：端口表、收发缓冲、
    波特率），在 AO 内补齐自己的半边（回调表 ctx=me、身份）后调用
    `modbus_slave_ctor()` 并安装事件端口——回调/身份单源在本模块，配置组装不绕
    组合根，板级因此只是纯提供者（存储 + 平台配置）。事件端口安装是构造的内部
-   细节（此时核心必处停止态），启动仍在 Serving entry 的 `modbus_slave_start()`；
-   `slave` 与 `slave_cfg` 同为 NULL 是数据-only 模式（回调级测试直驱 `cb`，
-   不进 Serving）。
+   细节（此时核心必处停止态），启动仍在 Serving entry 的 `modbus_slave_start()`。
 
 ## 3. 事件契约（本 AO 相关行）
 
@@ -50,9 +48,9 @@
 | --- | --- | --- | --- |
 | `FRAME_SIG` | 无 | TMR14 T3.5 ISR | `modbus_slave_advance()`（NONE/HANDLED/SENDING 均安全） |
 | `TX_DONE_SIG`/`TX_TIMEOUT_SIG` | 无 | TX ISR | 诊断计数，核心已自行恢复 |
-| `MEASURE_SIG` | `{ch,value,status}` | 发布（AoChannel） | `value/status[ch]` 覆盖写 |
-| `CJC_SIG` | `{temp_c,valid}` | 发布（AoColdJunction） | `cjc_temp/cjc_valid` 覆盖写 + b0 判定；兼诊断节拍 |
-| `CFG_APPLIED_SIG` | `{ch}` | 发布（AoChannel） | `applied[ch]=1`（接受路径记账） |
+| `MEASURE_SIG` | `{ch,value,status}` | 发布（AoChannel） | `telemetry.value/status[ch]` 覆盖写 |
+| `CJC_SIG` | `{temp_c,valid}` | 发布（AoColdJunction） | `telemetry.cjc_temp/cjc_valid` 覆盖写 + b0 判定；兼诊断节拍 |
+| `CFG_APPLIED_SIG` | `{ch}` | 发布（AoChannel） | `config.applied[ch]=1`（接受路径记账） |
 | `CONFIG_SET_SIG` | `{ch,cfg}` | **输出**：本 AO（启动加载 / 写帧提交成功）→ 8×`AoChannel` | 每通道一条；仅提交成功后发布 |
 
 ## 4. 寄存器映射（0 基线地址）
@@ -98,7 +96,7 @@
 
 | 位 | 含义 | 置位/清除语义 |
 | --- | --- | --- |
-| b0 | 冷端故障 | 实时：冷端无效（`!cjc_valid`，含未就绪/传感器失效）——冷端有效性唯一上报点 |
+| b0 | 冷端故障 | 实时：冷端无效（`!telemetry.cjc_valid`，含未就绪/传感器失效）——冷端有效性唯一上报点 |
 | b1 | 参数写入失败 | 锁存（写侧）：写回调固化失败（EX 04 路径）置位；下一次成功固化清除 |
 | b2 | 参数加载失败 | 锁存（读侧）：启动加载失败置位；对应参数随后成功固化后清除；该参数不下发、对应通道不投入运行 |
 | b3 | FlashDB 初始化失败 | 锁存（不可恢复，产品报废级）：`kv->init`（`fdb_kvdb_init`）失败置位；**复位前不清除**；无任何配置可下发，Modbus 按默认地址运行 |
@@ -107,13 +105,13 @@
 **b1 显式锁存、b2/b3 推导**（总体设计 §1 理由 4）：读回调现算
 
 ```text
-load_failed = (!addr_ok) || (任一已装配通道 cfg_ok[ch] == 0)
-latched = (b1                    ? REG_MAP_FAULT_PARAM_WRITE)
-        | (db_ok && load_failed  ? REG_MAP_FAULT_PARAM_LOAD)
-        | (!db_ok                ? REG_MAP_FAULT_FDB_INIT)
+load_failed = (!config.addr_ok) || (任一已装配通道 config.cfg_ok[ch] == 0)
+latched = (store.commit_failed        ? REG_MAP_FAULT_PARAM_WRITE)
+        | (store.db_ok && load_failed ? REG_MAP_FAULT_PARAM_LOAD)
+        | (!store.db_ok               ? REG_MAP_FAULT_FDB_INIT)
 ```
 
-两道守卫：b2 仅在 `db_ok` 时存在——存储没打开时只报 b3，不把"没加载"误报成
+两道守卫：b2 仅在 `store.db_ok` 时存在——存储没打开时只报 b3，不把"没加载"误报成
 "加载失败"；`load_failed` 扫描只看 `ch < CH_CONFIG_CHANNEL_COUNT`（SKU 掩码，
 未装配位置不报故障）。b0 实时、b1..b3 锁存，合成经 `reg_map_fault_word()`（纯函数）。
 
@@ -139,24 +137,24 @@ AoModbus (top, 初始 → Serving)
 ```
 
 初始转换（`QActive_start` 上下文，`QF_run` 之前）：订阅 `MEASURE_SIG`/`CJC_SIG`/
-`CFG_APPLIED_SIG` → 启动加载（`load_all`：逐键读取+校验入镜像，失败如实记 `cfg_ok`
-清零，绝不顶替）→ 为 `cfg_ok` 通道逐个发布 `CONFIG_SET_SIG` → `Q_TRAN(Serving)`
+`CFG_APPLIED_SIG` → 启动加载（`load_all`：逐键读取+校验入镜像，失败如实记 `config.cfg_ok`
+清零，绝不顶替）→ 为 `config.cfg_ok` 通道逐个发布 `CONFIG_SET_SIG` → `Q_TRAN(Serving)`
 （entry `modbus_slave_start()`，失败=断言）。地址在开接收前已知，不存在地址竞态。
 Serving：`FRAME_SIG`→`advance()`；`TX_*`→计数；`MEASURE/CJC`→镜像覆盖写（CJC 兼
-诊断节拍，每 60 个心跳上报各 AO 队列低水位）；`CFG_APPLIED_SIG`→`applied[ch]=1`。
+诊断节拍，每 60 个心跳上报各 AO 队列低水位）；`CFG_APPLIED_SIG`→`config.applied[ch]=1`。
 
 ### 保持寄存器写事务（FC06/FC16 同路径，原子性全部所在）
 
 ```text
 reg_map_check                        缺席/空档/跨块 → EX 02
-CH_CFG：encode(cfg[ch]) → 帧覆盖 → decode（读-改-写，单寄存器写天然正确）
+CH_CFG：encode(config.cfg[ch]) → 帧覆盖 → decode（读-改-写，单寄存器写天然正确）
         → config_validate（含归一化）；非法 → EX 03（整帧拒绝）
 DEV：  addr_valid（1..247）；非法 → EX 03
-变化检查 vs me->cfg[]/me->addr（= 变化检查快照）：
-    无变化且 applied=1 → EX 00（不写 flash、不通知）
-    无变化且 applied=0 → EX 00（重新发布 CONFIG_SET_SIG，让通道重试 apply）
+变化检查 vs me->config.cfg[]/me->config.addr（= 变化检查快照）：
+    无变化且 config.applied[ch]=1 → EX 00（不写 flash、不通知）
+    无变化且 config.applied[ch]=0 → EX 00（重新发布 CONFIG_SET_SIG，让通道重试 apply）
     有变化 → save_cfg/save_addr 同步固化（kv->set + 读回 memcmp）：
-        读回=下发值 → 更新镜像、applied[ch]=0；发布 CONFIG_SET_SIG；清 b1 → EX 00
+        读回=下发值 → 更新镜像、config.applied[ch]=0；发布 CONFIG_SET_SIG；清 b1 → EX 00
         读回≠下发值 → 镜像不动、不发布、b1 置位 → EX 04（SLAVE_DEVICE_FAILURE）
 ```
 
@@ -187,7 +185,7 @@ DEV：  addr_valid（1..247）；非法 → EX 03
   无锁）。目标实现 `app/kv_flashdb.c`（唯一碰 FlashDB 的文件，`fdb_kvdb` 分区
   `0x0800F000..0x0800FFFF`，掉电安全由 FlashDB 分阶段写+CRC+上电恢复托管：任意写
   时刻断电只可能得到旧值或完整新值）；宿主 `tests/stubs/kv_mem.c`（可注入读回不一致）。
-  `kv->init` 在 `modbus_ao_ctor()` 内执行；未绑定或失败 → `db_ok=0`（b3）且后续
+  `kv->init` 在 `modbus_ao_ctor()` 内执行；未绑定或失败 → `store.db_ok=0`（b3）且后续
   提交恒 EX 04。
 - 固化为**同步**执行是协议决策（EX 04 语义要求固化在写回调返回前完成）；异步方案
   否决理由：先生效后固化会掉电静默回退，先应答后生效破坏"应答即提交"语义。

@@ -41,15 +41,15 @@ static uint16_t fault_word(const modbus_ao_t* me)
     uint16_t latched = 0U;
     uint8_t ch;
 
-    if ( me->b1 != 0U ) {
+    if ( me->store.commit_failed != 0U ) {
         latched |= REG_MAP_FAULT_PARAM_WRITE;
     }
     /* b2 only exists while the store is up: a dead store reports b3 alone. */
-    if ( me->db_ok != 0U ) {
-        uint8_t load_failed = (me->addr_ok == 0U) ? 1U : 0U;
+    if ( me->store.db_ok != 0U ) {
+        uint8_t load_failed = (me->config.addr_ok == 0U) ? 1U : 0U;
 
         for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-            if ( me->cfg_ok[ch] == 0U ) {
+            if ( me->config.cfg_ok[ch] == 0U ) {
                 load_failed = 1U;
                 break;
             }
@@ -58,10 +58,10 @@ static uint16_t fault_word(const modbus_ao_t* me)
             latched |= REG_MAP_FAULT_PARAM_LOAD;
         }
     }
-    if ( me->db_ok == 0U ) {
+    if ( me->store.db_ok == 0U ) {
         latched |= REG_MAP_FAULT_FDB_INIT;
     }
-    return reg_map_fault_word(me->cjc_valid, latched);
+    return reg_map_fault_word(me->telemetry.cjc_valid, latched);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -198,7 +198,7 @@ static bool load_cfg(modbus_ao_t* me, uint8_t ch)
     ch_config_t cfg;
     int len;
 
-    len = me->kv->get(me->kv_ctx, key, &cfg, sizeof(cfg));
+    len = me->store.ops->get(me->store.ctx, key, &cfg, sizeof(cfg));
     if ( len < 0 ) {
         elog_warn("modbus_ao", "load missing: %s", key);
         return false;
@@ -212,8 +212,8 @@ static bool load_cfg(modbus_ao_t* me, uint8_t ch)
         elog_warn("modbus_ao", "load invalid: %s", key);
         return false;
     }
-    me->cfg[ch]    = cfg;
-    me->cfg_ok[ch] = 1U;
+    me->config.cfg[ch]    = cfg;
+    me->config.cfg_ok[ch] = 1U;
     return true;
 }
 
@@ -228,7 +228,7 @@ static bool load_addr(modbus_ao_t* me, uint16_t* addr)
     const char* key = key_addr();
     int len;
 
-    len = me->kv->get(me->kv_ctx, key, addr, sizeof(*addr));
+    len = me->store.ops->get(me->store.ctx, key, addr, sizeof(*addr));
     if ( len < 0 ) {
         elog_warn("modbus_ao", "load missing: %s", key);
         return false;
@@ -258,21 +258,21 @@ static void load_all(modbus_ao_t* me)
     uint8_t ch;
     uint16_t addr;
 
-    if ( me->db_ok == 0U ) {
+    if ( me->store.db_ok == 0U ) {
         return;
     }
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        me->cfg_ok[ch] = 0U;
+        me->config.cfg_ok[ch] = 0U;
         (void)load_cfg(me, ch);
     }
 
-    me->addr_ok = 0U;
+    me->config.addr_ok = 0U;
     if ( load_addr(me, &addr) ) {
-        me->addr    = addr;
-        me->addr_ok = 1U;
+        me->config.addr    = addr;
+        me->config.addr_ok = 1U;
     } else {
-        me->addr = REG_MAP_DEFAULT_DEV_ADDR;
+        me->config.addr = REG_MAP_DEFAULT_DEV_ADDR;
     }
 }
 
@@ -291,21 +291,21 @@ static commit_status_t save_cfg(modbus_ao_t* me,
     int st;
     int len;
 
-    if ( (ch >= CH_CONFIG_CHANNEL_COUNT) || (me->db_ok == 0U) ) {
+    if ( (ch >= CH_CONFIG_CHANNEL_COUNT) || (me->store.db_ok == 0U) ) {
         return COMMIT_ERR;
     }
 
     key = key_cfg(ch);
 
-    if ( (me->cfg_ok[ch] != 0U)
-         && (memcmp(&me->cfg[ch], cfg, sizeof(*cfg)) == 0) ) {
+    if ( (me->config.cfg_ok[ch] != 0U)
+         && (memcmp(&me->config.cfg[ch], cfg, sizeof(*cfg)) == 0) ) {
         return COMMIT_NO_CHANGE;
     }
 
-    st = me->kv->set(me->kv_ctx, key, cfg, sizeof(*cfg));
+    st = me->store.ops->set(me->store.ctx, key, cfg, sizeof(*cfg));
 
     /* The reply follows the stored content, not the library return code. */
-    len = me->kv->get(me->kv_ctx, key, &verify, sizeof(verify));
+    len = me->store.ops->get(me->store.ctx, key, &verify, sizeof(verify));
     if ( (len != (int)sizeof(verify))
          || (memcmp(&verify, cfg, sizeof(verify)) != 0) ) {
         elog_error("modbus_ao", "commit failed: %s (kv %d, read back %d)",
@@ -314,8 +314,8 @@ static commit_status_t save_cfg(modbus_ao_t* me,
         return COMMIT_ERR;
     }
 
-    me->cfg[ch]    = *cfg;
-    me->cfg_ok[ch] = 1U;
+    me->config.cfg[ch]    = *cfg;
+    me->config.cfg_ok[ch] = 1U;
     elog_info("modbus_ao", "commit ok: %s (kv %d)", key, st);
     (void)st;
     return COMMIT_OK;
@@ -329,19 +329,19 @@ static commit_status_t save_addr(modbus_ao_t* me, uint16_t addr)
     int st;
     int len;
 
-    if ( (me->db_ok == 0U) || !addr_valid(addr) ) {
+    if ( (me->store.db_ok == 0U) || !addr_valid(addr) ) {
         return COMMIT_ERR;
     }
 
     key = key_addr();
 
-    if ( (me->addr_ok != 0U) && (me->addr == addr) ) {
+    if ( (me->config.addr_ok != 0U) && (me->config.addr == addr) ) {
         return COMMIT_NO_CHANGE;
     }
 
-    st = me->kv->set(me->kv_ctx, key, &addr, sizeof(addr));
+    st = me->store.ops->set(me->store.ctx, key, &addr, sizeof(addr));
 
-    len = me->kv->get(me->kv_ctx, key, &verify, sizeof(verify));
+    len = me->store.ops->get(me->store.ctx, key, &verify, sizeof(verify));
     if ( (len != (int)sizeof(verify)) || (verify != addr) ) {
         elog_error("modbus_ao", "commit failed: %s (kv %d, read back %d)",
                    key, st, len);
@@ -349,8 +349,8 @@ static commit_status_t save_addr(modbus_ao_t* me, uint16_t addr)
         return COMMIT_ERR;
     }
 
-    me->addr    = addr;
-    me->addr_ok = 1U;
+    me->config.addr    = addr;
+    me->config.addr_ok = 1U;
     elog_info("modbus_ao", "commit ok: %s -> %u (kv %d)",
               key, (unsigned)addr, st);
     (void)st;
@@ -406,7 +406,7 @@ static modbus_slave_exception_t input(void* ctx,
         return MODBUS_SLAVE_EX_ILLEGAL_FUNCTION;
     }
 
-    reg_map_input_encode(me->value, me->status, me->cjc_temp, fault_word(me),
+    reg_map_input_encode(me->telemetry.value, me->telemetry.status, me->telemetry.cjc_temp, fault_word(me),
                          span, start, count, buffer);
     return MODBUS_SLAVE_EX_NONE;
 }
@@ -434,11 +434,11 @@ static modbus_slave_exception_t holding_write(modbus_ao_t* me,
 
         st = save_addr(me, addr);
         if ( st == COMMIT_ERR ) {
-            me->b1 = 1U;
+            me->store.commit_failed = 1U;
             return MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE;
         }
         if ( st == COMMIT_OK ) {
-            me->b1 = 0U;
+            me->store.commit_failed = 0U;
         }
         /* COMMIT_NO_CHANGE: mirror already holds the requested value. */
         return MODBUS_SLAVE_EX_NONE;
@@ -450,7 +450,7 @@ static modbus_slave_exception_t holding_write(modbus_ao_t* me,
         ch_config_t cand;
 
         /* Read-modify-write: any single register write lands correctly. */
-        reg_map_ch_encode(&me->cfg[ch], block);
+        reg_map_ch_encode(&me->config.cfg[ch], block);
         memcpy(&block[2U * (uint16_t)(start - span->base)], buffer, 2U * count);
         reg_map_ch_decode(block, &cand);
         if ( !config_validate(&cand) ) {
@@ -459,14 +459,14 @@ static modbus_slave_exception_t holding_write(modbus_ao_t* me,
 
         st = save_cfg(me, ch, &cand);
         if ( st == COMMIT_ERR ) {
-            me->b1 = 1U;
+            me->store.commit_failed = 1U;
             return MODBUS_SLAVE_EX_SLAVE_DEVICE_FAILURE;
         }
         if ( st == COMMIT_OK ) {
-            me->b1          = 0U;
-            me->applied[ch] = 0U;
+            me->store.commit_failed = 0U;
+            me->config.applied[ch]  = 0U;
             publish_cfg(me, ch, &cand);
-        } else if ( me->applied[ch] == 0U ) {
+        } else if ( me->config.applied[ch] == 0U ) {
             /* Persisted already, but the channel has not accepted it yet:
              * a same-value rewrite is the retry trigger. */
             publish_cfg(me, ch, &cand);
@@ -498,9 +498,9 @@ static modbus_slave_exception_t holding(void* ctx,
         uint8_t block[REG_MAP_CH_CFG_LEN * 2U];
 
         if ( span->kind == REG_SPAN_CH_CFG ) {
-            reg_map_ch_encode(&me->cfg[span->channel], block);
+            reg_map_ch_encode(&me->config.cfg[span->channel], block);
         } else {
-            reg_map_dev_encode(me->addr, block);
+            reg_map_dev_encode(me->config.addr, block);
         }
         memcpy(buffer, &block[2U * (uint16_t)(start - span->base)], 2U * count);
     }
@@ -511,7 +511,7 @@ static uint8_t address(void* ctx)
 {
     modbus_ao_t* me = (modbus_ao_t*)ctx;
 
-    return (uint8_t)me->addr;
+    return (uint8_t)me->config.addr;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -581,7 +581,7 @@ static void report_queue_watermarks(const modbus_ao_t* me)
     uint8_t prio;
 
     elog_debug("modbus_ao", "tx done=%u timeout=%u",
-               (unsigned)me->tx_done_cnt, (unsigned)me->tx_timeout_cnt);
+               (unsigned)me->diag.tx_done_cnt, (unsigned)me->diag.tx_timeout_cnt);
 
     for ( prio = (uint8_t)APP_PRIO_CH_FIRST; prio <= (uint8_t)APP_PRIO_MODBUS; ++prio ) {
         uint16_t const min_free = QActive_getQueueMin(prio);
@@ -610,49 +610,47 @@ static const modbus_slave_identity_t identity = {
 
 void modbus_ao_ctor(modbus_ao_t* me,
                     const modbus_kv_ops_t* kv,
-                    void* kv_ctx,
+                    void* store_ctx,
                     modbus_slave_t* slave,
                     const modbus_slave_config_t* slave_cfg)
 {
     uint8_t ch;
+    modbus_slave_config_t config;
+    modbus_slave_port_event_t ev;
+
+    /* Both halves are required: the slave core is built in this step. */
+    Q_ASSERT(slave != NULL);
+    Q_ASSERT(slave_cfg != NULL);
 
     QActive_ctor(&me->super, Q_STATE_CAST(&modbus_ao_initial));
 
-    me->slave          = NULL;
-    me->kv             = kv;
-    me->kv_ctx         = kv_ctx;
-    me->db_ok          = 0U;
-    me->b1             = 0U;
-    me->addr           = REG_MAP_DEFAULT_DEV_ADDR;
-    me->addr_ok        = 0U;
-    me->cjc_temp       = 0.0f;
-    me->cjc_valid      = 0U;
-    me->tx_done_cnt    = 0U;
-    me->tx_timeout_cnt = 0U;
-    me->diag_ctr       = 0U;
+    me->slave               = slave;
+    me->store.ops           = kv;
+    me->store.ctx           = store_ctx;
+    me->store.db_ok         = 0U;
+    me->store.commit_failed = 0U;
+    me->config.addr         = REG_MAP_DEFAULT_DEV_ADDR;
+    me->config.addr_ok      = 0U;
+    me->telemetry.cjc_temp  = 0.0f;
+    me->telemetry.cjc_valid = 0U;
+    me->diag.tx_done_cnt    = 0U;
+    me->diag.tx_timeout_cnt = 0U;
+    me->diag.hb_ctr         = 0U;
 
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
         /* Channels report "unconfigured" until the first MEASURE_SIG. */
-        memset(&me->cfg[ch], 0, sizeof(me->cfg[ch]));
-        me->cfg_ok[ch]  = 0U;
-        me->applied[ch] = 0U;
-        me->value[ch]   = 0.0f;
-        me->status[ch]  = (uint16_t)CH_STATUS_UNCONFIGURED;
+        memset(&me->config.cfg[ch], 0, sizeof(me->config.cfg[ch]));
+        me->config.cfg_ok[ch]     = 0U;
+        me->config.applied[ch]    = 0U;
+        me->telemetry.value[ch]   = 0.0f;
+        me->telemetry.status[ch]  = (uint16_t)CH_STATUS_UNCONFIGURED;
     }
-
-    /* The slave core calls the data-space callbacks with this instance. */
-    me->cb.ctx               = me;
-    me->cb.coils             = &coils;
-    me->cb.discrete_inputs   = &discrete;
-    me->cb.holding_registers = &holding;
-    me->cb.input_registers   = &input;
-    me->cb.address           = &address;
 
     /* The store opens here; loading runs in the initial transition. */
     if ( kv != NULL ) {
-        if ( kv->init(kv_ctx, defaults, sizeof(defaults) / sizeof(defaults[0]))
+        if ( kv->init(store_ctx, defaults, sizeof(defaults) / sizeof(defaults[0]))
              == 0 ) {
-            me->db_ok = 1U;
+            me->store.db_ok = 1U;
         } else {
             elog_error("modbus_ao", "kv store init failed");
         }
@@ -660,29 +658,27 @@ void modbus_ao_ctor(modbus_ao_t* me,
         elog_error("modbus_ao", "kv store not bound");
     }
 
-    /* Full mode supplies slave and config; data-only mode supplies neither. */
-    Q_ASSERT((slave == NULL) == (slave_cfg == NULL));
-
-    if ( slave != NULL ) {
-        modbus_slave_config_t config = *slave_cfg;
-        modbus_slave_port_event_t ev;
-
-        /* This module owns the callbacks and identity half of the config. */
-        config.callbacks = me->cb;
-        config.identity  = identity;
-        if ( modbus_slave_ctor(slave, &config) != MODBUS_SLAVE_OK ) {
-            /* Defect: the config was vetted at assembly. */
-            Q_ERROR();
-        }
-        me->slave = slave;
-
-        /* The core copies this port; it is still stopped here. */
-        ev.ctx               = me;
-        ev.on_frame_received = on_frame;
-        ev.on_frame_sent     = on_sent;
-        ev.on_tx_timeout     = on_timeout;
-        (void)modbus_slave_set_event_port(me->slave, &ev);
+    /* This module owns the callbacks and identity half of the config; the
+     * core copies the table and the instance's copy is the live one. */
+    config = *slave_cfg;
+    config.callbacks.ctx               = me;
+    config.callbacks.coils             = &coils;
+    config.callbacks.discrete_inputs   = &discrete;
+    config.callbacks.holding_registers = &holding;
+    config.callbacks.input_registers   = &input;
+    config.callbacks.address           = &address;
+    config.identity                    = identity;
+    if ( modbus_slave_ctor(slave, &config) != MODBUS_SLAVE_OK ) {
+        /* Defect: the config was vetted at assembly. */
+        Q_ERROR();
     }
+
+    /* The core copies this port; it is still stopped here. */
+    ev.ctx               = me;
+    ev.on_frame_received = on_frame;
+    ev.on_frame_sent     = on_sent;
+    ev.on_tx_timeout     = on_timeout;
+    (void)modbus_slave_set_event_port(slave, &ev);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -708,8 +704,8 @@ static QState modbus_ao_initial(modbus_ao_t* const me, void const* const par)
 
     load_all(me);
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
-        if ( me->cfg_ok[ch] != 0U ) {
-            publish_cfg(me, ch, &me->cfg[ch]);
+        if ( me->config.cfg_ok[ch] != 0U ) {
+            publish_cfg(me, ch, &me->config.cfg[ch]);
         }
     }
 
@@ -725,7 +721,6 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
 
     switch ( e->sig ) {
         case Q_ENTRY_SIG: {
-            Q_ASSERT(me->slave != NULL); /* data-only mode never reaches Serving */
             if ( modbus_slave_start(me->slave) != MODBUS_SLAVE_OK ) {
                 /* Board-level defect; the port was vetted at construction. */
                 Q_ERROR();
@@ -739,28 +734,28 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
             break;
         }
         case TX_DONE_SIG: {
-            ++me->tx_done_cnt;
+            ++me->diag.tx_done_cnt;
             status = Q_HANDLED();
             break;
         }
         case TX_TIMEOUT_SIG: {
-            ++me->tx_timeout_cnt;
+            ++me->diag.tx_timeout_cnt;
             status = Q_HANDLED();
             break;
         }
         case MEASURE_SIG: {
             measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
-            me->value[m->ch]  = m->value;
-            me->status[m->ch] = m->status;
-            status            = Q_HANDLED();
+            me->telemetry.value[m->ch]  = m->value;
+            me->telemetry.status[m->ch] = m->status;
+            status                      = Q_HANDLED();
             break;
         }
         case CFG_APPLIED_SIG: {
             uint8_t ch = Q_EVT_CAST(cfg_applied_evt_t)->ch;
 
             if ( ch < CH_CONFIG_CHANNEL_COUNT ) {
-                me->applied[ch] = 1U;
+                me->config.applied[ch] = 1U;
             }
             status = Q_HANDLED();
             break;
@@ -768,13 +763,13 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
         case CJC_SIG: {
             cjc_evt_t const* cjc = Q_EVT_CAST(cjc_evt_t);
 
-            me->cjc_temp  = cjc->temp_c;
-            me->cjc_valid = cjc->valid;
+            me->telemetry.cjc_temp  = cjc->temp_c;
+            me->telemetry.cjc_valid = cjc->valid;
 
             /* The 1 Hz heartbeat doubles as the diagnostic cadence. */
-            ++me->diag_ctr;
-            if ( me->diag_ctr >= MODBUS_AO_DIAG_PERIOD_HEARTBEATS ) {
-                me->diag_ctr = 0U;
+            ++me->diag.hb_ctr;
+            if ( me->diag.hb_ctr >= MODBUS_AO_DIAG_PERIOD_HEARTBEATS ) {
+                me->diag.hb_ctr = 0U;
                 report_queue_watermarks(me);
             }
             status = Q_HANDLED();
