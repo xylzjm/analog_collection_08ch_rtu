@@ -149,10 +149,28 @@ static void boot_scenario(uint8_t fail_ch)
 
     kv_mem_ctor(&kv);
     if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
-        /* Preload a wrong-length body: the real loader must reject it. */
+        /* A partial store is never backfilled: preload every default row
+         * with its factory body, then corrupt one body - the real loader
+         * must reject exactly that key. */
+        static const ch_config_t cfg = {
+            (uint8_t)CH_TYPE_TC,   /**< type */
+            (uint8_t)CH_TC_TYPE_K, /**< tc_type */
+            2U,                    /**< rate_code: 10 Hz */
+            0.0f,                  /**< linear_min */
+            0.0f,                  /**< linear_max */
+            0.0f,                  /**< offset */
+            1.0f,                  /**< gain */
+        };
         uint8_t bad[4] = {0};
+        uint16_t addr = REG_MAP_DEFAULT_DEV_ADDR;
+        uint8_t ch;
         char key[KV_MEM_MAX_KEY];
 
+        for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+            (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
+            kv_mem_put(&kv, key, &cfg, sizeof(cfg));
+        }
+        kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
         (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)fail_ch);
         kv_mem_put(&kv, key, bad, sizeof(bad));
     }

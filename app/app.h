@@ -225,15 +225,12 @@ Q_ASSERT_STATIC(sizeof(cjc_evt_t) <= sizeof(measure_evt_t));
 /*----------------------------------------------------------------------------*/
 
 /*
- * The position list itself (BOARD_POSITIONS, BOARD_POSITION_COUNT) is a
- * board fact and lives in board_config.h. Only the compile-time guards
- * stay here: they need Q_ASSERT_STATIC from qpc.h.
+ * The position list itself and its derived count (BOARD_POSITIONS,
+ * BOARD_POSITION_COUNT) are board facts and live in board_config.h; the
+ * count is expanded from the list there, so no drift guard is possible or
+ * needed. Only the compile-time guards stay here: they need
+ * Q_ASSERT_STATIC from qpc.h.
  */
-
-/* Drift guard: the count macro must match BOARD_POSITIONS in board_config.h. */
-#define APP_POSITION_COUNT_ONE(pos) +1U
-Q_ASSERT_STATIC((0U BOARD_POSITIONS(APP_POSITION_COUNT_ONE)) == BOARD_POSITION_COUNT);
-#undef APP_POSITION_COUNT_ONE
 
 /* Drift guard: the SKU channel count must fit the board position list; the
  * modbus_ao bitmasks and the KV key table index by position. */

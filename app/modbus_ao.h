@@ -12,8 +12,6 @@
  * calls. See docs/ao/modbus_ao.md.
  */
 
-#include <stddef.h>
-
 #include "app.h"
 #include "kv_store.h"
 #include "modbus_slave.h"

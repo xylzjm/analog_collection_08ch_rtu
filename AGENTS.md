@@ -31,8 +31,8 @@ workspace file adds both folders; without them nothing compiles.
 - Firmware builds only through EIDE: VS Code tasks `build`, `rebuild`, `clean`,
   `flash`, `build and flash`, or the EIDE MCP tools with project uid
   `2b2c107904df4cdb1e97e57d6947db29` (`rebuild` is the reliable full check).
-- A clean build is 66 C files + 1 assembly file, ROM about 52.0/60 KB (86.7 %),
-  RAM 9.15/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
+- A clean build is 66 C files + 1 assembly file, ROM about 52.3/60 KB (87.1 %),
+  RAM 9.12/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
   KV layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
   the `fdb_kvdb` parameter partition, and ROM is linked to 60 KB (`0xF000`).
@@ -166,10 +166,11 @@ workspace file adds both folders; without them nothing compiles.
      (`../middleware/qp/qpc/src/qf/*` + `qv.c`) against the host port
      `tests/stubs/qp_port.h`, which shares the firmware `qp_config.h`; the
      dispatch loop replicates the QV triple (`QActive_get_` -> `QASM_DISPATCH`
-     -> `QF_gc`). Fakes exist only at the device edges: `analog_input_fake`,
-     `tmp75_port_fake` (behind the real `tmp75.c`), `modbus_port_fake` (behind
-     the real slave core), and `kv_mem` (an in-memory KV store behind the real
-     persistence code in `modbus_ao.c`).
+     -> `QF_gc`). The three device fakes sit at the device edges:
+     `analog_input_fake`, `tmp75_port_fake` (behind the real `tmp75.c`) and
+     `modbus_port_fake` (behind the real slave core); `kv_mem` is the
+     library's in-memory reference store, linked behind the real persistence
+     code in `modbus_ao.c`.
 3. The script prints `N checks, 0 failures` per test. `tests/` is outside the
    EIDE build, so host tests say nothing about ROM or target timing.
 4. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -

@@ -103,7 +103,7 @@ static const kv_store_default_t defaults[] = {
     {"dev/addr", &default_dev_addr, sizeof(default_dev_addr)},
 };
 
-/* Compile-time guard: 8 board positions plus the dev/addr row. */
+/* Compile-time guard: BOARD_POSITION_COUNT positions plus the dev/addr row. */
 Q_ASSERT_STATIC((sizeof(defaults) / sizeof(defaults[0])) == (BOARD_POSITION_COUNT + 1U));
 
 /** @brief KV key of one channel configuration row. */

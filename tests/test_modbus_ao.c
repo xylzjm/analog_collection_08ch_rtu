@@ -232,6 +232,35 @@ static void world_preload_addr(uint16_t addr)
     kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
 }
 
+/**
+ * @brief Script a healthy store: every default row with its factory body.
+ *
+ * A partial store is never backfilled, so a scenario that corrupts one
+ * key must preload the healthy rows it still expects to load.
+ */
+static void world_preload_defaults(void)
+{
+    static const ch_config_t cfg = {
+        (uint8_t)CH_TYPE_TC,   /**< type */
+        (uint8_t)CH_TC_TYPE_K, /**< tc_type */
+        2U,                    /**< rate_code: 10 Hz */
+        0.0f,                  /**< linear_min */
+        0.0f,                  /**< linear_max */
+        0.0f,                  /**< offset */
+        1.0f,                  /**< gain */
+    };
+    uint16_t addr = REG_MAP_DEFAULT_DEV_ADDR;
+    uint8_t ch;
+
+    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        char key[KV_MEM_MAX_KEY];
+
+        (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
+        kv_mem_put(&kv, key, &cfg, sizeof(cfg));
+    }
+    kv_mem_put(&kv, "dev/addr", &addr, sizeof(addr));
+}
+
 /** @brief Construct the AO with its slave core and bring the AO up. */
 static void world_start(void)
 {
@@ -663,6 +692,7 @@ static void test_boot_load_failure(void)
     uint8_t ch;
 
     world_begin(0U);
+    world_preload_defaults(); /* the store holds content: no backfill */
     world_preload_cfg_bad(2U);
     world_start();
 
@@ -695,6 +725,7 @@ static void test_boot_load_failure(void)
 static void test_bad_address(void)
 {
     world_begin(0U);
+    world_preload_defaults(); /* the store holds content: no backfill */
     world_preload_addr(0U);
     world_start();
 

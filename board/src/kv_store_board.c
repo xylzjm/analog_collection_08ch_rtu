@@ -113,8 +113,11 @@ static const kv_store_ops_t ops = {
 
 void kv_store_board_ctor(void)
 {
+    kv_store_status_t st = kv_store_ctor(&store, &ops);
+
     /* A failure means the table above is incomplete: composition defect. */
-    Q_ASSERT(kv_store_ctor(&store, &ops) == KV_STORE_OK);
+    Q_ASSERT(st == KV_STORE_OK);
+    (void)st;
 }
 
 kv_store_t* kv_store_board_get(void)

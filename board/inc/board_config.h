@@ -20,8 +20,15 @@
  */
 #define BOARD_POSITIONS(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
 
-/** @brief Number of board positions listed by BOARD_POSITIONS. */
-#define BOARD_POSITION_COUNT 8U
+/**
+ * @brief Number of board positions, derived from BOARD_POSITIONS itself.
+ *
+ * BOARD_POSITION_ONE only counts rows, so the count cannot drift from the
+ * list. It must stay defined: BOARD_POSITION_COUNT expands it at every use
+ * site (including #if expressions).
+ */
+#define BOARD_POSITION_ONE(pos) +1U
+#define BOARD_POSITION_COUNT (0U BOARD_POSITIONS(BOARD_POSITION_ONE))
 
 /**
  * @brief Populated channel positions (1..BOARD_POSITION_COUNT).
