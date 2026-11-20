@@ -22,7 +22,7 @@ CI, lint or typecheck step exists.
 ## Dependencies live outside this repo
 
 The build reads sibling folders that are neither vendored nor submodules:
-`../library` (sig24131, tmp75, analog_input, i2c_soft, modbus_slave) and
+`../library` (sig24131, tmp75, analog_input, i2c_soft, kv_store, modbus_slave) and
 `../middleware` (qp, SEGGER RTT, EasyLogger, flashDB/FAL). The multi-root
 workspace file adds both folders; without them nothing compiles.
 
@@ -86,11 +86,13 @@ workspace file adds both folders; without them nothing compiles.
 - AoModbus owns the typed Modbus mirror, the holding-register write transaction
   (validate -> synchronous commit with read-back verify -> mirror -> publish)
   and the parameter persistence in `modbus_ao.c`; the mirror IS the change-check
-  snapshot (no separate snapshot). Storage sits behind the `modbus_kv_ops_t`
-  seam (target FlashDB in `app/kv_flashdb.c`, host memory store
-  `tests/stubs/kv_mem.c`); the KV schema (keys `cfg/ch0..7`/`dev/addr`, default
-  table) lives in `modbus_ao.c`. Fault bits b1 is latched; b2/b3 are derived
-  from the load outcome each read (store.db_ok guard, SKU mask).
+  snapshot (no separate snapshot). Storage sits behind the `kv_store_t`
+  interface at `library/interface/kv_store` (target FlashDB in
+  `board/src/kv_store_board.c`, host memory store
+  `library/interface/kv_store/test/kv_mem.c`); the KV schema (keys
+  `cfg/ch0..7`/`dev/addr`, default table) lives in `modbus_ao.c`. Fault bits b1
+  is latched; b2/b3 are derived from the load outcome each read (store.db_ok
+  guard, SKU mask).
 - The apply result travels as `CFG_APPLIED_SIG` (AoChannel publishes, AoModbus
   records `config.applied[]`) and a committed write publishes `CONFIG_SET_SIG`
   directly: no passive module ever calls back into an active object.
@@ -119,7 +121,7 @@ workspace file adds both folders; without them nothing compiles.
 - The KV store is injected through the one-step `modbus_ao_ctor()`, and
   `main.c` also hands over the board's slave storage and platform half-config:
   the AO assembles the full config and builds the slave core. `main.c` passes
-  `kv_flashdb_ops()` (whose `init` runs in the ctor and opens the FlashDB
+  `kv_store_board_get()` (whose `init` op runs in the ctor and opens the FlashDB
   database), host tests pass `kv_mem`. An unbound store or a failed init
   leaves `store.db_ok = 0` (fault word b3) and every later commit fails safe with
   EX 04.
@@ -172,9 +174,9 @@ workspace file adds both folders; without them nothing compiles.
    EIDE build, so host tests say nothing about ROM or target timing.
 4. Pure-logic code in `../library` has host tests under `<module>/test/*.c` -
    self-contained `main()` plus a `CHECK` macro, excluded from the firmware
-   build. Four exist today (`analog_input_math`, `i2c_soft`, `modbus_slave`,
-   `tmp75`) and no harness runs them automatically. Compile with host gcc, for
-   example:
+   build. Five exist today (`analog_input_math`, `i2c_soft`, `kv_store`,
+   `modbus_slave`, `tmp75`) and no harness runs them automatically. Compile with
+   host gcc, for example:
 
    ```powershell
    gcc -std=c99 -I ../library/protocol/modbus_slave/inc `

@@ -117,7 +117,6 @@ virtualFolder:
         - path: app/modbus_ao.c
         - path: app/channel_ao.c
         - path: app/cold_junction_ao.c
-        - path: app/kv_flashdb.c
       folders: []
     - name: board
       files:
@@ -128,6 +127,7 @@ virtualFolder:
         - path: board/src/tmp75_board.c
         - path: board/src/modbus_slave_board.c
         - path: board/src/sig24131_board.c
+        - path: board/src/kv_store_board.c
       folders:
         - name: vendor_wk
           files:
@@ -244,6 +244,7 @@ targets:
         - .cmsis/include
         - ../library/device/sig24131/inc
         - ../library/interface/analog_input
+        - ../library/interface/kv_store
         - ../middleware/qp/qpc/include
         - board/inc
         - ../library/protocol/modbus_slave/inc

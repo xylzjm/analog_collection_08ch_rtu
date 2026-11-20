@@ -112,7 +112,7 @@ static void setup(uint8_t db_fail,
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_mem_reset(&kv);
+    kv_mem_ctor(&kv);
     kv.fail_init = db_fail;
 
     /* The observer must be up before any write can publish. */
@@ -131,8 +131,7 @@ static void setup(uint8_t db_fail,
                             tx_buffer, (uint16_t)sizeof(tx_buffer));
 
     modbus_ao_ctor(&ao,
-                   (unbound != 0U) ? NULL : kv_mem_ops(),
-                   (unbound != 0U) ? NULL : (void*)&kv,
+                   (unbound != 0U) ? NULL : &kv.base,
                    &slave_storage, &cfg);
 }
 

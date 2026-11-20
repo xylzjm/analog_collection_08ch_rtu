@@ -199,7 +199,7 @@ static void world_begin(uint8_t db_fail)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_mem_reset(&kv);
+    kv_mem_ctor(&kv);
     kv.fail_init = db_fail;
     modbus_port_fake_init(&port);
     published_count = 0U;
@@ -241,7 +241,7 @@ static void world_start(void)
                             rx_buffer, (uint16_t)sizeof(rx_buffer),
                             tx_buffer, (uint16_t)sizeof(tx_buffer));
 
-    modbus_ao_ctor(&ao, kv_mem_ops(), (void*)&kv, &slave, &cfg);
+    modbus_ao_ctor(&ao, &kv.base, &slave, &cfg);
 
     QActive_start(Q_ACTIVE_UPCAST(&ao), Q_PRIO(APP_PRIO_MODBUS, 0U),
                   ao_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);

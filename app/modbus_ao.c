@@ -96,7 +96,7 @@ static const uint16_t default_dev_addr = REG_MAP_DEFAULT_DEV_ADDR;
  * populated, so a SKU variant keeps the same KV layout. The last entry is
  * the device address.
  */
-static const modbus_kv_default_t defaults[] = {
+static const kv_store_default_t defaults[] = {
 #define X(pos) {"cfg/ch" #pos, &default_ch_cfg, sizeof(default_ch_cfg)},
     APP_BOARD_POSITIONS(X)
 #undef X
@@ -196,16 +196,17 @@ static bool load_cfg(modbus_ao_t* me, uint8_t ch)
 {
     const char* key = key_cfg(ch);
     ch_config_t cfg;
-    int len;
+    kv_store_status_t st;
+    size_t len;
 
-    len = me->store.ops->get(me->store.ctx, key, &cfg, sizeof(cfg));
-    if ( len < 0 ) {
+    st = kv_store_get(me->store.kv, key, &cfg, sizeof(cfg), &len);
+    if ( st != KV_STORE_OK ) {
         elog_warn("modbus_ao", "load missing: %s", key);
         return false;
     }
-    if ( len != (int)sizeof(cfg) ) {
-        elog_warn("modbus_ao", "load size: %s (%d != %u)", key, len,
-                  (unsigned)sizeof(cfg));
+    if ( len != sizeof(cfg) ) {
+        elog_warn("modbus_ao", "load size: %s (%u != %u)", key,
+                  (unsigned)len, (unsigned)sizeof(cfg));
         return false;
     }
     if ( !config_validate(&cfg) ) {
@@ -226,16 +227,17 @@ static bool load_cfg(modbus_ao_t* me, uint8_t ch)
 static bool load_addr(modbus_ao_t* me, uint16_t* addr)
 {
     const char* key = key_addr();
-    int len;
+    kv_store_status_t st;
+    size_t len;
 
-    len = me->store.ops->get(me->store.ctx, key, addr, sizeof(*addr));
-    if ( len < 0 ) {
+    st = kv_store_get(me->store.kv, key, addr, sizeof(*addr), &len);
+    if ( st != KV_STORE_OK ) {
         elog_warn("modbus_ao", "load missing: %s", key);
         return false;
     }
-    if ( len != (int)sizeof(*addr) ) {
-        elog_warn("modbus_ao", "load size: %s (%d != %u)", key, len,
-                  (unsigned)sizeof(*addr));
+    if ( len != sizeof(*addr) ) {
+        elog_warn("modbus_ao", "load size: %s (%u != %u)", key,
+                  (unsigned)len, (unsigned)sizeof(*addr));
         return false;
     }
     if ( !addr_valid(*addr) ) {
@@ -288,8 +290,9 @@ static commit_status_t save_cfg(modbus_ao_t* me,
 {
     const char* key;
     ch_config_t verify;
-    int st;
-    int len;
+    kv_store_status_t st;
+    kv_store_status_t rd;
+    size_t len;
 
     if ( (ch >= CH_CONFIG_CHANNEL_COUNT) || (me->store.db_ok == 0U) ) {
         return COMMIT_ERR;
@@ -302,21 +305,27 @@ static commit_status_t save_cfg(modbus_ao_t* me,
         return COMMIT_NO_CHANGE;
     }
 
-    st = me->store.ops->set(me->store.ctx, key, cfg, sizeof(*cfg));
+    st = kv_store_set(me->store.kv, key, cfg, sizeof(*cfg));
 
     /* The reply follows the stored content, not the library return code. */
-    len = me->store.ops->get(me->store.ctx, key, &verify, sizeof(verify));
-    if ( (len != (int)sizeof(verify))
-         || (memcmp(&verify, cfg, sizeof(verify)) != 0) ) {
+    rd = kv_store_get(me->store.kv, key, &verify, sizeof(verify), &len);
+    if ( rd != KV_STORE_OK ) {
         elog_error("modbus_ao", "commit failed: %s (kv %d, read back %d)",
-                   key, st, len);
+                   key, (int)st, (int)rd);
+        (void)st;
+        return COMMIT_ERR;
+    }
+    if ( (len != sizeof(verify))
+         || (memcmp(&verify, cfg, sizeof(verify)) != 0) ) {
+        elog_error("modbus_ao", "commit failed: %s (kv %d, read back %u)",
+                   key, (int)st, (unsigned)len);
         (void)st;
         return COMMIT_ERR;
     }
 
     me->config.cfg[ch]    = *cfg;
     me->config.cfg_ok[ch] = 1U;
-    elog_info("modbus_ao", "commit ok: %s (kv %d)", key, st);
+    elog_info("modbus_ao", "commit ok: %s (kv %d)", key, (int)st);
     (void)st;
     return COMMIT_OK;
 }
@@ -326,8 +335,9 @@ static commit_status_t save_addr(modbus_ao_t* me, uint16_t addr)
 {
     const char* key;
     uint16_t verify;
-    int st;
-    int len;
+    kv_store_status_t st;
+    kv_store_status_t rd;
+    size_t len;
 
     if ( (me->store.db_ok == 0U) || !addr_valid(addr) ) {
         return COMMIT_ERR;
@@ -339,12 +349,18 @@ static commit_status_t save_addr(modbus_ao_t* me, uint16_t addr)
         return COMMIT_NO_CHANGE;
     }
 
-    st = me->store.ops->set(me->store.ctx, key, &addr, sizeof(addr));
+    st = kv_store_set(me->store.kv, key, &addr, sizeof(addr));
 
-    len = me->store.ops->get(me->store.ctx, key, &verify, sizeof(verify));
-    if ( (len != (int)sizeof(verify)) || (verify != addr) ) {
+    rd = kv_store_get(me->store.kv, key, &verify, sizeof(verify), &len);
+    if ( rd != KV_STORE_OK ) {
         elog_error("modbus_ao", "commit failed: %s (kv %d, read back %d)",
-                   key, st, len);
+                   key, (int)st, (int)rd);
+        (void)st;
+        return COMMIT_ERR;
+    }
+    if ( (len != sizeof(verify)) || (verify != addr) ) {
+        elog_error("modbus_ao", "commit failed: %s (kv %d, read back %u)",
+                   key, (int)st, (unsigned)len);
         (void)st;
         return COMMIT_ERR;
     }
@@ -352,7 +368,7 @@ static commit_status_t save_addr(modbus_ao_t* me, uint16_t addr)
     me->config.addr    = addr;
     me->config.addr_ok = 1U;
     elog_info("modbus_ao", "commit ok: %s -> %u (kv %d)",
-              key, (unsigned)addr, st);
+              key, (unsigned)addr, (int)st);
     (void)st;
     return COMMIT_OK;
 }
@@ -609,8 +625,7 @@ static const modbus_slave_identity_t identity = {
 };
 
 void modbus_ao_ctor(modbus_ao_t* me,
-                    const modbus_kv_ops_t* kv,
-                    void* store_ctx,
+                    kv_store_t* kv,
                     modbus_slave_t* slave,
                     const modbus_slave_config_t* slave_cfg)
 {
@@ -625,8 +640,7 @@ void modbus_ao_ctor(modbus_ao_t* me,
     QActive_ctor(&me->super, Q_STATE_CAST(&modbus_ao_initial));
 
     me->slave               = slave;
-    me->store.ops           = kv;
-    me->store.ctx           = store_ctx;
+    me->store.kv            = kv;
     me->store.db_ok         = 0U;
     me->store.commit_failed = 0U;
     me->config.addr         = REG_MAP_DEFAULT_DEV_ADDR;
@@ -647,15 +661,13 @@ void modbus_ao_ctor(modbus_ao_t* me,
     }
 
     /* The store opens here; loading runs in the initial transition. */
-    if ( kv != NULL ) {
-        if ( kv->init(store_ctx, defaults, sizeof(defaults) / sizeof(defaults[0]))
-             == 0 ) {
-            me->store.db_ok = 1U;
-        } else {
-            elog_error("modbus_ao", "kv store init failed");
-        }
-    } else {
+    if ( kv == NULL ) {
         elog_error("modbus_ao", "kv store not bound");
+    } else if ( kv_store_init(kv, defaults, sizeof(defaults) / sizeof(defaults[0]))
+                != KV_STORE_OK ) {
+        elog_error("modbus_ao", "kv store init failed");
+    } else {
+        me->store.db_ok = 1U;
     }
 
     /* This module owns the callbacks and identity half of the config; the

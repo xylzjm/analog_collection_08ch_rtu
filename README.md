@@ -14,9 +14,9 @@ board/vendor_wk/        WorkBench 生成的外设初始化代码
 tests/                  宿主测试装置（run_host_tests.ps1 统一纳管）
 ```
 
-- `app/`：组合根 `main.c`（含事件池容量）、日志初始化、共享词汇头 `app.h`（通道模型、信号、事件载荷）与应用对象：一个活动对象一对 `*_ao.h/.c` 文件（`channel_ao`、`cold_junction_ao`、`modbus_ao`），纯寄存器映射 `reg_map.h/.c`，FlashDB 存储适配 `kv_flashdb.c`。
+- `app/`：组合根 `main.c`（含事件池容量）、日志初始化、共享词汇头 `app.h`（通道模型、信号、事件载荷）与应用对象：一个活动对象一对 `*_ao.h/.c` 文件（`channel_ao`、`cold_junction_ao`、`modbus_ao`），纯寄存器映射 `reg_map.h/.c`。
 - `tests/`：7 个宿主测试可执行（`test_reg_map`、`test_modbus_data`、`test_channel_ao`、`test_cold_junction_ao`、`test_modbus_ao`、`test_boot`、`test_analog_input_convert`）与设备假件（`tests/stubs/`）。测试链接真实 QP/C 源码（经 `tests/stubs/qp_port.h` 宿主端口，共享固件 `qp_config.h`），用事件注入与 tick 注入驱动真实 dispatch；假件只存在于设备边缘（analog_input 六槽 ops、tmp75 传输、Modbus 线路/定时器）与存储接缝（`kv_mem`）。`tests/run_host_tests.ps1` 编译并运行全部仓库内宿主测试。
-- `board/`：时钟、外设、SysTick/NVIC、板级设备对象；不初始化日志、不拥有 FlashDB。
+- `board/`：时钟、外设、SysTick/NVIC、板级设备对象与 FlashDB 存储适配 `kv_store_board.c`；不初始化日志、不在 `board_init()` 内打开 FlashDB。
 - `board/ports/`：SEGGER RTT、EasyLogger、FlashDB/FAL、QP 的移植代码。
 - `board/vendor_wk/`：WorkBench 生成代码，保留其原始注释。
 
@@ -41,7 +41,7 @@ board_init();   /* 时钟、外设、板级设备；末尾等 TMP75 首次转换
 
 日志必须先于 `board_init()` 初始化，`board_init()` 内的 `elog_error()` 诊断信息才可见。
 
-参数存储初始化不属于 board 层。存储经 `modbus_kv_ops_t` 接缝注入 `modbus_ao_ctor()`：目标实现 `app/kv_flashdb.c` 拥有 `fdb_kvdb`，构造期内 `kv->init()` 执行 `fal_init()` / `fdb_kvdb_init()`（`QF_run()` 之前）；宿主测试绑定 `tests/stubs/kv_mem.c` 的内存实现。日志必须在 `fdb_kvdb_init()` 之前启动。
+参数存储的初始化不在 `board_init()` 内。存储经 `kv_store_t` 句柄注入 `modbus_ao_ctor()`：目标实现 `board/src/kv_store_board.c` 拥有 `fdb_kvdb`，构造期内 `kv_store_init()` 执行 `fal_init()` / `fdb_kvdb_init()`（`QF_run()` 之前）；宿主测试绑定 `library/interface/kv_store/test/kv_mem.c` 的内存实现。日志必须在 `fdb_kvdb_init()` 之前启动。
 
 ## 日志链路
 

@@ -147,7 +147,7 @@ static void boot_scenario(uint8_t fail_ch)
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
-    kv_mem_reset(&kv);
+    kv_mem_ctor(&kv);
     if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
         /* Preload a wrong-length body: the real loader must reject it. */
         uint8_t bad[4] = {0};
@@ -165,7 +165,7 @@ static void boot_scenario(uint8_t fail_ch)
     modbus_port_fake_config(&port, &cfg,
                             rx_buffer, (uint16_t)sizeof(rx_buffer),
                             tx_buffer, (uint16_t)sizeof(tx_buffer));
-    modbus_ao_ctor(&modbus, kv_mem_ops(), (void*)&kv, &slave, &cfg);
+    modbus_ao_ctor(&modbus, &kv.base, &slave, &cfg);
 
     /* Channels first: every AO subscribes inside its initial transition. */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {

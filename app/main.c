@@ -9,7 +9,7 @@
 #include "app.h"
 #include "channel_ao.h"
 #include "cold_junction_ao.h"
-#include "kv_flashdb.h"
+#include "kv_store_board.h"
 #include "modbus_ao.h"
 #include "modbus_slave_board.h"
 #include "tmp75_board.h"
@@ -73,8 +73,10 @@ int main(void)
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
-    /* Storage and the platform half-config; the AO builds the slave core. */
-    modbus_ao_ctor(&modbus, kv_flashdb_ops(), (void*)0,
+    /* The store handle and the platform half-config; the AO builds the
+     * slave core and opens the database in its constructor. */
+    kv_store_board_ctor();
+    modbus_ao_ctor(&modbus, kv_store_board_get(),
                    modbus_slave_board_get(), modbus_slave_board_config());
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {

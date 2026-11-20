@@ -39,7 +39,9 @@ $inc = @(
     '-I../library/interface/analog_input',
     '-I../library/protocol/modbus_slave/inc',
     '-I../library/device/tmp75/inc',
-    '-I../library/device/sig24131/inc'
+    '-I../library/device/sig24131/inc',
+    '-I../library/interface/kv_store',
+    '-I../library/interface/kv_store/test'
 )
 
 $qpSources = @(
@@ -75,7 +77,7 @@ $tests = @(
         Sources = @('tests/test_modbus_data.c',
                     'app/modbus_ao.c',
                     'app/reg_map.c',
-                    'tests/stubs/kv_mem.c',
+                    '../library/interface/kv_store/test/kv_mem.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
@@ -102,7 +104,7 @@ $tests = @(
         Sources = @('tests/test_modbus_ao.c',
                     'app/modbus_ao.c',
                     'app/reg_map.c',
-                    'tests/stubs/kv_mem.c',
+                    '../library/interface/kv_store/test/kv_mem.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
@@ -118,7 +120,7 @@ $tests = @(
                     'tests/stubs/analog_input_fake.c',
                     'tests/stubs/modbus_port_fake.c',
                     'tests/stubs/tmp75_port_fake.c',
-                    'tests/stubs/kv_mem.c',
+                    '../library/interface/kv_store/test/kv_mem.c',
                     'tests/stubs/host_support.c') + $qpSources + $modbusSources
         Extra = @()
         Runs = @('1', '2')
