@@ -103,8 +103,8 @@ static const kv_store_default_t defaults[] = {
     {"dev/addr", &default_dev_addr, sizeof(default_dev_addr)},
 };
 
-/* Compile-time guard: BOARD_POSITION_COUNT positions plus the dev/addr row. */
-Q_ASSERT_STATIC((sizeof(defaults) / sizeof(defaults[0])) == (BOARD_POSITION_COUNT + 1U));
+/* Compile-time guard: the schema must match BOARD_KV_DEFAULTS_MAX exactly. */
+Q_ASSERT_STATIC((sizeof(defaults) / sizeof(defaults[0])) == BOARD_KV_DEFAULTS_MAX);
 
 /** @brief KV key of one channel configuration row. */
 static const char* key_cfg(uint8_t ch)

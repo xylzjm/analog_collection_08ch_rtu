@@ -27,7 +27,7 @@ Q_DEFINE_THIS_MODULE("kv_store_board")
 static struct fdb_kvdb kvdb;
 
 /** @brief Default nodes handed to fdb_kvdb_init(). */
-static struct fdb_default_kv_node default_nodes[BOARD_POSITION_COUNT + 1U];
+static struct fdb_default_kv_node default_nodes[BOARD_KV_DEFAULTS_MAX];
 
 /** @brief Default table wrapper handed to fdb_kvdb_init(). */
 static struct fdb_default_kv default_kv;
@@ -45,7 +45,9 @@ static kv_store_status_t flashdb_init(kv_store_t* self,
 
     if ( count > (sizeof(default_nodes) / sizeof(default_nodes[0])) ) {
         elog_error("kv_store_board", "too many defaults (%u)", (unsigned)count);
-        return KV_STORE_ERR_IO;
+        /* Oversized table: composition defect, not an IO failure. */
+        Q_ASSERT(0);
+        return KV_STORE_ERR_ARG;
     }
 
     for ( i = 0U; i < count; ++i ) {

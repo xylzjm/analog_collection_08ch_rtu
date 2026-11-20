@@ -31,6 +31,16 @@
 #define BOARD_POSITION_COUNT (0U BOARD_POSITIONS(BOARD_POSITION_ONE))
 
 /**
+ * @brief Upper bound of default KV rows the board store adapter converts at
+ *        init: one row per board position plus the device keys (dev/addr
+ *        today).
+ *
+ * The KV schema in modbus_ao.c must match this exactly (asserted there).
+ * The "+ 1" lives here and nowhere else.
+ */
+#define BOARD_KV_DEFAULTS_MAX (BOARD_POSITION_COUNT + 1U)
+
+/**
  * @brief Populated channel positions (1..BOARD_POSITION_COUNT).
  *
  * The SKU knob is the preprocessor define SIG24131_BOARD_COUNT=N; without
