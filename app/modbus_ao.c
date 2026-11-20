@@ -665,6 +665,7 @@ void modbus_ao_ctor(modbus_ao_t* me,
 
     if ( slave != NULL ) {
         modbus_slave_config_t config = *slave_cfg;
+        modbus_slave_port_event_t ev;
 
         /* This module owns the callbacks and identity half of the config. */
         config.callbacks = me->cb;
@@ -675,12 +676,12 @@ void modbus_ao_ctor(modbus_ao_t* me,
         }
         me->slave = slave;
 
-        /* ISR events become AO events; the core is still stopped here. */
-        me->ev.ctx               = me;
-        me->ev.on_frame_received = on_frame;
-        me->ev.on_frame_sent     = on_sent;
-        me->ev.on_tx_timeout     = on_timeout;
-        (void)modbus_slave_set_event_port(me->slave, &me->ev);
+        /* The core copies this port; it is still stopped here. */
+        ev.ctx               = me;
+        ev.on_frame_received = on_frame;
+        ev.on_frame_sent     = on_sent;
+        ev.on_tx_timeout     = on_timeout;
+        (void)modbus_slave_set_event_port(me->slave, &ev);
     }
 }
 

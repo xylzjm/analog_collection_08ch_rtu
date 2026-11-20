@@ -237,14 +237,9 @@ static void world_start(void)
 {
     modbus_slave_config_t cfg = {0};
 
-    cfg.baudrate    = 9600U;
-    cfg.rx_buffer   = rx_buffer;
-    cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
-    cfg.tx_buffer   = tx_buffer;
-    cfg.tx_capacity = (uint16_t)sizeof(tx_buffer);
-    modbus_port_fake_line(&port, &cfg.line);
-    modbus_port_fake_timer(&port, &cfg.timer);
-    modbus_port_fake_critical(&port, &cfg.critical);
+    modbus_port_fake_config(&port, &cfg,
+                            rx_buffer, (uint16_t)sizeof(rx_buffer),
+                            tx_buffer, (uint16_t)sizeof(tx_buffer));
 
     modbus_ao_ctor(&ao, kv_mem_ops(), (void*)&kv, &slave, &cfg);
 

@@ -161,15 +161,10 @@ static void boot_scenario(uint8_t fail_ch)
     tmp75_port_fake_port(&cjc_port, &cjc_port_if);
     CHECK(tmp75_ctor(&cjc_dev, &cjc_port_if, TMP75_ADDRESS_0) == TMP75_OK);
 
-    /* AoModbus owns its storage and builds its slave core in one step. */
-    cfg.baudrate    = 9600U;
-    cfg.rx_buffer   = rx_buffer;
-    cfg.rx_capacity = (uint16_t)sizeof(rx_buffer);
-    cfg.tx_buffer   = tx_buffer;
-    cfg.tx_capacity = (uint16_t)sizeof(tx_buffer);
-    modbus_port_fake_line(&port, &cfg.line);
-    modbus_port_fake_timer(&port, &cfg.timer);
-    modbus_port_fake_critical(&port, &cfg.critical);
+    /* Platform half for the fake ports; the AO fills callbacks/identity and builds the core. */
+    modbus_port_fake_config(&port, &cfg,
+                            rx_buffer, (uint16_t)sizeof(rx_buffer),
+                            tx_buffer, (uint16_t)sizeof(tx_buffer));
     modbus_ao_ctor(&modbus, kv_mem_ops(), (void*)&kv, &slave, &cfg);
 
     /* Channels first: every AO subscribes inside its initial transition. */

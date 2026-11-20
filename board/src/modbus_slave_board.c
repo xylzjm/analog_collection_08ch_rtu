@@ -155,20 +155,36 @@ static void critical_exit(void* ctx)
     board_critical_exit();
 }
 
+/** @brief Platform half of the construction config handed to the AO: line,
+ *  timer and critical ports, the rx/tx buffers and the baudrate. Callbacks
+ *  and identity stay zeroed; the AO overwrites them before modbus_slave_ctor().
+ */
 /*
- * The platform half of the construction config: line/timer/critical ports,
- * the rx/tx buffers and the baudrate. Callbacks and identity stay zeroed;
- * the Modbus AO overwrites them before modbus_slave_ctor().
+ * Designated initializers: a field reorder in the library's
+ * modbus_slave_config_t must not silently re-bind this table.
  */
 static const modbus_slave_config_t slave_config = {
-    BOARD_MODBUS_BAUDRATE,
-    rx_buffer,
-    (uint16_t)MB_BUFFER_SIZE,
-    tx_buffer,
-    (uint16_t)MB_BUFFER_SIZE,
-    {(void*)&line_ctx, line_direction, line_put_byte, line_tx_done},
-    {(void*)&timer_ctx, timer_arm, timer_cancel},
-    {NULL, critical_enter, critical_exit},
+    .baudrate    = BOARD_MODBUS_BAUDRATE,
+    .rx_buffer   = rx_buffer,
+    .rx_capacity = (uint16_t)MB_BUFFER_SIZE,
+    .tx_buffer   = tx_buffer,
+    .tx_capacity = (uint16_t)MB_BUFFER_SIZE,
+    .line        = {
+        .ctx       = (void*)&line_ctx,
+        .direction = line_direction,
+        .put_byte  = line_put_byte,
+        .tx_done   = line_tx_done,
+    },
+    .timer = {
+        .ctx    = (void*)&timer_ctx,
+        .arm    = timer_arm,
+        .cancel = timer_cancel,
+    },
+    .critical = {
+        .ctx   = NULL,
+        .enter = critical_enter,
+        .exit  = critical_exit,
+    },
 };
 
 const modbus_slave_config_t* modbus_slave_board_config(void)

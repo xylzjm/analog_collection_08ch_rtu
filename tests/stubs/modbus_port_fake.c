@@ -11,6 +11,8 @@
 
 #include <stddef.h>
 
+#include "board_config.h"
+
 #include "modbus_port_fake.h"
 
 static modbus_slave_status_t line_direction(void* ctx,
@@ -110,4 +112,19 @@ void modbus_port_fake_critical(modbus_port_fake_t* f,
     out->ctx  = f;
     out->enter = &critical_enter;
     out->exit  = &critical_exit;
+}
+
+void modbus_port_fake_config(modbus_port_fake_t* f,
+                             modbus_slave_config_t* cfg,
+                             uint8_t* rx, uint16_t rx_cap,
+                             uint8_t* tx, uint16_t tx_cap)
+{
+    cfg->baudrate    = BOARD_MODBUS_BAUDRATE;
+    cfg->rx_buffer   = rx;
+    cfg->rx_capacity = rx_cap;
+    cfg->tx_buffer   = tx;
+    cfg->tx_capacity = tx_cap;
+    modbus_port_fake_line(f, &cfg->line);
+    modbus_port_fake_timer(f, &cfg->timer);
+    modbus_port_fake_critical(f, &cfg->critical);
 }

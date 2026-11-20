@@ -73,7 +73,7 @@ int main(void)
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
-    /* full mode: one line, protocol invisible */
+    /* Storage and the platform half-config; the AO builds the slave core. */
     modbus_ao_ctor(&modbus, kv_flashdb_ops(), (void*)0,
                    modbus_slave_board_get(), modbus_slave_board_config());
 

@@ -41,6 +41,13 @@ void modbus_port_fake_timer(modbus_port_fake_t* f,
 void modbus_port_fake_critical(modbus_port_fake_t* f,
                                modbus_slave_port_critical_t* out);
 
+/** @brief Fill the platform half of a slave config from this fake (baudrate
+ *  from BOARD_MODBUS_BAUDRATE, the given rx/tx buffers, the fake port trio). */
+void modbus_port_fake_config(modbus_port_fake_t* f,
+                             modbus_slave_config_t* cfg,
+                             uint8_t* rx, uint16_t rx_cap,
+                             uint8_t* tx, uint16_t tx_cap);
+
 #ifdef __cplusplus
 }
 #endif

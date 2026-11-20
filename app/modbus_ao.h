@@ -77,8 +77,7 @@ typedef struct {
 typedef struct {
     QActive super;                /**< Active object base. */
     modbus_slave_t* slave;        /**< Slave instance built by the ctor; NULL in data-only mode. */
-    modbus_slave_port_event_t ev; /**< ISR event port routed into this AO. */
-    modbus_slave_callbacks_t cb;  /**< Data-space callbacks bound to this instance. */
+    modbus_slave_callbacks_t cb;  /**< Data-space callbacks bound to this instance; the core holds its own copy after construction (editing this table does not affect the running core; tests read it for data-only driving). */
     ch_config_t cfg[CH_CONFIG_CHANNEL_COUNT];  /**< Committed configs; also the change-check base. */
     uint8_t  cfg_ok[CH_CONFIG_CHANNEL_COUNT];  /**< cfg[ch] committed & usable. */
     uint8_t  applied[CH_CONFIG_CHANNEL_COUNT]; /**< Channel accepted cfg[ch]. */

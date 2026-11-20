@@ -1,8 +1,6 @@
 #ifndef MODBUS_SLAVE_BOARD_H
 #define MODBUS_SLAVE_BOARD_H
 
-#include <stdint.h>
-
 #include "modbus_slave.h"
 
 #ifdef __cplusplus

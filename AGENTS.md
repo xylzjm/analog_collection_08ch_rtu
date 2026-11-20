@@ -31,7 +31,7 @@ workspace file adds both folders; without them nothing compiles.
 - Firmware builds only through EIDE: VS Code tasks `build`, `rebuild`, `clean`,
   `flash`, `build and flash`, or the EIDE MCP tools with project uid
   `2b2c107904df4cdb1e97e57d6947db29` (`rebuild` is the reliable full check).
-- A clean build is 66 C files + 1 assembly file, ROM about 51.9/60 KB (86.6 %),
+- A clean build is 66 C files + 1 assembly file, ROM about 52.0/60 KB (86.7 %),
   RAM 9.15/16 KB. `-O1` is deliberate: at `-O0` the full QP runtime plus FlashDB
   KV layer needs roughly 70 KB and does not fit. Treat ROM headroom as scarce.
 - Never chip-erase when flashing: the last 4 KB (`0x0800F000..0x0800FFFF`) holds
@@ -116,12 +116,13 @@ workspace file adds both folders; without them nothing compiles.
 - `log_init()` must run before `board_init()`, or that function's `elog_error()`
   diagnostics are lost. No logging from interrupt context:
   `elog_port_output_lock` is empty.
-- The KV store and the slave core are injected via the one-step
-  `modbus_ao_ctor()`: `main.c` passes `kv_flashdb_ops()` (whose `init` runs
-  in the ctor and opens the FlashDB database) together with the board's slave
-  storage and platform config, host tests pass `kv_mem`. An unbound store or
-  a failed init leaves `db_ok = 0` (fault word b3) and every later commit
-  fails safe with EX 04.
+- The KV store is injected through the one-step `modbus_ao_ctor()`, and
+  `main.c` also hands over the board's slave storage and platform half-config:
+  the AO assembles the full config and builds the slave core. `main.c` passes
+  `kv_flashdb_ops()` (whose `init` runs in the ctor and opens the FlashDB
+  database), host tests pass `kv_mem`. An unbound store or a failed init
+  leaves `db_ok = 0` (fault word b3) and every later commit fails safe with
+  EX 04.
 - Critical sections only through `board_critical_enter()` /
   `board_critical_exit()` (`board/inc/board.h`). The nest counter is shared with
   QP, which reaches it via the strong `QF_crit_entry_`/`QF_crit_exit_` overrides

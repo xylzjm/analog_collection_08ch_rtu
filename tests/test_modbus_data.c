@@ -127,7 +127,7 @@ static void setup_normal(void)
     setup(0U, 0U);
 }
 
-/** @brief The callback table of the constructed AO, as the core gets it. */
+/** @brief The callback table of the constructed AO, as the core would receive it. */
 static const modbus_slave_callbacks_t* wiring(void)
 {
     const modbus_slave_callbacks_t* cb = &ao.cb;
