@@ -160,8 +160,9 @@ workspace file adds both folders; without them nothing compiles.
      `tmp75_port_fake`), `test_boot` (startup
      integration; takes a scenario argument 1, 2 because the QP registry is not
      rebuilt twice inside one process) and `test_analog_input_convert` (the
-     pure board conversion module against hand-derived electrical anchors, no
-     QP linkage).
+     header-only conversion formulas in `board/inc/analog_input_convert.h`
+     against hand-derived electrical anchors, no QP linkage, no board
+     translation unit).
    - The AO tests link the real QP/C sources
      (`../middleware/qp/qpc/src/qf/*` + `qv.c`) against the host port
      `tests/stubs/qp_port.h`, which shares the firmware `qp_config.h`; the

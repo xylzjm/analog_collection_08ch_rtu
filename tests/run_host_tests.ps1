@@ -128,7 +128,6 @@ $tests = @(
     @{
         Name = 'test_analog_input_convert'
         Sources = @('tests/test_analog_input_convert.c',
-                    'board/src/analog_input_convert.c',
                     '../library/interface/analog_input/analog_input_math.c')
         Extra = @()
     }
