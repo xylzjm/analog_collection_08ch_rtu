@@ -1,12 +1,10 @@
 /**
  * @file modbus_port_fake.c
- * @brief Fake RS485 line, one-shot timer and nesting critical section.
+ * @brief 假 RS485 线路、单次定时器与可嵌套临界区。
  *
- * The slave core under test is the real modbus_slave library; only the
- * board is faked. The line capture collects the reply bytes the core
- * pushes out, the timer is functional only (T3.5 and the TX watchdog both
- * land here) and the critical section counts enter/exit pairs so balance
- * can be asserted after every scenario.
+ * 被测从站核心是真实的 modbus_slave 库；只有板级被伪造。线路捕获收集核心推
+ * 出的应答字节，定时器只做功能模拟（T3.5 和发送看门狗都落在这里），临界区统计
+ * 进入/退出配对，因此每个场景之后都能断言收支平衡。
  */
 
 #include <stddef.h>
@@ -21,7 +19,7 @@ static modbus_slave_status_t line_direction(void* ctx,
 {
     modbus_port_fake_t* f = (modbus_port_fake_t*)ctx;
 
-    /* The core must leave the direction it does not select switched off. */
+    /* 核心必须把它未选中的方向保持关闭。 */
     if ( (rx != 0U) && (tx != 0U) ) {
         return MODBUS_SLAVE_ERR_ARG;
     }
@@ -92,7 +90,7 @@ void modbus_port_fake_init(modbus_port_fake_t* f)
 void modbus_port_fake_line(modbus_port_fake_t* f,
                            modbus_slave_port_line_t* out)
 {
-    out->ctx      = f;
+    out->ctx       = f;
     out->direction = &line_direction;
     out->put_byte  = &line_put_byte;
     out->tx_done   = &line_tx_done;
@@ -109,7 +107,7 @@ void modbus_port_fake_timer(modbus_port_fake_t* f,
 void modbus_port_fake_critical(modbus_port_fake_t* f,
                                modbus_slave_port_critical_t* out)
 {
-    out->ctx  = f;
+    out->ctx   = f;
     out->enter = &critical_enter;
     out->exit  = &critical_exit;
 }

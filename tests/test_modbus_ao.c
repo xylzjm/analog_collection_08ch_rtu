@@ -1,14 +1,12 @@
 /**
  * @file test_modbus_ao.c
- * @brief Host tests for the AoModbus write pipeline and mirrors.
+ * @brief AoModbus 写流水线与镜像的宿主测试。
  *
- * The slave core is the real modbus_slave library driven over fake
- * line/timer/critical ports; the persistence code runs over the in-memory
- * FlashDB fake. Frames are fed byte by byte through modbus_slave_rx_byte(),
- * captured by modbus_slave_timer_expired() (which posts FRAME_SIG through
- * the event port) and concluded by the real AO dispatch of advance().
- * Expected replies are spelled out as literal bytes with an independent
- * bitwise CRC16, not produced by the code under test.
+ * 从站核心是真实的 modbus_slave 库，经由假线路/定时器/临界区端口驱动；持久化
+ * 代码运行在内存 FlashDB 假件之上。帧逐字节送入 modbus_slave_rx_byte()，由
+ * modbus_slave_timer_expired() 捕获（它通过事件端口投递 FRAME_SIG），最后由
+ * 真实 AO 对 advance() 的派发收尾。期望应答以字面字节配合独立的按位 CRC16
+ * 明确写出，而不是由被测代码生成。
  */
 
 #include <stddef.h>
@@ -37,7 +35,7 @@ static int failures;
         }                                                          \
     } while ( 0 )
 
-/** @brief Buffers the core requires; caller-owned, core-owned content. */
+/** @brief 核心所需的缓冲区；调用方拥有，内容归核心所有。 */
 static uint8_t rx_buffer[256];
 static uint8_t tx_buffer[256];
 
@@ -49,27 +47,27 @@ static QSubscrList subscr[MAX_SIG];
 static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
 static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
-/* Publish observer for CONFIG_SET_SIG. */
+/* CONFIG_SET_SIG 的发布观察者。 */
 static QActive recorder;
 static QEvtPtr rec_queue[32];
 static uint8_t ao_started;
 static uint8_t rec_started;
 
-/** @brief Configurations published by the last scenario, in order. */
+/** @brief 上一个场景按顺序发布的配置。 */
 static struct {
     uint8_t ch;
     ch_config_t cfg;
 } published[CH_CONFIG_CHANNEL_COUNT + 2U];
 static uint16_t published_count;
 
-/** @brief Configurations the scenario's own boot load published. */
+/** @brief 场景自身的启动加载所发布的配置。 */
 static uint16_t boot_publish_count;
 
 /*----------------------------------------------------------------------------*/
-/* Harness                                                                    */
+/* 测试夹具                                                                   */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Independent bitwise Modbus CRC16, low byte first on the wire. */
+/** @brief 独立的按位 Modbus CRC16，总线上低字节在前。 */
 static uint16_t crc16(const uint8_t* data,
                       uint16_t len)
 {
@@ -115,7 +113,7 @@ static void feed_frame(const uint8_t* frame,
     for ( i = 0U; i < len; ++i ) {
         (void)modbus_slave_rx_byte(&slave, frame[i]);
     }
-    /* T3.5 expiry: the frame is captured, on_frame_received posts FRAME_SIG. */
+    /* T3.5 到期：帧被捕获，on_frame_received 投递 FRAME_SIG。 */
     (void)modbus_slave_timer_expired(&slave);
 }
 
@@ -129,7 +127,7 @@ static void drain(void)
     }
 }
 
-/** @brief Pump the TXE stream to completion, then the TC interrupt. */
+/** @brief 把 TXE 数据流泵送完毕，然后触发 TC 中断。 */
 static void pump_tx(void)
 {
     uint16_t i;
@@ -138,10 +136,10 @@ static void pump_tx(void)
         (void)modbus_slave_tx_ready(&slave);
     }
     (void)modbus_slave_tx_complete(&slave);
-    drain(); /* TX_DONE_SIG lands in the queue */
+    drain(); /* TX_DONE_SIG 落入队列 */
 }
 
-/** @brief Capture the reply bytes and reset the line recorder. */
+/** @brief 取出应答字节并复位线路记录器。 */
 static uint16_t tx_take(uint8_t* out,
                         uint16_t max)
 {
@@ -155,7 +153,7 @@ static uint16_t tx_take(uint8_t* out,
     return n;
 }
 
-/** @brief Drain the recorder and collect CONFIG_SET payloads. */
+/** @brief 排空记录器并收集 CONFIG_SET 负载。 */
 static void rec_collect(void)
 {
     while ( !QEQueue_isEmpty(&recorder.eQueue) ) {
@@ -186,7 +184,7 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
     return Q_TRAN(&rec_state);
 }
 
-/** @brief Tear the world down and prepare a fresh fake medium and observer. */
+/** @brief 拆除世界，并准备全新的假介质和观察者。 */
 static void world_begin(uint8_t db_fail)
 {
     if ( ao_started != 0U ) {
@@ -203,7 +201,7 @@ static void world_begin(uint8_t db_fail)
     modbus_port_fake_init(&port);
     published_count = 0U;
 
-    /* The observer must be up before the boot load publishes. */
+    /* 观察者必须在启动加载发布之前就绪。 */
     QActive_ctor(&recorder, Q_STATE_CAST(&rec_handler));
     QActive_start(&recorder, Q_PRIO(30U, 0U),
                   rec_queue, 32U, (void*)0, 0U, (void*)0);
@@ -212,9 +210,9 @@ static void world_begin(uint8_t db_fail)
 }
 
 /**
- * @brief Script one boot load failure: a wrong-length configuration body.
+ * @brief 编排一次启动加载失败：长度错误的配置正文。
  *
- * @param ch Zero-based channel whose key carries the bad body.
+ * @param ch 键中带有错误正文的通道零基索引。
  */
 static void world_preload_cfg_bad(uint8_t ch)
 {
@@ -225,31 +223,31 @@ static void world_preload_cfg_bad(uint8_t ch)
     fdb_fake_put(key, bad, sizeof(bad));
 }
 
-/** @brief Script one boot load failure: a bad stored slave address. */
+/** @brief 编排一次启动加载失败：存储的从站地址非法。 */
 static void world_preload_addr(uint16_t addr)
 {
     fdb_fake_put("dev/addr", &addr, sizeof(addr));
 }
 
 /**
- * @brief Script a healthy store: every default row with its factory body.
+ * @brief 编排一份健康存储：每行默认记录都带出厂正文。
  *
- * A partial store is never backfilled, so a scenario that corrupts or
- * omits one key must preload the healthy rows it still expects to load.
+ * 部分存储绝不会被回填，因此破坏或省略某个键的场景必须预置它仍期望加载的
+ * 健康记录。
  *
- * @param skip_ch Zero-based channel whose key is left unplanted (255 for
- *        none): a hole is a miss, never a default.
+ * @param skip_ch 不预置其键的通道零基索引（255 表示没有）：空洞是缺失，
+ *        绝不是默认值。
  */
 static void world_preload_defaults(uint8_t skip_ch)
 {
     static const ch_config_t cfg = {
-        (uint8_t)CH_TYPE_TC,   /**< type */
-        (uint8_t)CH_TC_TYPE_K, /**< tc_type */
-        2U,                    /**< rate_code: 10 Hz */
-        0.0f,                  /**< linear_min */
-        0.0f,                  /**< linear_max */
-        0.0f,                  /**< offset */
-        1.0f,                  /**< gain */
+        (uint8_t)CH_TYPE_TC,   /**< 类型 */
+        (uint8_t)CH_TC_TYPE_K, /**< 热电偶类型 */
+        2U,                    /**< rate_code：10 Hz */
+        0.0f,                  /**< 线性下限 */
+        0.0f,                  /**< 线性上限 */
+        0.0f,                  /**< 偏移 */
+        1.0f,                  /**< 增益 */
     };
     uint16_t addr = REG_MAP_DEFAULT_DEV_ADDR;
     uint8_t ch;
@@ -266,7 +264,7 @@ static void world_preload_defaults(uint8_t skip_ch)
     fdb_fake_put("dev/addr", &addr, sizeof(addr));
 }
 
-/** @brief Construct the AO with its slave core and bring the AO up. */
+/** @brief 用从站核心构造 AO，并启动 AO。 */
 static void world_start(void)
 {
     modbus_slave_config_t cfg = {0};
@@ -281,13 +279,13 @@ static void world_start(void)
                   ao_queue, MODBUS_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
     ao_started = 1U;
 
-    /* Serving entry: start opens reception and arms T3.5. */
+    /* Serving 入口：start 打开接收并设置 T3.5。 */
     CHECK(port.rx_enabled != 0U);
     CHECK(port.tx_enabled == 0U);
 
     /*
-     * start() leaves the core discarding until the first T3.5 expiry; the
-     * real TMR14 delivers it. Without it, received bytes are dropped.
+     * start() 之后核心会一直丢弃数据，直到首次 T3.5 到期；真实的 TMR14 负责
+     * 送达它。没有它，接收到的字节都会被丢弃。
      */
     (void)modbus_slave_timer_expired(&slave);
     rec_collect();
@@ -295,9 +293,9 @@ static void world_start(void)
 }
 
 /**
- * @brief Build the slave and bring the AO up over a fresh store.
+ * @brief 构建从站，并在全新存储之上启动 AO。
  *
- * @param db_fail Non-zero scripts a KV init failure (b3 path).
+ * @param db_fail 非零表示编排一次 KV init 失败（b3 路径）。
  */
 static void scenario_begin_ex(uint8_t db_fail)
 {
@@ -310,7 +308,7 @@ static void scenario_begin(void)
     scenario_begin_ex(0U);
 }
 
-/** @brief Decode the body of the last fake-medium write as a configuration. */
+/** @brief 把假介质上一次写入的正文解码为一份配置。 */
 static ch_config_t last_cfg(void)
 {
     ch_config_t cfg;
@@ -322,7 +320,7 @@ static ch_config_t last_cfg(void)
     return cfg;
 }
 
-/** @brief End-of-scenario invariants: queues drained, criticals balanced. */
+/** @brief 场景结束不变量：队列已排空，临界区收支平衡。 */
 static void scenario_end(void)
 {
     drain();
@@ -334,10 +332,10 @@ static void scenario_end(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Scenarios                                                                  */
+/* 场景                                                                       */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Boot load publishes every usable channel configuration once. */
+/** @brief 启动加载把每份可用的通道配置各发布一次。 */
 static void test_boot_load_publishes(void)
 {
     uint8_t reply[64];
@@ -365,7 +363,7 @@ static void test_boot_load_publishes(void)
         }
     }
 
-    /* The mirror answers reads from the loaded configuration. */
+    /* 镜像用已加载的配置应答读取。 */
     build_frame(frame, &frame_len, 1U, pdu, 5U);
     feed_frame(frame, frame_len);
     drain();
@@ -383,7 +381,7 @@ static void test_boot_load_publishes(void)
     scenario_end();
 }
 
-/** @brief A full-block FC16 write commits, mirrors and republishes. */
+/** @brief 整块 FC16 写入会固化、更新镜像并重新发布。 */
 static void test_fc16_write_pipeline(void)
 {
     uint8_t reply[64];
@@ -408,10 +406,10 @@ static void test_fc16_write_pipeline(void)
 
     pdu[0] = 0x10U;
     pdu[1] = 0x00U;
-    pdu[2] = 0x00U; /* start 0 */
+    pdu[2] = 0x00U; /* 起始 0 */
     pdu[3] = 0x00U;
-    pdu[4] = 0x0AU; /* 10 registers */
-    pdu[5] = 20U;   /* byte count */
+    pdu[4] = 0x0AU; /* 10 个寄存器 */
+    pdu[5] = 20U;   /* 字节数 */
     for ( i = 0U; i < 20U; ++i ) {
         pdu[6U + i] = block[i];
     }
@@ -420,7 +418,7 @@ static void test_fc16_write_pipeline(void)
     drain();
     pump_tx();
 
-    /* EX 00 reply: addr, FC16, start, quantity. */
+    /* EX 00 应答：addr、FC16、起始、数量。 */
     {
         static const uint8_t head[] = {0x01U, 0x10U, 0x00U, 0x00U, 0x00U, 0x0AU};
         uint8_t full[8];
@@ -436,7 +434,7 @@ static void test_fc16_write_pipeline(void)
         CHECK(memcmp(reply, full, 8U) == 0);
     }
 
-    /* The commit happened once, the mirror and the publish agree with it. */
+    /* 固化发生了一次，镜像与发布与之相符。 */
     CHECK(fdb_fake.set_calls == 1U);
     CHECK(strcmp(fdb_fake.last_key, "cfg/ch0") == 0);
     {
@@ -449,14 +447,14 @@ static void test_fc16_write_pipeline(void)
     CHECK(ao.config.cfg[0].type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(ao.config.cfg[0].gain == 2.0f);
     CHECK(ao.config.cfg_ok[0] == 1U);
-    CHECK(ao.config.applied[0] == 0U); /* committed, not yet applied */
+    CHECK(ao.config.applied[0] == 0U); /* 已固化，尚未应用 */
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     CHECK(published[boot_publish_count].ch == 0U);
     CHECK(published[boot_publish_count].cfg.type == (uint8_t)CH_TYPE_4_20MA);
     CHECK(published[boot_publish_count].cfg.rate_code == 9U);
 
-    /* The channel acceptance event is the acceptance path (CFG_APPLIED_SIG). */
+    /* 通道接受事件就是接受路径（CFG_APPLIED_SIG）。 */
     {
         cfg_applied_evt_t* e = Q_NEW(cfg_applied_evt_t, CFG_APPLIED_SIG);
 
@@ -466,18 +464,18 @@ static void test_fc16_write_pipeline(void)
     }
     CHECK(ao.config.applied[0] == 1U);
 
-    /* Once applied, the same-value rewrite is a true no-op. */
+    /* 一旦应用，同值重写就是真正的空操作。 */
     feed_frame(frame, frame_len);
     drain();
     pump_tx();
-    (void)tx_take(reply, sizeof(reply)); /* EX 00 echo */
+    (void)tx_take(reply, sizeof(reply)); /* EX 00 回显 */
     CHECK(fdb_fake.set_calls == 1U);
     rec_collect();
     CHECK(published_count == (uint16_t)(boot_publish_count + 1U));
     scenario_end();
 }
 
-/** @brief A rejected write answers EX 03 and touches neither mirror nor flash. */
+/** @brief 被拒绝的写入应答 EX 03，且既不碰镜像也不碰 flash。 */
 static void test_invalid_write_rejected(void)
 {
     uint8_t reply[64];
@@ -491,7 +489,7 @@ static void test_invalid_write_rejected(void)
 
     scenario_begin();
 
-    bad.type       = 0x63U; /* no such input type */
+    bad.type       = 0x63U; /* 没有这种输入类型 */
     bad.tc_type    = CH_TC_TYPE_NONE;
     bad.rate_code  = 2U;
     bad.linear_min = 0.0f;
@@ -536,7 +534,7 @@ static void test_invalid_write_rejected(void)
     scenario_end();
 }
 
-/** @brief Address change: mirror moves, old address goes silent, new works. */
+/** @brief 地址变更：镜像跟随，旧地址静默，新地址可用。 */
 static void test_address_change(void)
 {
     uint8_t reply[64];
@@ -548,7 +546,7 @@ static void test_address_change(void)
 
     scenario_begin();
 
-    /* Change to 247: EX 00 echo, mirror and core agree afterwards. */
+    /* 改为 247：EX 00 回显，之后镜像与核心一致。 */
     build_frame(frame, &frame_len, 1U, pdu_set, 5U);
     feed_frame(frame, frame_len);
     drain();
@@ -560,27 +558,27 @@ static void test_address_change(void)
     CHECK(ao.config.addr == 247U);
     CHECK(modbus_slave_get_address(&slave) == 247U);
 
-    /* The old address no longer answers. */
+    /* 旧地址不再应答。 */
     build_frame(frame, &frame_len, 1U, pdu_read, 5U);
     feed_frame(frame, frame_len);
     drain();
     pump_tx();
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
 
-    /* The new address is served. */
+    /* 新地址得到服务。 */
     build_frame(frame, &frame_len, 247U, pdu_read, 5U);
     feed_frame(frame, frame_len);
     drain();
     pump_tx();
     reply_len = tx_take(reply, sizeof(reply));
-    CHECK(reply_len == 7U); /* addr, FC03, count, register, CRC */
+    CHECK(reply_len == 7U); /* addr、FC03、计数、寄存器、CRC */
     CHECK(reply[0] == 247U);
     CHECK(reply[3] == 0x00U);
     CHECK(reply[4] == 0xF7U);
     scenario_end();
 }
 
-/** @brief A failing commit answers EX 04 and latches b1 into the fault word. */
+/** @brief 固化失败应答 EX 04，并把 b1 锁存进故障字。 */
 static void test_commit_failure_latches(void)
 {
     uint8_t reply[64];
@@ -588,7 +586,7 @@ static void test_commit_failure_latches(void)
     uint8_t frame[8];
     uint16_t frame_len;
     uint8_t pdu_set[5]   = {0x06U, 0x00U, 0x80U, 0x00U, 0xC8U}; /* 200 */
-    uint8_t pdu_fault[5] = {0x04U, 0x00U, 0x44U, 0x00U, 0x01U}; /* reg 68 */
+    uint8_t pdu_fault[5] = {0x04U, 0x00U, 0x44U, 0x00U, 0x01U}; /* 寄存器 68 */
 
     scenario_begin();
     fdb_fake.corrupt_read = 1U;
@@ -613,11 +611,11 @@ static void test_commit_failure_latches(void)
         CHECK(reply_len == 5U);
         CHECK(memcmp(reply, full, 5U) == 0);
     }
-    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR); /* not adopted */
+    CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR); /* 未采纳 */
     CHECK(ao.store.commit_failed != 0U);
 
-    /* The fault word exposes the latch through the input area; b0 is also
-     * set because no CJC heartbeat has arrived yet in this scenario. */
+    /* 故障字通过输入区暴露该锁存；由于本场景中还没有 CJC 心跳到达，
+     * b0 也被置位。 */
     build_frame(frame, &frame_len, 1U, pdu_fault, 5U);
     feed_frame(frame, frame_len);
     drain();
@@ -632,7 +630,7 @@ static void test_commit_failure_latches(void)
     scenario_end();
 }
 
-/** @brief A broken frame is dropped by CRC, a broadcast write stays silent. */
+/** @brief 损坏的帧被 CRC 丢弃，广播写入保持静默。 */
 static void test_silence_paths(void)
 {
     uint8_t reply[64];
@@ -642,7 +640,7 @@ static void test_silence_paths(void)
 
     scenario_begin();
 
-    /* Corrupted CRC: no reply, reception reopens. */
+    /* CRC 损坏：无应答，接收重新打开。 */
     build_frame(frame, &frame_len, 1U, pdu, 5U);
     frame[frame_len - 1U] ^= 0x55U;
     feed_frame(frame, frame_len);
@@ -650,7 +648,7 @@ static void test_silence_paths(void)
     pump_tx();
     CHECK(tx_take(reply, sizeof(reply)) == 0U);
 
-    /* Broadcast: the write executes, the line stays silent. */
+    /* 广播：写入执行，线路保持静默。 */
     build_frame(frame, &frame_len, 0U, pdu, 5U);
     feed_frame(frame, frame_len);
     drain();
@@ -662,10 +660,10 @@ static void test_silence_paths(void)
     scenario_end();
 }
 
-/** @brief Boot failures surface as latched fault bits, not defaults. */
+/** @brief 启动失败以锁存的故障位显现，而不是默认值。 */
 static void test_boot_failures_latch(void)
 {
-    /* KV init fails: b3 is latched and no configuration is published. */
+    /* KV init 失败：b3 被锁存，且不发布任何配置。 */
     scenario_begin_ex(1U);
 
     CHECK(ao.store.db_ok == 0U);
@@ -691,17 +689,17 @@ static void test_boot_failures_latch(void)
     scenario_end();
 }
 
-/** @brief A wrong-length key fails only that channel (b2, not defaults). */
+/** @brief 长度错误的键只让该通道失败（b2，而不是默认值）。 */
 static void test_boot_load_failure(void)
 {
     uint8_t ch;
 
     world_begin(0U);
-    world_preload_defaults(255U); /* the store holds content: no backfill */
+    world_preload_defaults(255U); /* 存储已有内容：不回填 */
     world_preload_cfg_bad(2U);
     world_start();
 
-    /* Only the healthy channels are published and adopted. */
+    /* 只有健康的通道被发布和采纳。 */
     CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
     CHECK(ao.config.cfg_ok[2] == 0U);
     CHECK(ao.config.cfg_ok[0] == 1U);
@@ -712,7 +710,7 @@ static void test_boot_load_failure(void)
         }
     }
 
-    /* The fault word shows the load failure (b0: no heartbeat yet). */
+    /* 故障字显示加载失败（b0：尚无心跳）。 */
     {
         const modbus_slave_callbacks_t* cb = &slave.callbacks;
         uint8_t reply[2];
@@ -726,11 +724,11 @@ static void test_boot_load_failure(void)
     scenario_end();
 }
 
-/** @brief A bad stored address falls back to 1 and reports the failure. */
+/** @brief 存储地址非法时回退到 1，并报告该失败。 */
 static void test_bad_address(void)
 {
     world_begin(0U);
-    world_preload_defaults(255U); /* the store holds content: no backfill */
+    world_preload_defaults(255U); /* 存储已有内容：不回填 */
     world_preload_addr(0U);
     world_start();
 
@@ -749,23 +747,23 @@ static void test_bad_address(void)
     }
     scenario_end();
 
-    /* The next boot is healthy again. */
+    /* 下一次启动重新健康。 */
     scenario_begin();
     CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.config.addr_ok == 1U);
     scenario_end();
 }
 
-/** @brief A missing key in a populated store fails only its channel (b2). */
+/** @brief 有内容的存储中缺失某个键只让其通道失败（b2）。 */
 static void test_boot_missing_key(void)
 {
     uint8_t ch;
 
     world_begin(0U);
-    world_preload_defaults(5U); /* every row but cfg/ch5: a hole is a miss */
+    world_preload_defaults(5U); /* 除 cfg/ch5 外的每一行：空洞即缺失 */
     world_start();
 
-    /* b2 for ch5 only: nothing is backfilled into a populated store. */
+    /* 只有 ch5 的 b2：有内容的存储不会回填任何东西。 */
     CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
     CHECK(ao.config.cfg_ok[5] == 0U);
     for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
@@ -774,7 +772,7 @@ static void test_boot_missing_key(void)
         }
     }
 
-    /* The fault word shows the load failure (b0: no heartbeat yet). */
+    /* 故障字显示加载失败（b0：尚无心跳）。 */
     {
         const modbus_slave_callbacks_t* cb = &slave.callbacks;
         uint8_t reply[2];
@@ -789,10 +787,10 @@ static void test_boot_missing_key(void)
 }
 
 /**
- * @brief An oversize body fails as a load-size error, not an acceptance.
+ * @brief 超长正文以加载长度错误失败，而不是被接受。
  *
- * The loader must see the full stored length (24 != 20) even though its
- * copy was truncated to the 20-byte configuration.
+ * 即使复制的副本被截断到 20 字节的配置，加载器也必须看到完整的存储长度
+ *（24 != 20）。
  */
 static void test_boot_oversize_body(void)
 {
@@ -816,14 +814,14 @@ static void test_boot_oversize_body(void)
     scenario_end();
 }
 
-/** @brief MEASURE_SIG telemetry reaches the input register mirror. */
+/** @brief MEASURE_SIG 遥测到达输入寄存器镜像。 */
 static void test_measure_mirror(void)
 {
     uint8_t reply[64];
     uint16_t reply_len;
     uint8_t frame[8];
     uint16_t frame_len;
-    uint8_t pdu[5] = {0x04U, 0x00U, 0x08U, 0x00U, 0x03U}; /* ch2: value, status */
+    uint8_t pdu[5] = {0x04U, 0x00U, 0x08U, 0x00U, 0x03U}; /* ch2：值、状态 */
     measure_evt_t* e;
 
     scenario_begin();
@@ -843,7 +841,7 @@ static void test_measure_mirror(void)
     drain();
     pump_tx();
     reply_len = tx_take(reply, sizeof(reply));
-    CHECK(reply_len == 11U); /* addr, FC04, count=6, 3 registers, CRC */
+    CHECK(reply_len == 11U); /* addr、FC04、count=6、3 个寄存器、CRC */
 
     {
         uint32_t bits;

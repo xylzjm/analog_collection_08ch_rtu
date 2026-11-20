@@ -5,7 +5,7 @@
 
 static tmp75_t device;
 
-/* The driver asks for one frame; the bus offers the write and read-write shapes. */
+/* 驱动只请求一帧；总线提供写与写-读两种形态。 */
 static i2c_soft_status_t transfer_once(i2c_soft_t* bus,
                                        uint8_t address,
                                        const uint8_t* tx,
@@ -19,7 +19,7 @@ static i2c_soft_status_t transfer_once(i2c_soft_t* bus,
     return i2c_soft_write_read(bus, address, tx, tx_len, rx, rx_len);
 }
 
-/* A stuck SDA (slave reset mid-byte) is freed here and the frame retried once; NACK skips recovery because the device is simply absent. */
+/* 这里释放卡住的 SDA（从站在字节中途复位）并重试该帧一次；NACK 则跳过恢复，因为器件只是不存在。 */
 static tmp75_status_t transfer(void* ctx,
                                uint8_t address,
                                const uint8_t* tx,

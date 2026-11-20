@@ -1,19 +1,17 @@
 /**
  * @file analog_input_fake.c
- * @brief Fake analog input over the six-slot ops vtable.
+ * @brief 基于六槽 ops vtable 的模拟量输入假件。
  *
- * The call log is the trajectory evidence for the AO tests: entry and
- * exit of the detection and measurement modes are visible as
- * enable/check/disable records, each stamped with the virtual tick and
- * the effective sample rate, so deadline and stale-generation violations
- * can be asserted without any tracing facility.
+ * 调用日志是 AO 测试的轨迹证据：检测模式和测量模式的进入与退出以 enable/check/
+ * disable 记录的形式可见，每条记录都盖有虚拟节拍和生效采样率，因此截止时间与
+ * 过期代次的违规无需任何跟踪设施即可断言。
  */
 
 #include "analog_input_fake.h"
 
 #include "host_support.h"
 
-/** @brief Append one record; the log is sized per scenario, overflow is a bug. */
+/** @brief 追加一条记录；日志按场景确定大小，溢出即为缺陷。 */
 static void record(analog_input_fake_t* f,
                    uint8_t op)
 {
@@ -31,7 +29,7 @@ static analog_input_status_t fake_configure(analog_input_t* self,
 {
     analog_input_fake_t* f = (analog_input_fake_t*)self;
 
-    /* Implementations own the cached configuration. */
+    /* 实现方拥有缓存的配置。 */
     f->base.config = *config;
     record(f, (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE);
     *first_conversion_delay_ms = f->configure_delay_ms;
@@ -96,7 +94,7 @@ static analog_input_status_t fake_disable_break_detection(analog_input_t* self,
     return f->disable_status;
 }
 
-/** @brief The one operation table every fake instance installs. */
+/** @brief 每个假件实例都安装的那一张操作表。 */
 static const analog_input_ops_t ops = {
     &fake_configure,
     &fake_read_sample,

@@ -1,6 +1,6 @@
 /**
  * @file cold_junction_ao.c
- * @brief Cold junction temperature active object (TMP75, 1 Hz heartbeat).
+ * @brief 冷端温度活动对象（TMP75，1 Hz 心跳）。
  */
 
 #include "cold_junction_ao.h"
@@ -14,11 +14,10 @@ static QState cold_junction_ao_starting(cold_junction_ao_t* const me, QEvt const
 static QState cold_junction_ao_sampling(cold_junction_ao_t* const me, QEvt const* const e);
 
 /**
- * @brief Read the TMP75 once and publish the CJC_SIG heartbeat.
+ * @brief 读取一次 TMP75 并发布 CJC_SIG 心跳。
  *
- * Validity follows docs/ao/cold_junction_ao.md section 2: valid requires a
- * successful reading to exist and fewer than COLD_JUNCTION_AO_ERR_LIMIT
- * consecutive failures.
+ * 有效性遵循 docs/ao/cold_junction_ao.md 第 2 节：有效要求已存在成功读数
+ * 且连续失败次数少于 COLD_JUNCTION_AO_ERR_LIMIT。
  */
 static void sample(cold_junction_ao_t* me)
 {
@@ -31,9 +30,8 @@ static void sample(cold_junction_ao_t* me)
         me->err_cnt      = 0U;
         me->have_reading = 1U;
         me->temp_c       = temp;
-    }
-    else if ( me->err_cnt < 0xFFU ) {
-        /* Saturating counter: past the limit the value never matters. */
+    } else if ( me->err_cnt < 0xFFU ) {
+        /* 饱和计数：超过上限后具体数值不再有意义。 */
         ++me->err_cnt;
     }
 
@@ -54,7 +52,7 @@ void cold_junction_ao_ctor(cold_junction_ao_t* me,
 {
     QActive_ctor(&me->super, Q_STATE_CAST(&cold_junction_ao_initial));
     QTimeEvt_ctorX(&me->te_tick, Q_ACTIVE_UPCAST(me), TICK_SIG, 0U);
-    me->dev          = dev;
+    me->dev = dev;
     Q_ASSERT(me->dev != NULL);
     me->temp_c       = 0.0f;
     me->err_cnt      = 0U;
@@ -62,7 +60,7 @@ void cold_junction_ao_ctor(cold_junction_ao_t* me,
 }
 
 /**
- * @brief Top-most initial transition: boot into the Starting transient.
+ * @brief 顶层初始转换：启动进入 Starting 瞬态。
  */
 static QState cold_junction_ao_initial(cold_junction_ao_t* const me, void const* const par)
 {
@@ -71,10 +69,10 @@ static QState cold_junction_ao_initial(cold_junction_ao_t* const me, void const*
 }
 
 /**
- * @brief Starting: one first reading, then the steady state.
+ * @brief Starting：先做一次首读，然后进入稳态。
  *
- * The nested initial transition into Sampling runs as soon as the entry
- * action completes (QHsm nested initial transition).
+ * entry 动作一完成就执行进入 Sampling 的嵌套初始转换（QHsm 嵌套初始
+ * 转移）。
  */
 static QState cold_junction_ao_starting(cold_junction_ao_t* const me, QEvt const* const e)
 {
@@ -101,7 +99,7 @@ static QState cold_junction_ao_starting(cold_junction_ao_t* const me, QEvt const
 }
 
 /**
- * @brief Sampling: one reading per 1 Hz tick.
+ * @brief Sampling：每个 1 Hz 节拍读取一次。
  */
 static QState cold_junction_ao_sampling(cold_junction_ao_t* const me, QEvt const* const e)
 {
@@ -114,7 +112,7 @@ static QState cold_junction_ao_sampling(cold_junction_ao_t* const me, QEvt const
             break;
         }
         default: {
-            /* Starting is the superstate of Sampling (nested initial). */
+            /* Starting 是 Sampling 的超状态（嵌套初始）。 */
             status = Q_SUPER(&cold_junction_ao_starting);
             break;
         }

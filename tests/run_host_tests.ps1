@@ -1,13 +1,11 @@
-# Build and run the host tests with MinGW gcc.
+# 用 MinGW gcc 构建并运行宿主测试。
 #
-# The active object tests link the real QP/C framework sources (same files
-# as the firmware build) through the host port in tests/stubs/qp_port.h, so
-# queue, pool, publish and time-event semantics are the real ones. Fakes
-# exist only at the device edges (analog input ops, TMP75 transfer, Modbus
-# line/timer/critical) and at the FlashDB link boundary (fdb_fake, compiled
-# against the real vendor headers).
+# 活动对象测试通过 tests/stubs/qp_port.h 中的宿主移植层链接真实的 QP/C 框架源文件
+#（与固件构建相同的文件），因此队列、事件池、发布与时间事件语义都是真实语义。
+# 假件只存在于设备边界（模拟量输入 ops、TMP75 传输、Modbus 线路/定时器/临界区）
+# 以及 FlashDB 链接边界（fdb_fake，针对真实厂商头文件编译）。
 #
-# Usage: pwsh tests/run_host_tests.ps1 [-KeepExe]
+# 用法：pwsh tests/run_host_tests.ps1 [-KeepExe]
 
 param(
     [switch]$KeepExe
@@ -29,8 +27,8 @@ if ( -not (Test-Path $gcc) ) {
 
 $common = @('-std=c99', '-Wall', '-Wextra', '-Wno-unused-parameter')
 
-# Include order is load-bearing: tests/stubs must come first so the host
-# qp_port.h, elog.h and fdb_cfg.h shadows win over the firmware headers.
+# 包含顺序是有实际作用的：tests/stubs 必须排在首位，这样主机的 qp_port.h、
+# elog.h 和 fdb_cfg.h 影子才能优先于固件头文件。
 $inc = @(
     '-Itests/stubs',
     '-Iapp',
@@ -143,8 +141,8 @@ foreach ( $t in $tests ) {
         continue
     }
 
-    # A test without Runs executes once; test_boot takes a scenario number
-    # because the QP registry is not rebuilt twice inside one process.
+    # 没有 Runs 的测试只执行一次；test_boot 接受场景编号，
+    # 因为 QP 注册表不会在同一进程内重建两次。
     $runs = @()
     if ( $t.ContainsKey('Runs') ) {
         $runs = $t.Runs

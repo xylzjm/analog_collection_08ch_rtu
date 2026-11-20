@@ -31,7 +31,7 @@ ElogErrCode elog_port_init(void)
 {
     ElogErrCode result = ELOG_NO_ERR;
 
-    /* RTT is initialized by log_init() before elog_init(). */
+    /* RTT 已由 log_init() 在 elog_init() 之前初始化。 */
     return result;
 }
 
@@ -41,13 +41,13 @@ void elog_port_deinit(void)
 
 void elog_port_output(const char* log, size_t size)
 {
-    /* NO_BLOCK_SKIP drops the whole line when the up buffer has no room. */
+    /* NO_BLOCK_SKIP：上行缓冲区无空间时整行丢弃。 */
     (void)SEGGER_RTT_Write(0U, log, (unsigned)size);
 }
 
 void elog_port_output_lock(void)
 {
-    /* Empty by design: single-threaded use, no logging from interrupt context. */
+    /* 有意为空：单线程使用，中断上下文不输出日志。 */
 }
 
 void elog_port_output_unlock(void)
@@ -56,7 +56,7 @@ void elog_port_output_unlock(void)
 
 const char* elog_port_get_time(void)
 {
-    /* Time is not part of the enabled output format. */
+    /* 已启用的输出格式不包含时间。 */
     return "";
 }
 

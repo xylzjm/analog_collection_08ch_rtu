@@ -9,22 +9,22 @@
 
 #include "board_config.h"
 
-/** @brief On-chip flash device. */
+/** @brief 片上闪存设备。 */
 extern const struct fal_flash_dev at32f421_onchip_flash;
 
-/** @brief FAL flash device table. */
-#define FAL_FLASH_DEV_TABLE                                          \
-{                                                                    \
-    &at32f421_onchip_flash,                                          \
-}
+/** @brief FAL 闪存设备表。 */
+#define FAL_FLASH_DEV_TABLE     \
+    {                           \
+        &at32f421_onchip_flash, \
+    }
 
-/** @brief Keep the partition table and cache static; avoids malloc. */
+/** @brief 分区表与缓存保持静态分配；避免 malloc。 */
 #define FAL_PART_HAS_TABLE_CFG
 
-/** @brief Parameter partition at 0x0800F000, 4 KB. */
-#define FAL_PART_TABLE                                                               \
-{                                                                                    \
-    {FAL_PART_MAGIC_WORD, BOARD_PARAM_PARTITION, "at32f421_onchip", 60*1024, 4*1024, 0}, \
-}
+/** @brief 位于 0x0800F000 的参数分区，4 KB。 */
+#define FAL_PART_TABLE                                                                           \
+    {                                                                                            \
+        {FAL_PART_MAGIC_WORD, BOARD_PARAM_PARTITION, "at32f421_onchip", 60 * 1024, 4 * 1024, 0}, \
+    }
 
 #endif

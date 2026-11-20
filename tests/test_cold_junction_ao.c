@@ -1,16 +1,14 @@
 /**
  * @file test_cold_junction_ao.c
- * @brief Host event-injection tests for the cold junction AO.
+ * @brief 冷端 AO 的宿主事件注入测试。
  *
- * Drives the real QHsm dispatch loop (QActive_get_ -> QASM_DISPATCH ->
- * QF_gc, the same triple the QV kernel runs) with tick injection through
- * QTIMEEVT_TICK_X. The TMP75 below the AO is the real driver over the
- * scriptable tmp75_port_fake: success, failure and recovery are scripted
- * at the wire, and the recorder AO observes every CJC_SIG heartbeat.
+ * 驱动真实的 QHsm 派发循环（QActive_get_ -> QASM_DISPATCH -> QF_gc，与 QV 内核
+ * 执行的同一三元组），并通过 QTIMEEVT_TICK_X 注入节拍。AO 之下的 TMP75 是通过
+ * 可编排的 tmp75_port_fake 运行的真实驱动：成功、失败与恢复都在总线上编排，
+ * 记录器 AO 观察每一次 CJC_SIG 心跳。
  *
- * Coverage: the startup first reading, the 1 Hz heartbeat cadence, three
- * consecutive failures invalidating the heartbeat with the last valid
- * temperature frozen, and a recovery reading going valid again.
+ * 覆盖：启动首次读数、1 Hz 心跳节律、连续三次失败使心跳失效并冻结最后有效
+ * 温度，以及恢复读数重新变为有效。
  */
 
 #include <stdint.h>
@@ -38,7 +36,7 @@ static int failures;
     } while ( 0 )
 
 /*----------------------------------------------------------------------------*/
-/* Harness                                                                    */
+/* 测试夹具                                                                   */
 /*----------------------------------------------------------------------------*/
 
 static cold_junction_ao_t ao;
@@ -49,21 +47,21 @@ static QEvtPtr ao_queue[COLD_JUNCTION_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
 static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
 
-/* Publish observer: a plain QActive whose queue the test drains directly. */
+/* 发布观察者：一个普通 QActive，测试直接排空它的队列。 */
 static QActive recorder;
 static QEvtPtr rec_queue[32];
 static uint8_t ao_started;
 static uint8_t rec_started;
 
-/** @brief One observed CJC_SIG heartbeat. */
+/** @brief 一次观察到的 CJC_SIG 心跳。 */
 static struct {
-    float temp_c;  /**< Published temperature. */
-    uint8_t valid; /**< Published validity flag. */
-    uint32_t stamp; /**< g_test_tick when the heartbeat was dispatched. */
+    float temp_c;   /**< 发布的温度。 */
+    uint8_t valid;  /**< 发布的有效性标志。 */
+    uint32_t stamp; /**< 心跳被派发时的 g_test_tick。 */
 } beats[16];
 static uint8_t beat_count;
 
-/** @brief Drain the recorder and record every CJC_SIG heartbeat. */
+/** @brief 排空记录器并记录每一次 CJC_SIG 心跳。 */
 static void rec_drain(void)
 {
     while ( !QEQueue_isEmpty(&recorder.eQueue) ) {
@@ -98,7 +96,7 @@ static void dispatch_one(void)
     QF_gc(e);
 }
 
-/** @brief Drain the AO and recycle every observer event, pool-safe. */
+/** @brief 排空 AO 并回收每条观察者事件，事件池安全。 */
 static void drain_all(void)
 {
     while ( !QEQueue_isEmpty(&ao.super.eQueue) ) {
@@ -108,10 +106,9 @@ static void drain_all(void)
 }
 
 /**
- * @brief Advance virtual time with continuous draining, like the QV loop.
+ * @brief 像 QV 循环那样，在持续排空的同时推进虚拟时间。
  *
- * The heartbeat tick must interleave with draining or the published
- * events pile up in the recorder queue.
+ * 心跳节拍必须与排空交错，否则已发布的事件会在记录器队列中堆积。
  */
 static void run_ticks(uint32_t n)
 {
@@ -137,10 +134,10 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
 }
 
 /**
- * @brief Bring the AO up over a scripted TMP75 and subscribe the recorder.
+ * @brief 在编排好的 TMP75 之上启动 AO，并让记录器订阅。
  *
- * The observer must be subscribed before QActive_start: the first reading
- * publishes CJC_SIG from the Starting entry inside the start call.
+ * 观察者必须在 QActive_start 之前完成订阅：首次读数会在 start 调用内的
+ * Starting 入口发布 CJC_SIG。
  */
 static void scenario_begin(void)
 {
@@ -152,13 +149,13 @@ static void scenario_begin(void)
         QActive_unregister_(&recorder);
     }
     if ( (ao_started != 0U) || (rec_started != 0U) ) {
-        /* QP un-links disarmed time events lazily (inside QTimeEvt_tick_):
-         * one tick must run before the re-ctor and re-arm below, or the
-         * same te_tick object stays linked twice and the tick scan cycles. */
+        /* QP 延迟解除已废止时间事件的链接（在 QTimeEvt_tick_ 内部）：
+         * 下面的重新构造与重新安装之前必须运行一个节拍，否则同一个 te_tick
+         * 对象会保持两次链接，节拍扫描将陷入循环。 */
         tick(1U);
     }
 
-    /* Wipe every subscription so re-subscription cannot double-deliver. */
+    /* 清除所有订阅，使重复订阅不会造成重复投递。 */
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
@@ -181,16 +178,16 @@ static void scenario_begin(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Scenarios                                                                  */
+/* 场景                                                                       */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Startup publishes the first reading; the heartbeat runs at 1 Hz. */
+/** @brief 启动时发布首次读数；心跳以 1 Hz 运行。 */
 static void test_startup_and_heartbeat(void)
 {
     scenario_begin();
 
-    /* The first reading is published from the Starting entry (inside
-     * QActive_start): one heartbeat before any tick. */
+    /* 首次读数在 Starting 入口（QActive_start 内部）发布：任何节拍之前
+     * 就有一次心跳。 */
     drain_all();
     CHECK(beat_count == 1U);
     CHECK(beats[0].temp_c == 25.0f);
@@ -199,7 +196,7 @@ static void test_startup_and_heartbeat(void)
     CHECK(port.calls == 1U);
     CHECK(ao.te_tick.interval == COLD_JUNCTION_AO_TICK_MS);
 
-    /* One heartbeat per period, nothing in between. */
+    /* 每周期一次心跳，其间没有别的。 */
     run_ticks(COLD_JUNCTION_AO_TICK_MS - 1U);
     CHECK(beat_count == 1U);
     run_ticks(1U);
@@ -215,7 +212,7 @@ static void test_startup_and_heartbeat(void)
     CHECK(port.calls == 3U);
 }
 
-/** @brief Three consecutive failures invalidate and freeze the last value. */
+/** @brief 连续三次失败使最后的值失效并冻结。 */
 static void test_three_failures_freeze(void)
 {
     scenario_begin();
@@ -223,28 +220,28 @@ static void test_three_failures_freeze(void)
     CHECK(beat_count == 1U);
 
     tmp75_port_fake_fail(&port);
-    run_ticks(COLD_JUNCTION_AO_TICK_MS); /* failure 1: err_cnt 1 */
-    run_ticks(COLD_JUNCTION_AO_TICK_MS); /* failure 2: err_cnt 2 */
+    run_ticks(COLD_JUNCTION_AO_TICK_MS); /* 失败 1：err_cnt 1 */
+    run_ticks(COLD_JUNCTION_AO_TICK_MS); /* 失败 2：err_cnt 2 */
     CHECK(beat_count == 3U);
     CHECK(beats[1].valid != 0U);
     CHECK(beats[2].valid != 0U);
     CHECK(beats[1].temp_c == 25.0f);
     CHECK(beats[2].temp_c == 25.0f);
 
-    run_ticks(COLD_JUNCTION_AO_TICK_MS); /* failure 3: invalid */
+    run_ticks(COLD_JUNCTION_AO_TICK_MS); /* 失败 3：失效 */
     CHECK(beat_count == 4U);
     CHECK(beats[3].valid == 0U);
-    CHECK(beats[3].temp_c == 25.0f); /* frozen: last valid temperature */
+    CHECK(beats[3].temp_c == 25.0f); /* 冻结：最后有效温度 */
     CHECK(ao.err_cnt == COLD_JUNCTION_AO_ERR_LIMIT);
 
-    /* It stays invalid while the failures continue. */
+    /* 失败持续期间保持失效。 */
     run_ticks(COLD_JUNCTION_AO_TICK_MS);
     CHECK(beat_count == 5U);
     CHECK(beats[4].valid == 0U);
     CHECK(beats[4].temp_c == 25.0f);
 }
 
-/** @brief A recovery reading goes valid again and updates the temperature. */
+/** @brief 恢复读数重新变为有效并更新温度。 */
 static void test_recovery(void)
 {
     scenario_begin();

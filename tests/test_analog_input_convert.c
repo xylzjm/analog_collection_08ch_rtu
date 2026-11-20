@@ -1,12 +1,10 @@
 /**
  * @file test_analog_input_convert.c
- * @brief Host tests of the board's pure conversion compose path.
+ * @brief 板级纯转换合成路径的宿主测试。
  *
- * Every expectation is hand-derived from the electrical constants
- * (2.5 V reference, signed 24-bit codes, 5:1 attenuation, 200 ohm shunt,
- * 1.65 kohm ratiometric reference) and the published NIST values, so a
- * wiring mistake in the compose formulas - the class of defect that
- * looks like a calibration problem on target - fails here instead.
+ * 每个期望值都由电气常数（2.5 V 基准、有符号 24 位码、5:1 衰减、200 ohm 分流、
+ * 1.65 kohm 比例基准）和公布的 NIST 值手工推导而来，因此合成公式中的接线错误
+ * ——这类缺陷在目标板上看起来像校准问题——会在这里失败。
  */
 
 #include <math.h>
@@ -28,7 +26,7 @@ static int failures;
     } while ( 0 )
 
 /*----------------------------------------------------------------------------*/
-/* PT100 oracle: double-precision CVD inverse for temperatures above 0 C      */
+/* PT100 参考：0 C 以上温度的双精度 CVD 反解                                  */
 /*----------------------------------------------------------------------------*/
 
 static double cvd_temperature(double resistance_ohm)
@@ -42,12 +40,12 @@ static double cvd_temperature(double resistance_ohm)
 }
 
 /*----------------------------------------------------------------------------*/
-/* ADC volts                                                                  */
+/* ADC 电压                                                                   */
 /*----------------------------------------------------------------------------*/
 
 static void test_adc_volts(void)
 {
-    /* Full scale at unity gain is the 2.5 V internal reference. */
+    /* 单位增益下的满量程就是 2.5 V 内部基准。 */
     CHECK(fabsf(analog_input_convert_adc_volts(8388608, 1.0f) - 2.5f)
           <= 0.00001f);
     CHECK(fabsf(analog_input_convert_adc_volts(4194304, 2.0f) - 0.625f)
@@ -57,7 +55,7 @@ static void test_adc_volts(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Linear inputs: 4-20 mA and 0-10 V                                          */
+/* 线性输入：4-20 mA 与 0-10 V                                                */
 /*----------------------------------------------------------------------------*/
 
 static void test_current_input(void)
@@ -71,13 +69,13 @@ static void test_current_input(void)
     ctx.gain          = 1.0f;
     ctx.offset        = 0.0f;
 
-    /* 12 mA through the 200 ohm shunt: code = 12 / 62.5 * 2^24 / 2. */
+    /* 12 mA 流过 200 ohm 分流电阻：code = 12 / 62.5 * 2^24 / 2。 */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_4_20MA, 3221225,
                                       &ctx, &value)
           == ANALOG_INPUT_OK);
     CHECK(fabsf(value - 50.0f) <= 0.01f);
 
-    /* Below 4 mA extrapolates negative on purpose: over-range stays visible. */
+    /* 低于 4 mA 时有意向负方向外推：超量程保持可见。 */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_4_20MA, 0,
                                       &ctx, &value)
           == ANALOG_INPUT_OK);
@@ -99,7 +97,7 @@ static void test_voltage_input(void)
     ctx.gain          = 1.0f;
     ctx.offset        = 0.0f;
 
-    /* 5 V at the terminal: code = 5 / 12.5 * 2^24. */
+    /* 端子处 5 V：code = 5 / 12.5 * 2^24。 */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_0_10V, 3355443,
                                       &ctx, &value)
           == ANALOG_INPUT_OK);
@@ -107,7 +105,7 @@ static void test_voltage_input(void)
 
     ctx.linear_min = -100.0f;
     ctx.linear_max = 100.0f;
-    /* 8 V maps to the 80 percent point of the span. */
+    /* 8 V 映射到量程的 80 % 点。 */
     CHECK(analog_input_convert_linear(ANALOG_INPUT_TYPE_0_10V, 5368709,
                                       &ctx, &value)
           == ANALOG_INPUT_OK);
@@ -115,23 +113,23 @@ static void test_voltage_input(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* PT100: ratiometric resistance to Celsius                                   */
+/* PT100：比例电阻转摄氏度                                                    */
 /*----------------------------------------------------------------------------*/
 
 static void test_pt100_input(void)
 {
     float value;
 
-    /* Half scale: R = 0.5 * (2 * 1.65 kOhm / gain 8) = 206.25 ohm. */
+    /* 半量程：R = 0.5 * (2 * 1.65 kOhm / gain 8) = 206.25 ohm。 */
     CHECK(analog_input_convert_pt100(4194304, &value) == ANALOG_INPUT_OK);
     CHECK(fabsf(value - (float)cvd_temperature(206.25)) <= 0.05f);
 
-    /* Zero code: non-positive resistance is rejected, not extrapolated. */
+    /* 零码值：非正电阻被拒绝，而不是外推。 */
     CHECK(analog_input_convert_pt100(0, &value) == ANALOG_INPUT_ERR_CONVERSION);
     CHECK(analog_input_convert_pt100(-9000000, &value)
           == ANALOG_INPUT_ERR_CONVERSION);
 
-    /* Full scale reads 412.5 ohm (about 926 C), beyond the 600 C board ceiling. */
+    /* 满量程读到 412.5 ohm（约 926 C），超出 600 C 的板级上限。 */
     CHECK(analog_input_convert_pt100(8388608, &value)
           == ANALOG_INPUT_ERR_CONVERSION);
 
@@ -140,7 +138,7 @@ static void test_pt100_input(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Thermocouple: cold junction composition                                     */
+/* 热电偶：冷端合成                                                           */
 /*----------------------------------------------------------------------------*/
 
 static void test_thermocouple_input(void)
@@ -155,9 +153,9 @@ static void test_thermocouple_input(void)
     ctx.offset        = 0.0f;
 
     /*
-     * A type K junction at 200 C over a 25 C cold end measures
-     * E(200) - E(25) = 8.138 - 1.000 = 7.138 mV; the code follows from
-     * 2.5 V over gain 32 across the signed 24-bit scale.
+     * 200 C 的 K 型热电偶结点、25 C 冷端测得的电动势为
+     * E(200) - E(25) = 8.138 - 1.000 = 7.138 mV；码值由 2.5 V 经增益 32
+     * 映射到有符号 24 位量程得出。
      */
     CHECK(analog_input_convert_thermocouple(
               ANALOG_INPUT_THERMOCOUPLE_TYPE_K, 766324, &ctx, &value)
@@ -170,7 +168,7 @@ static void test_thermocouple_input(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Dispatch and calibration                                                   */
+/* 派发与校准                                                                 */
 /*----------------------------------------------------------------------------*/
 
 static void test_sample_dispatch(void)
@@ -184,7 +182,7 @@ static void test_sample_dispatch(void)
     ctx.gain          = 1.0f;
     ctx.offset        = 0.0f;
 
-    /* Each type reaches its formula through the one dispatch entry. */
+    /* 每种类型都经由唯一的派发入口到达自己的公式。 */
     CHECK(analog_input_convert_sample(
               ANALOG_INPUT_TYPE_4_20MA, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
               3221225, &ctx, &value)
@@ -208,7 +206,7 @@ static void test_sample_dispatch(void)
               4194304, &ctx, &value)
           == ANALOG_INPUT_OK);
 
-    /* Calibration is applied once, after the formula. */
+    /* 校准在公式之后只施加一次。 */
     ctx.gain   = 2.0f;
     ctx.offset = 0.5f;
     CHECK(analog_input_convert_sample(
@@ -217,7 +215,7 @@ static void test_sample_dispatch(void)
           == ANALOG_INPUT_OK);
     CHECK(fabsf(value - 100.5f) <= 0.02f);
 
-    /* Bad arguments are rejected at the same door. */
+    /* 非法参数在同一入口被拒绝。 */
     CHECK(analog_input_convert_sample(
               (analog_input_type_t)99, ANALOG_INPUT_THERMOCOUPLE_TYPE_NONE,
               0, &ctx, &value)
@@ -229,12 +227,12 @@ static void test_sample_dispatch(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Wire verdicts                                                              */
+/* 断线判定                                                                   */
 /*----------------------------------------------------------------------------*/
 
 static void test_wire_verdicts(void)
 {
-    /* Thermocouple: burnout current pushes the code beyond the threshold. */
+    /* 热电偶：断路电流把码值推过阈值。 */
     CHECK(analog_input_convert_thermocouple_wire(0x600001)
           == ANALOG_INPUT_WIRE_BROKEN);
     CHECK(analog_input_convert_thermocouple_wire(-0x600001)
@@ -243,10 +241,10 @@ static void test_wire_verdicts(void)
           == ANALOG_INPUT_WIRE_NORMAL);
 
     /*
-     * PT100 reference ratios at unity gain: return open below 0.25,
-     * lead open below 0.75 of the 1.65 V reference.
-     * 1,000,000 -> 0.298 V (return), 2,000,000 -> 0.596 V (lead),
-     * 4,200,000 -> 1.252 V (normal).
+     * 单位增益下的 PT100 基准比值：回线开路低于 1.65 V 基准的 0.25，
+     * 引线开路低于 0.75。
+     * 1,000,000 -> 0.298 V（回线），2,000,000 -> 0.596 V（引线），
+     * 4,200,000 -> 1.252 V（正常）。
      */
     CHECK(analog_input_convert_rtd_wire(1000000)
           == ANALOG_INPUT_WIRE_BROKEN_RETURN);
@@ -257,12 +255,12 @@ static void test_wire_verdicts(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Settle delay                                                               */
+/* 稳定延时                                                                   */
 /*----------------------------------------------------------------------------*/
 
 static void test_settle_delay(void)
 {
-    /* Two conversions, rounded up: 10 Hz -> 200 ms, 2.5 Hz -> 800 ms. */
+    /* 两次转换、向上取整：10 Hz -> 200 ms，2.5 Hz -> 800 ms。 */
     CHECK(analog_input_convert_settle_delay_ms(10000U) == 200U);
     CHECK(analog_input_convert_settle_delay_ms(2500U) == 800U);
     CHECK(analog_input_convert_settle_delay_ms(1U) == 2000000U);

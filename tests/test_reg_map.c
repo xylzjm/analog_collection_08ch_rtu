@@ -18,7 +18,7 @@ static int failures;
         }                                                          \
     } while ( 0 )
 
-/* Model verdicts of reg_map_check(), independent of the built-in table. */
+/* reg_map_check() 的模型判定，独立于内置表。 */
 #define MODEL_EX_NONE 0
 #define MODEL_EX_01   1
 #define MODEL_EX_02   2
@@ -60,13 +60,13 @@ static uint32_t float_to_bits(float value)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Round trip                                                                 */
+/* 往返                                                                       */
 /*----------------------------------------------------------------------------*/
 
 static void test_roundtrip(void)
 {
-    /* Already-normalized inputs: decode(encode(x)) must reproduce x byte
-     * for byte (semantic normalization runs in modbus_ao.c). */
+    /* 已归一化的输入：decode(encode(x)) 必须逐字节复现 x
+     *（语义归一化在 modbus_ao.c 中运行）。 */
     static const ch_config_t cases[] = {
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U, 0.0f, 0.0f, 0.0f, 1.0f},
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_B, 12U, 0.0f, 0.0f, 0.125f, 0.99f},
@@ -84,14 +84,14 @@ static void test_roundtrip(void)
         reg_map_ch_decode(buf, &decoded);
         CHECK(memcmp(&cases[i], &decoded, sizeof(decoded)) == 0);
 
-        /* A decoded configuration re-encodes to identical wire bytes. */
+        /* 解码后的配置重新编码得到完全相同的总线字节。 */
         reg_map_ch_encode(&decoded, again);
         CHECK(memcmp(buf, again, sizeof(buf)) == 0);
     }
 }
 
 /*----------------------------------------------------------------------------*/
-/* Codec word layout                                                          */
+/* 编解码字布局                                                               */
 /*----------------------------------------------------------------------------*/
 
 static void test_codec_words(void)
@@ -101,18 +101,18 @@ static void test_codec_words(void)
     uint8_t buf[REG_MAP_CH_CFG_LEN * 2U];
     uint16_t code;
 
-    /* Hand-split words: type code, rate code, then big-endian float pairs. */
+    /* 手工拆分的字：类型码、速率码，然后是大端浮点对。 */
     cfg = make_cfg((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U,
                    0.0f, 0.0f, 0.0f, 1.0f);
     reg_map_ch_encode(&cfg, buf);
-    CHECK(modbus_slave_get_u16(&buf[0]) == 3U); /* TC type K */
+    CHECK(modbus_slave_get_u16(&buf[0]) == 3U); /* TC 类型 K */
     CHECK(modbus_slave_get_u16(&buf[2]) == 2U);
     CHECK(modbus_slave_get_u16(&buf[4]) == (uint16_t)(float_to_bits(0.0f) >> 16));
     CHECK(modbus_slave_get_u16(&buf[6]) == (uint16_t)(float_to_bits(0.0f) & 0xFFFFU));
     CHECK(modbus_slave_get_u16(&buf[16]) == (uint16_t)(float_to_bits(1.0f) >> 16));
     CHECK(modbus_slave_get_u16(&buf[18]) == (uint16_t)(float_to_bits(1.0f) & 0xFFFFU));
 
-    /* Encode: the composite type code table of the register encoding. */
+    /* 编码：寄存器编码的复合类型码表。 */
     cfg = make_cfg((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 0U, 0.0f, 0.0f, 0.0f, 1.0f);
     reg_map_ch_encode(&cfg, buf);
     CHECK(modbus_slave_get_u16(&buf[0]) == 8U);
@@ -122,11 +122,11 @@ static void test_codec_words(void)
     cfg.type = (uint8_t)CH_TYPE_0_10V;
     reg_map_ch_encode(&cfg, buf);
     CHECK(modbus_slave_get_u16(&buf[0]) == 10U);
-    cfg.type = 4U; /* no such input type */
+    cfg.type = 4U; /* 没有这种输入类型 */
     reg_map_ch_encode(&cfg, buf);
     CHECK(modbus_slave_get_u16(&buf[0]) == 11U);
 
-    /* Decode: codes 0..7 are thermocouple types, 8..10 the fixed types. */
+    /* 解码：码 0..7 是热电偶类型，8..10 是固定类型。 */
     for ( code = 0U; code < 8U; ++code ) {
         uint8_t raw[REG_MAP_CH_CFG_LEN * 2U] = {0};
 
@@ -157,7 +157,7 @@ static void test_codec_words(void)
         }
     }
 
-    /* Unknown composite codes decode to the invalid sentinel (0xFF). */
+    /* 未知复合码解码为无效哨兵值（0xFF）。 */
     {
         static const uint16_t unknown[] = {11U, 0x63U, 0xFFFFU};
         size_t i;
@@ -172,7 +172,7 @@ static void test_codec_words(void)
         }
     }
 
-    /* NaN / Inf survive the codec bit for bit (validation rejects them). */
+    /* NaN / Inf 逐位通过编解码（校验会拒绝它们）。 */
     reg_map_ch_encode(&cfg, buf);
     modbus_slave_put_u16(&buf[4], 0x7FC0U);
     modbus_slave_put_u16(&buf[6], 0x0000U);
@@ -193,15 +193,14 @@ static void test_codec_words(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Sub-block read-modify-write                                                */
+/* 子块读-改-写                                                               */
 /*----------------------------------------------------------------------------*/
 
 /**
- * @brief Overlay one register over an encoded block and decode the result.
+ * @brief 在一个已编码块上覆盖一个寄存器，并解码结果。
  *
- * Mirrors the write pipeline's mechanical step: encode current, overlay
- * frame, decode whole block. Semantic validation runs in modbus_ao.c and
- * is covered behaviorally in test_modbus_data.
+ * 复刻写流水线的机械步骤：编码当前值、覆盖帧、解码整块。语义校验在
+ * modbus_ao.c 中运行，并在 test_modbus_data 中按行为覆盖。
  */
 static void merge_word(const ch_config_t* base,
                        uint16_t reg_off,
@@ -216,7 +215,7 @@ static void merge_word(const ch_config_t* base,
 }
 
 /**
- * @brief Overlay one float (two registers) over an encoded block.
+ * @brief 在一个已编码块上覆盖一个浮点（两个寄存器）。
  */
 static void merge_float(const ch_config_t* base,
                         uint16_t reg_off,
@@ -241,13 +240,13 @@ static void test_subblock_merge(void)
     ch_config_t got;
     ch_config_t want;
 
-    /* Single register writes keep every untouched field. */
+    /* 单寄存器写入保留每个未触碰的字段。 */
     merge_word(&base, 1U, 7U, &got);
     want           = base;
     want.rate_code = 7U;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    /* A type write re-maps tc_type along with it (decode normalization). */
+    /* 写入类型会同时重映射 tc_type（解码归一化）。 */
     merge_word(&base, 0U, 8U, &got);
     want = make_cfg((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U,
                     0.0f, 0.0f, 0.0f, 1.0f);
@@ -275,7 +274,7 @@ static void test_subblock_merge(void)
     want.linear_max = 100.0f;
     CHECK(memcmp(&got, &want, sizeof(got)) == 0);
 
-    /* Both halves of one float must survive the merge. */
+    /* 一个浮点的两半都必须经受住合并。 */
     merge_float(&base, 8U, bits_to_float(0x3FC00000U), &got);
     CHECK(got.gain == 1.5f);
     CHECK(got.offset == 0.0f);
@@ -284,7 +283,7 @@ static void test_subblock_merge(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Span exhaustive scan                                                       */
+/* 跨段穷举扫描                                                               */
 /*----------------------------------------------------------------------------*/
 
 static int model_check(reg_space_t space,
@@ -347,7 +346,9 @@ static void test_span_exhaustive(void)
 
                 ex = reg_map_check((reg_space_t)space, (uint16_t)start,
                                    (uint16_t)count, &span);
-                if ( code_of(ex) != model_check((reg_space_t)space, (uint16_t)start, (uint16_t)count) ) {
+                if ( code_of(ex)
+                     != model_check((reg_space_t)space, (uint16_t)start,
+                                    (uint16_t)count) ) {
                     CHECK(0);
                     printf("  space=%d start=%u count=%u ex=%d\n",
                            space, (unsigned)start, (unsigned)count, (int)ex);
@@ -367,33 +368,32 @@ static void test_span_exhaustive(void)
         }
     }
 
-    /* Zero-length requests never hit. */
+    /* 零长度请求永不命中。 */
     CHECK(reg_map_check(REG_SPACE_HOLDING, 0U, 0U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
     CHECK(reg_map_check(REG_SPACE_HOLDING, 128U, 0U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
 
-    /* A multi-register read on the single device register crosses a gap. */
+    /* 在单个器件寄存器上的多寄存器读取跨越了间隙。 */
     CHECK(reg_map_check(REG_SPACE_HOLDING, 128U, 2U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
 
-    /* Reading across the channel-1 boundary (block gap) is refused. */
+    /* 跨通道 1 边界（块间隙）的读取被拒绝。 */
     CHECK(reg_map_check(REG_SPACE_HOLDING, 8U, 4U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
 
-    /* Reading across input blocks 8 / system block is refused. */
+    /* 跨输入块 8 / 系统块的读取被拒绝。 */
     CHECK(reg_map_check(REG_SPACE_INPUT, 60U, 8U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_DATA_ADDRESS);
 
-    /* Coil and discrete spaces have no data space at all (and so never
-     * report a hit span). */
+    /* 线圈和离散输入空间根本没有数据空间（因此永远不会报告命中的段）。 */
     CHECK(reg_map_check(REG_SPACE_COIL, 0U, 1U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_FUNCTION);
     CHECK(reg_map_check(REG_SPACE_DISCRETE, 0U, 1U, NULL)
           == MODBUS_SLAVE_EX_ILLEGAL_FUNCTION);
 }
 
-/** @brief A channel span carries its identity; non-channel spans use 0xFF. */
+/** @brief 通道段携带自己的标识；非通道段使用 0xFF。 */
 static void test_span_identity(void)
 {
     const reg_span_t* span = NULL;
@@ -416,7 +416,7 @@ static void test_span_identity(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Input area layout                                                          */
+/* 输入区布局                                                                 */
 /*----------------------------------------------------------------------------*/
 
 static uint16_t expect_input_word(const float* value,
@@ -474,9 +474,8 @@ static void test_input_layout(void)
     cjc_temp   = -12.5f;
     fault_word = 0x000FU;
 
-    /* One encode per span: the codec dispatches on the span that
-     * reg_map_check reports for the range, so every call stays inside
-     * one block. */
+    /* 每段一次编码：编解码器依据 reg_map_check 为该范围报告的段来派发，
+     * 因此每次调用都停留在一个块内。 */
     for ( i = 0U; i < 9U; ++i ) {
         uint16_t base = (uint16_t)(i * 8U);
 
@@ -498,20 +497,20 @@ static void test_input_layout(void)
         }
     }
 
-    /* Spot checks against hand-split words. */
+    /* 对照手工拆分字的抽查。 */
     CHECK(modbus_slave_get_u16(&buf[0]) == (uint16_t)(float_to_bits(1.5f) >> 16));
     CHECK(modbus_slave_get_u16(&buf[2]) == (uint16_t)(float_to_bits(1.5f) & 0xFFFFU));
-    CHECK(modbus_slave_get_u16(&buf[4]) == 100U);     /* ch1 status, addr 2 */
-    CHECK(modbus_slave_get_u16(&buf[20]) == 101U);    /* ch2 status, addr 10 */
-    CHECK(modbus_slave_get_u16(&buf[12]) == 0U);      /* ch1 reserved, addr 6 */
-    CHECK(modbus_slave_get_u16(&buf[6U * 2U]) == 0U); /* reserved */
+    CHECK(modbus_slave_get_u16(&buf[4]) == 100U);     /* ch1 状态，地址 2 */
+    CHECK(modbus_slave_get_u16(&buf[20]) == 101U);    /* ch2 状态，地址 10 */
+    CHECK(modbus_slave_get_u16(&buf[12]) == 0U);      /* ch1 保留，地址 6 */
+    CHECK(modbus_slave_get_u16(&buf[6U * 2U]) == 0U); /* 保留 */
     CHECK(modbus_slave_get_u16(&buf[64U * 2U]) == (uint16_t)(float_to_bits(-12.5f) >> 16));
     CHECK(modbus_slave_get_u16(&buf[65U * 2U]) == (uint16_t)(float_to_bits(-12.5f) & 0xFFFFU));
     CHECK(modbus_slave_get_u16(&buf[66U * 2U]) == 0U);
     CHECK(modbus_slave_get_u16(&buf[68U * 2U]) == 0x000FU);
     CHECK(modbus_slave_get_u16(&buf[69U * 2U]) == 0U);
 
-    /* Partial windows assemble the same registers. */
+    /* 不完整窗口组装出相同的寄存器。 */
     CHECK(reg_map_check(REG_SPACE_INPUT, 64U, 8U, &span) == MODBUS_SLAVE_EX_NONE);
     reg_map_input_encode(value, status, cjc_temp, fault_word, span,
                          64U, 8U, buf);
@@ -536,7 +535,7 @@ static void test_input_layout(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Fault word                                                                 */
+/* 故障字                                                                     */
 /*----------------------------------------------------------------------------*/
 
 static void test_fault_word(void)
@@ -546,7 +545,7 @@ static void test_fault_word(void)
     CHECK(reg_map_fault_word(0U, 0x000EU) == 0x000FU);
     CHECK(reg_map_fault_word(1U, 0x000EU) == 0x000EU);
 
-    /* Bits above b3 are reserved and never appear. */
+    /* b3 以上的位是保留位，永远不会出现。 */
     CHECK(reg_map_fault_word(1U, 0xFFFFU) == 0x000EU);
     CHECK(reg_map_fault_word(0U, 0xFFFFU) == 0x000FU);
 }

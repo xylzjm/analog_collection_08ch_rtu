@@ -10,31 +10,31 @@
 extern "C" {
 #endif
 
-/** @brief Scriptable I2C transfer behind the real TMP75 driver. */
+/** @brief 真实 TMP75 驱动背后的可编排 I2C 传输。 */
 typedef struct {
-    tmp75_status_t status;   /**< Transfer result to return; TMP75_OK hands out rx_frame. */
-    uint16_t calls;          /**< Number of transfers served. */
-    uint8_t rx_frame[2];     /**< Bytes returned when a read is requested. */
+    tmp75_status_t status; /**< 要返回的传输结果；TMP75_OK 时交出 rx_frame。 */
+    uint16_t calls;        /**< 已服务的传输次数。 */
+    uint8_t rx_frame[2];   /**< 请求读取时返回的字节。 */
 } tmp75_port_fake_t;
 
-/** @brief Default script: transfers succeed and read 25.0 degC. */
+/** @brief 默认脚本：传输成功且读到 25.0 degC。 */
 void tmp75_port_fake_init(tmp75_port_fake_t* f);
 
 /**
- * @brief Script the next temperature reads.
+ * @brief 编排后续的温度读取。
  *
- * @param f Fake to program.
- * @param temp_c Temperature the transfer reads hand out.
+ * @param f 要编程的假件。
+ * @param temp_c 传输读取时交出的温度。
  */
 void tmp75_port_fake_set_temperature(tmp75_port_fake_t* f,
-                                      float temp_c);
+                                     float temp_c);
 
-/** @brief Script every following transfer to fail with TMP75_ERR_IO. */
+/** @brief 编排后续每一次传输都以 TMP75_ERR_IO 失败。 */
 void tmp75_port_fake_fail(tmp75_port_fake_t* f);
 
-/** @brief Fill a port struct bound to this fake. */
+/** @brief 填充一个绑定到本假件的端口结构。 */
 void tmp75_port_fake_port(tmp75_port_fake_t* f,
-                           tmp75_port_t* out);
+                          tmp75_port_t* out);
 
 #ifdef __cplusplus
 }

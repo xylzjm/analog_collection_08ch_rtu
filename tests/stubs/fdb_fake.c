@@ -1,16 +1,13 @@
 /**
  * @file fdb_fake.c
- * @brief In-memory fake of the four FlashDB entry points modbus_ao.c uses.
+ * @brief modbus_ao.c 所用四个 FlashDB 入口点的内存假件。
  *
- * The behaviours mirror the vendor engine (fdb_blob_make leaves saved
- * alone, get reports the full stored length and copies min(len, size), set
- * counts before honouring fail_write, init materializes the default table
- * only into an empty medium and reads a zero-length row as a C string, a
- * closed database answers under the vendor's db_init_ok guards, and a NULL
- * body deletes the key); test_fake_medium() pins them. Unmodelled: the real
- * set_kv can answer FDB_SAVED_FULL under GC pressure; the fake always
- * succeeds unless fail_write (wire behavior is unaffected because
- * param_commit decides on read-back).
+ * 这些行为镜像厂商引擎（fdb_blob_make 不改动 saved，get 报告完整存储长度并
+ * 复制 min(len, size)，set 先计数再遵从 fail_write，init 只向空介质填充默认
+ * 表并把零长度行读作 C 字符串，关闭的数据库按厂商的 db_init_ok 守卫应答，
+ * NULL 正文删除键）；test_fake_medium() 固定这些约定。未建模：真实的 set_kv
+ * 在 GC 压力下可能返回 FDB_SAVED_FULL；假件除非 fail_write 否则总是成功
+ *（总线行为不受影响，因为 param_commit 依据回读决定）。
  */
 
 #include "fdb_fake.h"
@@ -21,30 +18,30 @@
 
 #include "flashdb.h"
 
-/** @brief One stored key/value pair; opaque here, the medium's entry. */
+/** @brief 一对已存储的键值；在此不透明，是介质中的一个条目。 */
 typedef struct {
-    char    key[FDB_FAKE_MAX_KEY];        /**< NUL-terminated key. */
-    uint8_t value[FDB_FAKE_MAX_VALUE];    /**< Stored body. */
-    size_t  len;                          /**< Stored length in bytes. */
-    uint8_t used;                         /**< Non-zero when the entry is occupied. */
+    char key[FDB_FAKE_MAX_KEY];        /**< 以 NUL 结尾的键。 */
+    uint8_t value[FDB_FAKE_MAX_VALUE]; /**< 存储的正文。 */
+    size_t len;                        /**< 存储长度（字节）。 */
+    uint8_t used;                      /**< 条目被占用时非零。 */
 } medium_entry_t;
 
-/** @brief The one medium; reached only through the fake API. */
+/** @brief 唯一的介质；只能通过假件 API 访问。 */
 static medium_entry_t entries[FDB_FAKE_MAX_ENTRIES];
 
-/** @brief Open flag: set by a successful init, cleared by reset and fail_init. */
+/** @brief 打开标志：init 成功时置位，reset 与 fail_init 时清零。 */
 static uint8_t open_ok;
 
 fdb_fake_t fdb_fake;
 
-/** @brief Abort the test run; the fake never degrades silently. */
+/** @brief 中止测试运行；假件绝不静默降级。 */
 static void fake_die(const char* msg)
 {
     fprintf(stderr, "fdb_fake: %s\n", msg);
     abort();
 }
 
-/** @brief Copy a key into a fixed buffer, truncating without overflow. */
+/** @brief 把键复制进定长缓冲区，截断且不溢出。 */
 static void copy_key(char* dst,
                      size_t cap,
                      const char* src)
@@ -58,7 +55,7 @@ static void copy_key(char* dst,
     dst[i] = '\0';
 }
 
-/** @brief Find one entry by key; NULL when absent. */
+/** @brief 按键查找一个条目；不存在时返回 NULL。 */
 static medium_entry_t* find_entry(const char* key)
 {
     uint8_t i;
@@ -72,7 +69,7 @@ static medium_entry_t* find_entry(const char* key)
     return NULL;
 }
 
-/** @brief Insert or overwrite one entry without touching the counters. */
+/** @brief 插入或覆盖一个条目，不触碰计数器。 */
 static void put_entry(const char* key,
                       const void* value,
                       size_t len)
@@ -104,7 +101,7 @@ static void put_entry(const char* key,
     entry->used = 1U;
 }
 
-/** @brief Remove one entry by key; a missing key is a no-op. */
+/** @brief 按键删除一个条目；键不存在时为空操作。 */
 static void drop_entry(const char* key)
 {
     medium_entry_t* entry = find_entry(key);
@@ -114,7 +111,7 @@ static void drop_entry(const char* key)
     }
 }
 
-/** @brief Report whether the medium holds no entries. */
+/** @brief 报告介质是否不含任何条目。 */
 static int store_empty(void)
 {
     uint8_t i;
@@ -127,23 +124,23 @@ static int store_empty(void)
     return 1;
 }
 
-fdb_blob_t fdb_blob_make(fdb_blob_t blob, const void *value_buf, size_t buf_len)
+fdb_blob_t fdb_blob_make(fdb_blob_t blob, const void* value_buf, size_t buf_len)
 {
-    /* Rule: only buf/size; the saved block stays as the caller left it. */
+    /* 规则：只设置 buf/size；saved 块保持调用者留下的样子。 */
     blob->buf  = (void*)value_buf;
     blob->size = buf_len;
     return blob;
 }
 
-size_t fdb_kv_get_blob(fdb_kvdb_t db, const char *key, fdb_blob_t blob)
+size_t fdb_kv_get_blob(fdb_kvdb_t db, const char* key, fdb_blob_t blob)
 {
     medium_entry_t* entry;
     size_t n;
 
     (void)db;
 
-    /* Rule: a closed database answers 0 without touching saved.len
-     * (fdb_kvdb.c fdb_kv_get_blob). */
+    /* 规则：关闭的数据库返回 0，且不改动 saved.len
+     *（fdb_kvdb.c fdb_kv_get_blob）。 */
     if ( open_ok == 0U ) {
         return 0U;
     }
@@ -154,9 +151,9 @@ size_t fdb_kv_get_blob(fdb_kvdb_t db, const char *key, fdb_blob_t blob)
         return 0U;
     }
 
-    /* Rule: saved.len is the FULL stored length even on a truncated copy. */
+    /* 规则：即使复制被截断，saved.len 也是完整存储长度。 */
     blob->saved.len = entry->len;
-    n = (entry->len < blob->size) ? entry->len : blob->size;
+    n               = (entry->len < blob->size) ? entry->len : blob->size;
     if ( (n != 0U) && (blob->buf != NULL) ) {
         memcpy(blob->buf, entry->value, n);
         if ( fdb_fake.corrupt_read != 0U ) {
@@ -166,28 +163,28 @@ size_t fdb_kv_get_blob(fdb_kvdb_t db, const char *key, fdb_blob_t blob)
     return n;
 }
 
-fdb_err_t fdb_kv_set_blob(fdb_kvdb_t db, const char *key, fdb_blob_t blob)
+fdb_err_t fdb_kv_set_blob(fdb_kvdb_t db, const char* key, fdb_blob_t blob)
 {
     size_t len = blob->size;
 
     (void)db;
 
-    /* Rule: a closed database rejects the call before any attempt is
-     * recorded (fdb_kvdb.c fdb_kv_set_blob). */
+    /* 规则：关闭的数据库在记录任何尝试之前就拒绝该调用
+     *（fdb_kvdb.c fdb_kv_set_blob）。 */
     if ( open_ok == 0U ) {
         return FDB_INIT_FAILED;
     }
 
-    /* Rule: set_kv ignores the length of a NULL body and deletes the key
-     * (fdb_kvdb.c set_kv); an over-length body fails loudly, never clamps. */
+    /* 规则：set_kv 忽略 NULL 正文的长度并删除该键
+     *（fdb_kvdb.c set_kv）；超长正文显式失败，绝不截断。 */
     if ( blob->buf == NULL ) {
         len = 0U;
     } else if ( len > FDB_FAKE_MAX_VALUE ) {
         fake_die("body longer than FDB_FAKE_MAX_VALUE");
     }
 
-    /* Rule: the attempt is counted and recorded before fail_write can
-     * reject it - the consumer decides on the read-back, not the code. */
+    /* 规则：尝试在 fail_write 拒绝之前就被计数并记录——
+     * 由调用方依据回读决定，而不是依据返回码。 */
     ++fdb_fake.set_calls;
     copy_key(fdb_fake.last_key, sizeof(fdb_fake.last_key), key);
     memset(fdb_fake.last_value, 0, sizeof(fdb_fake.last_value));
@@ -207,8 +204,8 @@ fdb_err_t fdb_kv_set_blob(fdb_kvdb_t db, const char *key, fdb_blob_t blob)
     return FDB_NO_ERR;
 }
 
-fdb_err_t fdb_kvdb_init(fdb_kvdb_t db, const char *name, const char *path,
-        struct fdb_default_kv *default_kv, void *user_data)
+fdb_err_t fdb_kvdb_init(fdb_kvdb_t db, const char* name, const char* path,
+                        struct fdb_default_kv* default_kv, void* user_data)
 {
     size_t i;
     size_t len;
@@ -225,10 +222,9 @@ fdb_err_t fdb_kvdb_init(fdb_kvdb_t db, const char *name, const char *path,
     }
     open_ok = 1U;
 
-    /* Rule: factory-boot materialization - the whole default table lands
-     * only in an empty medium, never backfilling or overwriting, a
-     * zero-length row is a C string (fdb_kvdb.c fdb_kv_set_default), and
-     * materialization is not a set. */
+    /* 规则：出厂启动填充——整张默认表只写入空介质，绝不回填
+     * 或覆盖；零长度行读作 C 字符串（fdb_kvdb.c fdb_kv_set_default）；
+     * 填充不算一次 set。 */
     if ( (default_kv != NULL) && (default_kv->kvs != NULL) && store_empty() ) {
         for ( i = 0U; i < default_kv->num; ++i ) {
             len = default_kv->kvs[i].value_len;

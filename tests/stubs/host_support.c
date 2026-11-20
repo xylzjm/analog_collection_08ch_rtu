@@ -1,10 +1,9 @@
 /**
  * @file host_support.c
- * @brief Host-side QP callbacks and the shared virtual tick.
+ * @brief 宿主侧的 QP 回调与共享的虚拟节拍。
  *
- * The QV scheduler never runs in the host tests, but its link-time
- * callbacks must exist. Q_onError aborts the test: in the host world an
- * assertion is a failure, not a halt-and-leave-the-scene event.
+ * QV 调度器从不在宿主测试中运行，但它的链接期回调必须存在。Q_onError 会中止
+ * 测试：在宿主世界里，断言是失败，而不是停机并离开现场的事件。
  */
 
 #include <stdio.h>
@@ -16,7 +15,7 @@
 
 uint32_t g_test_tick;
 
-/* The QV kernel loop references these; the tests never call QF_run(). */
+/* QV 内核循环会引用这些函数；测试从不调用 QF_run()。 */
 void QV_onIdle(void)
 {
 }

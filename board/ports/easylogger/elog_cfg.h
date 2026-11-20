@@ -26,42 +26,42 @@
 #ifndef _ELOG_CFG_H_
 #define _ELOG_CFG_H_
 
-/** @brief Enable log output. */
+/** @brief 启用日志输出。 */
 #define ELOG_OUTPUT_ENABLE
 
-/** @brief Compile-time maximum output level. */
-#define ELOG_OUTPUT_LVL                          ELOG_LVL_DEBUG
+/** @brief 编译期最大输出级别。 */
+#define ELOG_OUTPUT_LVL ELOG_LVL_DEBUG
 
-/** @brief Enable EasyLogger assertions; log_init() routes them to Q_onError(). */
+/** @brief 启用 EasyLogger 断言；log_init() 将其路由到 Q_onError()。 */
 #define ELOG_ASSERT_ENABLE
 
-/** @brief Per-line buffer size; long lines are truncated. */
-#define ELOG_LINE_BUF_SIZE                       256
+/** @brief 单行缓冲区大小；超长行会被截断。 */
+#define ELOG_LINE_BUF_SIZE 256
 
-/** @brief Maximum formatted line-number length. */
-#define ELOG_LINE_NUM_MAX_LEN                    5
+/** @brief 格式化行号的最大长度。 */
+#define ELOG_LINE_NUM_MAX_LEN 5
 
-/** @brief Maximum tag length used by the output filter. */
-#define ELOG_FILTER_TAG_MAX_LEN                  30
+/** @brief 输出过滤器使用的最大标签长度。 */
+#define ELOG_FILTER_TAG_MAX_LEN 30
 
-/** @brief Maximum keyword length used by the output filter. */
-#define ELOG_FILTER_KW_MAX_LEN                   16
+/** @brief 输出过滤器使用的最大关键字长度。 */
+#define ELOG_FILTER_KW_MAX_LEN 16
 
-/** @brief Number of per-tag level filters. */
-#define ELOG_FILTER_TAG_LVL_MAX_NUM              5
+/** @brief 按标签划分的级别过滤器数量。 */
+#define ELOG_FILTER_TAG_LVL_MAX_NUM 5
 
-/** @brief Line terminator appended by EasyLogger. */
-#define ELOG_NEWLINE_SIGN                        "\r\n"
+/** @brief EasyLogger 追加的行结束符。 */
+#define ELOG_NEWLINE_SIGN "\r\n"
 
-/** @brief Color values; unused while ELOG_COLOR_ENABLE is off. */
-#define ELOG_COLOR_ASSERT                        (F_MAGENTA B_NULL S_NORMAL)
-#define ELOG_COLOR_ERROR                         (F_RED B_NULL S_NORMAL)
-#define ELOG_COLOR_WARN                          (F_YELLOW B_NULL S_NORMAL)
-#define ELOG_COLOR_INFO                          (F_CYAN B_NULL S_NORMAL)
-#define ELOG_COLOR_DEBUG                         (F_GREEN B_NULL S_NORMAL)
-#define ELOG_COLOR_VERBOSE                       (F_BLUE B_NULL S_NORMAL)
+/** @brief 颜色值；ELOG_COLOR_ENABLE 关闭时未使用。 */
+#define ELOG_COLOR_ASSERT  (F_MAGENTA B_NULL S_NORMAL)
+#define ELOG_COLOR_ERROR   (F_RED B_NULL S_NORMAL)
+#define ELOG_COLOR_WARN    (F_YELLOW B_NULL S_NORMAL)
+#define ELOG_COLOR_INFO    (F_CYAN B_NULL S_NORMAL)
+#define ELOG_COLOR_DEBUG   (F_GREEN B_NULL S_NORMAL)
+#define ELOG_COLOR_VERBOSE (F_BLUE B_NULL S_NORMAL)
 
-/** @brief Enable file, function and line fields in formatted output. */
+/** @brief 在格式化输出中启用文件、函数和行号字段。 */
 #define ELOG_FMT_USING_FUNC
 #define ELOG_FMT_USING_DIR
 #define ELOG_FMT_USING_LINE

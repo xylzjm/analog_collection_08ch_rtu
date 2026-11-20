@@ -1,19 +1,19 @@
 #include <string.h>
 
-/* fdb_cfg.h before fal.h: elog's log_* arrive first and FAL overrides them
- * silently (fal_def.h undefines before redefining), like the middleware TUs. */
+/* 先包含 fdb_cfg.h 再包含 fal.h：elog 的 log_* 先就位，随后被 FAL 静默覆盖
+ * （fal_def.h 先 undef 再重新定义），与中间件各 TU 一致。 */
 #include "fdb_cfg.h"
 
 #include "fal.h"
 
 #include "at32f421_flash.h"
 
-/** @brief Watchdog feed hook for long erase/program loops. */
+/** @brief 长时间擦除/编程循环中的喂狗钩子。 */
 #define WATCHDOG_FEED() ((void)0)
 
 static int in_range(long offset, size_t size)
 {
-    /* Written so offset + size cannot wrap past the device end. */
+    /* 如此书写可保证 offset + size 不会回绕越过设备末尾。 */
     size_t const len = at32f421_onchip_flash.len;
 
     return (offset >= 0L)
@@ -23,7 +23,7 @@ static int in_range(long offset, size_t size)
 
 static int init(void)
 {
-    /* The flash controller needs no clock or pin setup. */
+    /* 闪存控制器无需时钟或引脚配置。 */
     return 1;
 }
 
@@ -36,7 +36,7 @@ static int read(long offset, uint8_t* buf, size_t size)
     }
     addr = at32f421_onchip_flash.addr + (uint32_t)offset;
 
-    /* On-chip flash is memory mapped. */
+    /* 片上闪存为内存映射访问。 */
     memcpy(buf, (const void*)addr, size);
     return (int)size;
 }
@@ -51,7 +51,7 @@ static int write(long offset, const uint8_t* buf, size_t size)
     }
     addr = at32f421_onchip_flash.addr + (uint32_t)offset;
 
-    /* Byte programming must match the gran the KV layout assumes. */
+    /* 字节编程必须与 KV 布局所假设的粒度一致。 */
     flash_unlock();
     for ( i = 0; i < size; ++i ) {
         if ( flash_byte_program(addr + (uint32_t)i, buf[i])
@@ -76,7 +76,7 @@ static int erase(long offset, size_t size)
     size_t const blk_size = at32f421_onchip_flash.blk_size;
     size_t erased;
 
-    /* Block alignment keeps the loop from erasing outside the request. */
+    /* 块对齐可防止循环擦除到请求范围之外。 */
     if ( !in_range(offset, size)
          || (((size_t)offset % blk_size) != 0U)
          || ((size % blk_size) != 0U) ) {
@@ -98,11 +98,10 @@ static int erase(long offset, size_t size)
 }
 
 const struct fal_flash_dev at32f421_onchip_flash = {
-    .name       = "at32f421_onchip",
-    .addr       = 0x08000000,
-    .len        = 64 * 1024,
-    .blk_size   = 1024,
-    .ops        = {init, read, write, erase},
-    /* Single source: byte programming must stay in step with the KV layout. */
-    .write_gran = FDB_WRITE_GRAN
-};
+    .name     = "at32f421_onchip",
+    .addr     = 0x08000000,
+    .len      = 64 * 1024,
+    .blk_size = 1024,
+    .ops      = {init, read, write, erase},
+    /* 单一来源：字节编程必须与 KV 布局保持一致。 */
+    .write_gran = FDB_WRITE_GRAN};

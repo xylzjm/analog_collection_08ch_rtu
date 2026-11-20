@@ -6,21 +6,21 @@
 
 #include "qpc.h"
 
-/** @brief TMR14 resolution and 16-bit period limit. */
+/** @brief TMR14 分辨率与 16 位周期上限。 */
 #define MB_TMR_TICK_US   10U
 #define MB_TMR_MAX_TICKS 65535U
 
-/** @brief Modbus RX/TX buffer size. */
+/** @brief Modbus 收/发缓冲区大小。 */
 #define MB_BUFFER_SIZE 256U
 
-/** @brief RS485 line binding. */
+/** @brief RS485 线路绑定。 */
 typedef struct {
     usart_type* uart;
     gpio_type* de_port;
     uint16_t de_pin;
 } line_ctx_t;
 
-/** @brief T3.5 / TX watchdog timer binding. */
+/** @brief T3.5 / 发送看门狗定时器绑定。 */
 typedef struct {
     tmr_type* timer;
 } timer_ctx_t;
@@ -47,10 +47,9 @@ static modbus_slave_status_t line_direction(void* ctx,
     const line_ctx_t* b = (const line_ctx_t*)ctx;
 
     /*
-     * This port owns the reception window regardless of the peripheral
-     * state wk_usart1_init() leaves behind: RDBF stays masked until the
-     * first direction(1, 0), and the core drops every byte while its
-     * session is stopped, so stray line noise before start is harmless.
+     * 无论 wk_usart1_init() 留下何种外设状态，本端口都掌管接收窗口：
+     * RDBF 在第一次 direction(1, 0) 之前保持屏蔽，且核心在会话停止
+     * 期间丢弃每个字节，因此启动前的线路噪声无害。
      */
 
     if ( rx != 0U && tx != 0U ) {
@@ -58,7 +57,7 @@ static modbus_slave_status_t line_direction(void* ctx,
     }
 
     if ( rx != 0U ) {
-        /* Mute TX first, then release DE: TC is the last bit out. */
+        /* 先静默发送，再释放 DE：TC 表示最后一位已发出。 */
         usart_interrupt_enable(b->uart, USART_TDBE_INT, FALSE);
         usart_interrupt_enable(b->uart, USART_TDC_INT, FALSE);
         usart_flag_clear(b->uart, USART_TDC_FLAG);
@@ -66,7 +65,7 @@ static modbus_slave_status_t line_direction(void* ctx,
         usart_interrupt_enable(b->uart, USART_RDBF_INT, TRUE);
         gpio_bits_reset(b->de_port, b->de_pin);
     } else if ( tx != 0U ) {
-        /* Assert DE before enabling TXE so the first byte is not driven with DE low. */
+        /* 在使能 TXE 前拉高 DE，避免首字节在 DE 为低时被驱动。 */
         usart_interrupt_enable(b->uart, USART_RDBF_INT, FALSE);
         usart_receiver_enable(b->uart, FALSE);
         gpio_bits_set(b->de_port, b->de_pin);
@@ -108,12 +107,12 @@ static modbus_slave_status_t timer_arm(void* ctx, uint32_t timeout_us)
     uint32_t ticks;
 
     /*
-     * Same ownership rule for the timer: whatever state wk_tmr14_init()
-     * left (one-cycle mode self-stops the counter), this entry stops and
-     * clears before reprogramming, so no stale expiry can fire.
+     * 定时器遵循同样的归属规则：无论 wk_tmr14_init() 留下何种状态
+     * （单周期模式下计数器自行停止），本入口都会先停止并清除再重新
+     * 编程，因此不会有残留的到期事件触发。
      */
 
-    /* Clamp to the 16-bit period; the core's timeouts are expected to fit. */
+    /* 钳制到 16 位周期；核心的超时预期都能容纳。 */
     ticks = (timeout_us + MB_TMR_TICK_US - 1U) / MB_TMR_TICK_US;
     if ( ticks == 0U ) {
         ticks = 1U;
@@ -142,7 +141,7 @@ static modbus_slave_status_t timer_cancel(void* ctx)
     return MODBUS_SLAVE_OK;
 }
 
-/* Shares the nesting count with QP; see board.h. */
+/* 与 QP 共享嵌套计数；见 board.h。 */
 static void critical_enter(void* ctx)
 {
     (void)ctx;
@@ -155,13 +154,13 @@ static void critical_exit(void* ctx)
     board_critical_exit();
 }
 
-/** @brief Platform half of the construction config handed to the AO: line,
- *  timer and critical ports, the rx/tx buffers and the baudrate. Callbacks
- *  and identity stay zeroed; the AO overwrites them before modbus_slave_ctor().
+/** @brief 交给 AO 的构造配置平台部分：线路、定时器与临界区端口，
+ *  收发缓冲区以及波特率。回调与身份保持清零；AO 在
+ *  modbus_slave_ctor() 之前覆盖它们。
  */
 /*
- * Designated initializers: a field reorder in the library's
- * modbus_slave_config_t must not silently re-bind this table.
+ * 指定初始化器：库中 modbus_slave_config_t 的字段重排不得
+ * 让本表被静默地重新绑定。
  */
 static const modbus_slave_config_t slave_config = {
     .baudrate    = BOARD_MODBUS_BAUDRATE,
@@ -199,7 +198,7 @@ modbus_slave_t* modbus_slave_board_get(void)
 
 void USART1_IRQHandler(void)
 {
-    /* RDBF first: clearing error flags reads sts+dt and would eat the byte. */
+    /* 先处理 RDBF：清除错误标志会读取 sts+dt，从而吞掉该字节。 */
     if ( usart_interrupt_flag_get(USART1, USART_RDBF_FLAG) != RESET ) {
         uint16_t data = usart_data_receive(USART1);
 
@@ -236,7 +235,7 @@ void USART1_IRQHandler(void)
         }
     }
 
-    /* Cortex-M4 erratum 838869 workaround: DSB before ISR exit. */
+    /* Cortex-M4 勘误 838869 的规避措施：ISR 退出前执行 DSB。 */
     QV_ARM_ERRATUM_838869();
 }
 
@@ -247,6 +246,6 @@ void TMR14_GLOBAL_IRQHandler(void)
         (void)modbus_slave_timer_expired(&slave);
     }
 
-    /* Cortex-M4 erratum 838869 workaround: DSB before ISR exit. */
+    /* Cortex-M4 勘误 838869 的规避措施：ISR 退出前执行 DSB。 */
     QV_ARM_ERRATUM_838869();
 }

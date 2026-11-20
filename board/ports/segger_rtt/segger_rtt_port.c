@@ -4,7 +4,7 @@
 
 int fputc(int ch, FILE* f)
 {
-    /* Fallback path only: printf writes one byte per call. */
+    /* 仅为兜底路径：printf 每次调用只写入一个字节。 */
     char const c = (char)ch;
 
     (void)f;

@@ -12,30 +12,29 @@ extern "C" {
 
 /**
  * @file analog_input_convert.h
- * @brief Pure board conversion formulas over the electrical constants,
- *        header-only so the host test needs no board translation unit.
+ * @brief 基于电气常量的纯板级转换公式，仅头文件实现，
+ *        因而主机测试无需板级编译单元。
  *
- * Every function is a computation over the board's electrical constants
- * and the library sensor math; nothing here touches registers, so the
- * host tests reach the compose path directly (the register-bound ops
- * callbacks stay in analog_input_board.c).
+ * 每个函数都是对板级电气常量与库中传感器数学的运算；此处不接触
+ * 寄存器，主机测试因此可直接到达组合路径（绑定寄存器的 ops
+ * 回调仍留在 analog_input_board.c 中）。
  */
 
-/** @brief Full-scale code of a signed 24-bit conversion. */
+/** @brief 有符号 24 位转换的满量程码值。 */
 #define FULL_SCALE_CODE 8388608.0f
 
-/** @brief Electrical spans of the two linear input types. */
+/** @brief 两种线性输入类型的电气量程。 */
 #define CURRENT_SPAN_LOW_MA  4.0f
 #define CURRENT_SPAN_HIGH_MA 20.0f
 #define VOLTAGE_SPAN_LOW_V   0.0f
 #define VOLTAGE_SPAN_HIGH_V  10.0f
 
 /**
- * @brief Convert one ADC code to volts at the given programmed gain.
+ * @brief 按给定的已编程增益把一个 ADC 码值转换为伏特。
  *
- * @param sample_code Signed 24-bit conversion code.
- * @param gain Programmed PGA gain (1, 2, 8 or 32).
- * @return Volts at the converter input.
+ * @param sample_code 有符号 24 位转换码值。
+ * @param gain 已编程的 PGA 增益（1、2、8 或 32）。
+ * @return 转换器输入端的电压（伏特）。
  */
 static inline float analog_input_convert_adc_volts(int32_t sample_code,
                                                    float gain)
@@ -46,15 +45,14 @@ static inline float analog_input_convert_adc_volts(int32_t sample_code,
 }
 
 /**
- * @brief Convert a 4-20 mA or 0-10 V sample to an engineering value.
+ * @brief 把 4-20 mA 或 0-10 V 采样转换为工程量。
  *
- * @param type Input category; selects the electrical span.
- * @param sample_code Signed 24-bit conversion code.
- * @param context Linear scaling limits.
- * @param measurement Receives the engineering value.
- * @return ANALOG_INPUT_OK, or ANALOG_INPUT_ERR_ARG for a NULL context.
- * @note Deliberately extrapolates outside the span so over-range stays
- *       visible instead of being clipped.
+ * @param type 输入类别；用于选择电气量程。
+ * @param sample_code 有符号 24 位转换码值。
+ * @param context 线性缩放上下限。
+ * @param measurement 接收工程量结果。
+ * @return ANALOG_INPUT_OK；context 为 NULL 时返回 ANALOG_INPUT_ERR_ARG。
+ * @note 有意在量程外做外推，使超量程保持可见而不是被裁剪。
  */
 static inline analog_input_status_t analog_input_convert_linear(
     analog_input_type_t type,
@@ -86,7 +84,7 @@ static inline analog_input_status_t analog_input_convert_linear(
         span_high = VOLTAGE_SPAN_HIGH_V;
     }
 
-    /* Deliberately extrapolate outside the span so over-range stays visible. */
+    /* 有意超出量程进行外推，使超量程保持可见。 */
     *measurement = context->linear_min
                    + (value - span_low)
                          * (context->linear_max - context->linear_min)
@@ -95,13 +93,12 @@ static inline analog_input_status_t analog_input_convert_linear(
 }
 
 /**
- * @brief Convert a ratiometric PT100 sample to degrees Celsius.
+ * @brief 把比例式 PT100 采样转换为摄氏度。
  *
- * @param sample_code Signed 24-bit conversion code.
- * @param measurement Receives the temperature.
- * @return ANALOG_INPUT_OK, or ANALOG_INPUT_ERR_ARG / ERR_CONVERSION for a
- *         NULL pointer, a non-positive resistance or a temperature outside
- *         the board's accepted PT100 range.
+ * @param sample_code 有符号 24 位转换码值。
+ * @param measurement 接收温度。
+ * @return ANALOG_INPUT_OK；空指针、非正电阻或温度超出本板允许的 PT100
+ *         范围时，返回 ANALOG_INPUT_ERR_ARG / ERR_CONVERSION。
  */
 static inline analog_input_status_t analog_input_convert_pt100(
     int32_t sample_code,
@@ -128,7 +125,7 @@ static inline analog_input_status_t analog_input_convert_pt100(
     if ( status != ANALOG_INPUT_OK ) {
         return status;
     }
-    /* Reject out-of-range PT100 values instead of extrapolating. */
+    /* 拒绝超范围的 PT100 值，而不是外推。 */
     if ( temperature < ANALOG_INPUT_BOARD_RTD_MIN_TEMPERATURE_C
          || temperature > ANALOG_INPUT_BOARD_RTD_MAX_TEMPERATURE_C ) {
         return ANALOG_INPUT_ERR_CONVERSION;
@@ -138,13 +135,13 @@ static inline analog_input_status_t analog_input_convert_pt100(
 }
 
 /**
- * @brief Convert a thermocouple sample with cold junction compensation.
+ * @brief 转换热电偶采样并做冷端补偿。
  *
- * @param tc_type Thermocouple model of the configured channel.
- * @param sample_code Signed 24-bit conversion code.
- * @param context Carries the cold junction temperature.
- * @param measurement Receives the temperature.
- * @return Analog_input status of the composed conversions.
+ * @param tc_type 已配置通道的热电偶型号。
+ * @param sample_code 有符号 24 位转换码值。
+ * @param context 携带冷端温度。
+ * @param measurement 接收温度。
+ * @return 组合转换的 analog_input 状态。
  */
 static inline analog_input_status_t analog_input_convert_thermocouple(
     analog_input_thermocouple_type_t tc_type,
@@ -177,18 +174,17 @@ static inline analog_input_status_t analog_input_convert_thermocouple(
 }
 
 /**
- * @brief Convert one sample to a calibrated engineering value.
+ * @brief 把一个采样转换为经校准的工程量。
  *
- * Dispatches on the input type, runs the matching pure formula and applies
- * the per-channel calibration (gain/offset) from @p context.
+ * 按输入类型分派，执行对应的纯公式，并应用来自 @p context 的每通道
+ * 校准（增益/偏置）。
  *
- * @param type Input category.
- * @param tc_type Thermocouple model; ignored unless @p type is THERMOCOUPLE.
- * @param sample_code Signed 24-bit conversion code.
- * @param context Conversion context including calibration.
- * @param measurement Receives the calibrated engineering value.
- * @return The formula status, or ANALOG_INPUT_ERR_ARG for a NULL pointer or
- *         an unknown input type.
+ * @param type 输入类别。
+ * @param tc_type 热电偶型号；除非 @p type 为 THERMOCOUPLE，否则忽略。
+ * @param sample_code 有符号 24 位转换码值。
+ * @param context 含校准信息的转换上下文。
+ * @param measurement 接收校准后的工程量。
+ * @return 公式状态；空指针或未知输入类型时返回 ANALOG_INPUT_ERR_ARG。
  */
 static inline analog_input_status_t analog_input_convert_sample(
     analog_input_type_t type,
@@ -230,11 +226,10 @@ static inline analog_input_status_t analog_input_convert_sample(
 }
 
 /**
- * @brief Wire verdict of one thermocouple burnout check.
+ * @brief 一次热电偶 burnout 检查的接线判定。
  *
- * @param sample_code Signed 24-bit conversion code.
- * @return ANALOG_INPUT_WIRE_BROKEN beyond the burnout threshold, normal
- *         otherwise.
+ * @param sample_code 有符号 24 位转换码值。
+ * @return 超出 burnout 阈值时为 ANALOG_INPUT_WIRE_BROKEN，否则为正常。
  */
 static inline analog_input_wire_status_t analog_input_convert_thermocouple_wire(
     int32_t sample_code)
@@ -247,11 +242,11 @@ static inline analog_input_wire_status_t analog_input_convert_thermocouple_wire(
 }
 
 /**
- * @brief Wire verdict of one PT100 lead/return check.
+ * @brief 一次 PT100 激励线/回流线检查的接线判定。
  *
- * @param sample_code Signed 24-bit conversion code.
- * @return ANALOG_INPUT_WIRE_BROKEN_RETURN, ANALOG_INPUT_WIRE_BROKEN_LEAD
- *         or ANALOG_INPUT_WIRE_NORMAL by reference voltage ratio.
+ * @param sample_code 有符号 24 位转换码值。
+ * @return 依据参考电压比例返回 ANALOG_INPUT_WIRE_BROKEN_RETURN、
+ *         ANALOG_INPUT_WIRE_BROKEN_LEAD 或 ANALOG_INPUT_WIRE_NORMAL。
  */
 static inline analog_input_wire_status_t analog_input_convert_rtd_wire(
     int32_t sample_code)
@@ -259,7 +254,7 @@ static inline analog_input_wire_status_t analog_input_convert_rtd_wire(
     float gain;
     float volts;
 
-    /* The reference resistor is measured at unity gain, like the voltage input. */
+    /* 参考电阻在单位增益下测量，与电压输入相同。 */
     gain  = (float)(1UL << SIG24131_GAIN_1);
     volts = analog_input_convert_adc_volts(sample_code, gain);
 
@@ -277,11 +272,11 @@ static inline analog_input_wire_status_t analog_input_convert_rtd_wire(
 }
 
 /**
- * @brief Conversion wait after a configuration change, in milliseconds.
+ * @brief 配置变更后的转换等待时间，单位毫秒。
  *
- * @param rate_millihz Effective sample rate in millihertz.
- * @return Milliseconds for ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS
- *         conversions, rounded up.
+ * @param rate_millihz 有效采样率，单位毫赫兹。
+ * @return ANALOG_INPUT_BOARD_SETTLE_CONVERSIONS 次转换所需毫秒数，
+ *         向上取整。
  */
 static inline uint32_t analog_input_convert_settle_delay_ms(
     uint32_t rate_millihz)

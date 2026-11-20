@@ -1,6 +1,6 @@
 /**
  * @file reg_map.c
- * @brief Modbus data-space map: span table, addressing and register codecs.
+ * @brief Modbus 数据空间映射：跨度表、寻址与寄存器编解码。
  */
 
 #include "reg_map.h"
@@ -9,34 +9,38 @@
 #include <string.h>
 
 /*
- * The one and only register map. Segment order follows reg_space_t so a
- * space with no spans (coils, discrete inputs) answers "unmapped" from the
- * table itself. Holding: 8 channel configuration blocks at 16n + device
- * register 128. Input: 8 channel telemetry blocks at 8n + system block 64.
- * The channel rows derive from the board position list in board_config.h.
+ * 唯一的寄存器映射。分段顺序遵循 reg_space_t，因此没有跨度的空间（线圈、
+ * 离散输入）直接由表本身给出“未映射”。保持寄存器：8 个通道配置块，位于
+ * 16n，外加设备寄存器 128。输入寄存器：8 个通道遥测块，位于 8n，外加
+ * 系统块 64。通道行由 board_config.h 中的板级位置列表派生。
  */
-/** @brief Channel field of a span that does not belong to one channel. */
+/** @brief 不属于任何通道的跨度的通道字段。 */
 #define SPAN_NO_CHANNEL 0xFFU
 
-/** @brief Address stride between channel configuration blocks (holding). */
+/** @brief 通道配置块之间的地址步进（保持寄存器）。 */
 #define SPAN_HOLDING_STRIDE 16U
 
 static const reg_span_t spans[] = {
-#define X(pos) {REG_SPACE_HOLDING, (uint16_t)((pos) * SPAN_HOLDING_STRIDE), REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, (uint8_t)(pos)},
+#define X(pos)                                                   \
+    {REG_SPACE_HOLDING, (uint16_t)((pos) * SPAN_HOLDING_STRIDE), \
+     REG_MAP_CH_CFG_LEN, REG_SPAN_CH_CFG, (uint8_t)(pos)},
     BOARD_POSITIONS(X)
 #undef X
-    {REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV, SPAN_NO_CHANNEL},
-#define X(pos) {REG_SPACE_INPUT, (uint16_t)((pos) * REG_MAP_CH_IN_STRIDE), REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, (uint8_t)(pos)},
+        {REG_SPACE_HOLDING, REG_MAP_DEV_BASE, 1U, REG_SPAN_DEV, SPAN_NO_CHANNEL},
+#define X(pos)                                                  \
+    {REG_SPACE_INPUT, (uint16_t)((pos) * REG_MAP_CH_IN_STRIDE), \
+     REG_MAP_CH_IN_LEN, REG_SPAN_CH_IN, (uint8_t)(pos)},
     BOARD_POSITIONS(X)
 #undef X
-    {REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS, SPAN_NO_CHANNEL}};
+        {REG_SPACE_INPUT, REG_MAP_SYS_BASE, REG_MAP_CH_IN_LEN, REG_SPAN_SYS, SPAN_NO_CHANNEL},
+};
 
-/* Compile-time guard: two rows per board position plus the two device rows. */
+/* 编译期守卫：每个板级位置两行，再加两行设备行。 */
 Q_ASSERT_STATIC((sizeof(spans) / sizeof(spans[0]))
                 == (2U * BOARD_POSITION_COUNT + 2U));
 
 /**
- * @brief Write one big-endian float32 as two registers (high word first).
+ * @brief 把一个大端 float32 写成两个寄存器（高字在前）。
  */
 static void put_float(uint8_t* buf, float value)
 {
@@ -48,7 +52,7 @@ static void put_float(uint8_t* buf, float value)
 }
 
 /**
- * @brief Read one big-endian float32 from two registers (high word first).
+ * @brief 从两个寄存器读出一个大端 float32（高字在前）。
  */
 static float get_float(const uint8_t* buf)
 {
@@ -62,13 +66,13 @@ static float get_float(const uint8_t* buf)
 }
 
 /**
- * @brief Find the span wholly containing one address range.
+ * @brief 查找完整包含某个地址范围的跨度。
  *
- * @param space Data space to search.
- * @param start First address (0-based).
- * @param count Number of registers or bits; must be >= 1.
- * @return The containing span, or NULL when the range is empty, crosses a
- *         block boundary, falls into an unmapped gap or leaves the space.
+ * @param space 要搜索的数据空间。
+ * @param start 首地址（0 基）。
+ * @param count 寄存器或位的数量；必须 >= 1。
+ * @return 包含该范围的跨度；范围为空、跨越块边界、落入未映射空档或超出
+ *         数据空间时返回 NULL。
  */
 static const reg_span_t* reg_map_find(reg_space_t space,
                                       uint16_t start,
@@ -88,8 +92,8 @@ static const reg_span_t* reg_map_find(reg_space_t space,
         if ( span->space != space ) {
             continue;
         }
-        /* Unpopulated channel positions are not part of the map: the table
-         * describes the 8-position board, the SKU population filters it. */
+        /* 未装配的通道位置不属于映射：表描述的是 8 位置板级布局，由 SKU
+         * 装配情况过滤。 */
         if ( ((span->kind == REG_SPAN_CH_CFG) || (span->kind == REG_SPAN_CH_IN))
              && (span->channel >= CH_CONFIG_CHANNEL_COUNT) ) {
             continue;
@@ -150,7 +154,7 @@ void reg_map_ch_encode(const ch_config_t* cfg,
             code = 10U;
             break;
         default:
-            code = 11U; /* out of range on purpose; reads back as invalid */
+            code = 11U; /* 有意越界；回读为非法值 */
             break;
     }
 
@@ -186,7 +190,7 @@ void reg_map_ch_decode(const uint8_t* buf,
         cfg->type    = (uint8_t)CH_TYPE_0_10V;
         cfg->tc_type = CH_TC_TYPE_NONE;
     } else {
-        /* Layout only: unknown codes become a sentinel the validator rejects. */
+        /* 只做布局：未知码变为校验器会拒绝的哨兵值。 */
         cfg->type    = 0xFFU;
         cfg->tc_type = CH_TC_TYPE_NONE;
     }
@@ -204,10 +208,10 @@ uint16_t reg_map_dev_decode(const uint8_t* buf)
 }
 
 /**
- * @brief Return one word of a big-endian float32 register pair.
+ * @brief 返回大端 float32 寄存器对中的一个字。
  *
- * @param value Value to split.
- * @param index 0 for the high word, 1 for the low word.
+ * @param value 待拆分的值。
+ * @param index 0 为高字，1 为低字。
  */
 static uint16_t float_word(float value,
                            uint16_t index)
@@ -241,7 +245,7 @@ void reg_map_input_encode(const float* value,
             } else if ( off == 2U ) {
                 word = status[span->channel];
             } else {
-                word = 0U; /* reserved */
+                word = 0U; /* 保留 */
             }
         } else if ( span->kind == REG_SPAN_SYS ) {
             if ( off == 0U ) {
@@ -251,10 +255,10 @@ void reg_map_input_encode(const float* value,
             } else if ( off == 4U ) {
                 word = fault_word;
             } else {
-                word = 0U; /* reserved */
+                word = 0U; /* 保留 */
             }
         } else {
-            word = 0U; /* defensive: holding kinds never reach this codec */
+            word = 0U; /* 防御：保持寄存器种类不会进入本编解码 */
         }
         modbus_slave_put_u16(&buf[2U * i], word);
     }

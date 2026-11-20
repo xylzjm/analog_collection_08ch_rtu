@@ -4,16 +4,16 @@
 #include "at32f421_wk_config.h"
 #include "wk_system.h"
 
-/** @brief SPI flag timeout in board-tick milliseconds. */
+/** @brief SPI 标志超时，单位为板级节拍毫秒。 */
 #define SPI_TRANSFER_TIMEOUT_TICKS 10U
 
-/** @brief Chip-select binding of one SIG24131 device. */
+/** @brief 一个 SIG24131 器件的片选绑定。 */
 typedef struct {
     gpio_type* cs_gpio_port;
     uint16_t cs_pin;
 } cs_binding_t;
 
-/* Optional channels compile out with SIG24131_BOARD_INSTANCE_COUNT. */
+/* 可选通道随 SIG24131_BOARD_INSTANCE_COUNT 一同编译剔除。 */
 static const cs_binding_t cs_bindings[SIG24131_BOARD_INSTANCE_COUNT] = {
     {CTRL_nCS_1_GPIO_PORT, CTRL_nCS_1_PIN},
     {CTRL_nCS_2_GPIO_PORT, CTRL_nCS_2_PIN},
@@ -164,7 +164,7 @@ sig24131_status_t sig24131_board_reset_all(void)
         }
     }
 
-    /* Send all resets first, then wait once for every device. */
+    /* 先发出所有复位，然后为每个器件统一等待一次。 */
     wk_delay_ms(SIG24131_RESET_DELAY_MS);
     return result;
 }

@@ -7,7 +7,7 @@
 
 static i2c_soft_t i2c_bus;
 
-/* Open-drain pins: writing 1 releases the line, the library never drives high. */
+/* 开漏引脚：写 1 释放总线，库从不会主动拉高。 */
 static void sda_write(void* ctx, uint8_t level)
 {
     (void)ctx;
@@ -22,7 +22,7 @@ static void scl_write(void* ctx, uint8_t level)
                     (level != 0U) ? TRUE : FALSE);
 }
 
-/* Read the pin, not the output latch: a released line is held high by the pull-up. */
+/* 读取引脚而非输出锁存：释放的线由上拉电阻保持高电平。 */
 static uint8_t sda_read(void* ctx)
 {
     (void)ctx;
@@ -39,14 +39,14 @@ static uint8_t scl_read(void* ctx)
                : 0U;
 }
 
-/* TMR6-based, so it keeps working inside the library's masked edge groups. */
+/* 基于 TMR6，因此在库中被屏蔽的边沿组内仍能工作。 */
 static void delay_us(void* ctx, uint32_t us)
 {
     (void)ctx;
     wk_delay_us(us);
 }
 
-/* Shares the nesting count with QP; see board.h. */
+/* 与 QP 共享嵌套计数；见 board.h。 */
 static void critical_enter(void* ctx)
 {
     (void)ctx;
@@ -73,7 +73,7 @@ i2c_soft_status_t i2c_soft_board_init(void)
     config.critical.ctx   = NULL;
     config.critical.enter = critical_enter;
     config.critical.exit  = critical_exit;
-    /* 0 selects the library default of 5 us: standard mode has the margin. */
+    /* 0 选择库默认的 5 us：标准模式有裕量。 */
     config.half_period_us = 0U;
 
     status = i2c_soft_ctor(&i2c_bus, &config);

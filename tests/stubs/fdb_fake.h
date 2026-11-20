@@ -3,14 +3,13 @@
 
 /**
  * @file fdb_fake.h
- * @brief In-memory fake of the four FlashDB entry points modbus_ao.c uses.
+ * @brief modbus_ao.c 所用四个 FlashDB 入口点的内存假件。
  *
- * Host tests link this instead of the FlashDB engine while compiling against
- * the real vendor headers: fdb_kvdb_init, fdb_kv_get_blob, fdb_kv_set_blob
- * and fdb_blob_make are supplied here at link time. Fault knobs simulate a
- * failed open, a failed write and a read-back copy that differs from the
- * stored bytes. If modbus_ao.c ever touches a fifth vendor behaviour the
- * fake must grow a scenario for it; test_fake_medium() pins the contract.
+ * 宿主测试链接本文件而不是 FlashDB 引擎，同时针对真实厂商头文件编译：
+ * fdb_kvdb_init、fdb_kv_get_blob、fdb_kv_set_blob 与 fdb_blob_make 都在链接期由
+ * 这里提供。故障开关可模拟打开失败、写入失败以及回读副本与存储字节不一致。如果
+ * modbus_ao.c 将来触及第五种厂商行为，假件必须为它增加场景；test_fake_medium()
+ * 固定了这份约定。
  */
 
 #include <stddef.h>
@@ -21,56 +20,55 @@ extern "C" {
 #endif
 
 /**
- * @brief Capacity of the fake medium.
+ * @brief 假件介质的容量。
  *
- * Sized for the 8 board positions plus the device row plus headroom;
- * an overflowing insert aborts the test run instead of dropping the row.
+ * 按 8 个板级位置加器件行再加余量确定大小；溢出的插入会中止测试运行，而不是
+ * 丢弃该行。
  */
 #define FDB_FAKE_MAX_ENTRIES 12U
 
-/** @brief Key buffer size (keys are short: cfg/chN, dev/addr). */
+/** @brief 键缓冲区大小（键都很短：cfg/chN、dev/addr）。 */
 #define FDB_FAKE_MAX_KEY 16U
 
 /**
- * @brief Value buffer size.
+ * @brief 值缓冲区大小。
  *
- * 32 > the 20-byte cfg body and the 24-byte oversize fixture; a longer
- * body aborts the test run instead of being silently clamped.
+ * 32 大于 20 字节的 cfg 正文和 24 字节的超长夹具；更长的正文会中止测试运行，
+ * 而不是被静默截断。
  */
 #define FDB_FAKE_MAX_VALUE 32U
 
-/** @brief Test knobs and observables of the fake medium. */
+/** @brief 假件介质的测试开关与观测量。 */
 typedef struct {
-    uint8_t  fail_init;                       /**< Script: init fails. */
-    uint8_t  fail_write;                      /**< Script: set fails and stores nothing. */
-    uint8_t  corrupt_read;                    /**< Script: get returns a modified copy. */
-    uint16_t init_calls;                      /**< init invocations. */
-    uint16_t set_calls;                       /**< set invocations (materialization is not a set). */
-    char     last_key[FDB_FAKE_MAX_KEY];      /**< Key of the last set. */
-    uint8_t  last_value[FDB_FAKE_MAX_VALUE];  /**< Body of the last set. */
-    size_t   last_len;                        /**< Length of the last set. */
+    uint8_t fail_init;                      /**< 脚本：init 失败。 */
+    uint8_t fail_write;                     /**< 脚本：set 失败且不存储任何内容。 */
+    uint8_t corrupt_read;                   /**< 脚本：get 返回被改动的副本。 */
+    uint16_t init_calls;                    /**< init 调用次数。 */
+    uint16_t set_calls;                     /**< set 调用次数（填充不算 set）。 */
+    char last_key[FDB_FAKE_MAX_KEY];        /**< 最后一次 set 的键。 */
+    uint8_t last_value[FDB_FAKE_MAX_VALUE]; /**< 最后一次 set 的正文。 */
+    size_t last_len;                        /**< 最后一次 set 的长度。 */
 } fdb_fake_t;
 
-/** @brief The one fake instance: knobs in, observations out. */
+/** @brief 唯一的假件实例：开关进，观测出。 */
 extern fdb_fake_t fdb_fake;
 
 /**
- * @brief Discard the whole medium and every observation.
+ * @brief 丢弃整个介质和所有观测值。
  *
- * Idempotent, so one call doubles as a scenario reset. A missing key is
- * expressed by simply not planting it (the closed-DB state resets too).
+ * 幂等，因此一次调用也可当作场景重置。缺失的键通过干脆不预置它来表达（关闭
+ * 数据库的状态也会重置）。
  */
 void fdb_fake_reset(void);
 
 /**
- * @brief Preload one raw value without touching the observation counters.
+ * @brief 预置一个原始值，不触碰观测计数器。
  *
- * Used to script an existing store before it is opened (the medium is never
- * backfilled once it holds anything).
+ * 用于在打开之前为已有存储编写脚本（介质一旦存有内容就绝不会被回填）。
  *
- * @param key NUL-terminated key.
- * @param value Body to store.
- * @param len Body length in bytes; a longer body aborts the test run.
+ * @param key 以 NUL 结尾的键。
+ * @param value 要存储的正文。
+ * @param len 正文长度（字节）；更长的正文会中止测试运行。
  */
 void fdb_fake_put(const char* key, const void* value, size_t len);
 

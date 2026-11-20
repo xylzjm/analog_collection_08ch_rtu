@@ -13,7 +13,7 @@
 #include "modbus_slave_board.h"
 #include "tmp75_board.h"
 
-/** @brief Route EasyLogger assertions to the project error handler. */
+/** @brief 将 EasyLogger 断言转接到项目错误处理函数。 */
 static void elog_assert_handler(char const* expr, char const* func, size_t line)
 {
     (void)expr;
@@ -21,12 +21,12 @@ static void elog_assert_handler(char const* expr, char const* func, size_t line)
     Q_onError("EasyLogger", (int_t)line);
 }
 
-/** @brief Bring up SEGGER RTT and EasyLogger before any logging. */
+/** @brief 在任何日志之前初始化 SEGGER RTT 与 EasyLogger。 */
 static void log_init(void)
 {
     uint8_t level;
 
-    /* RTT must exist before EasyLogger and the printf fallback are used. */
+    /* RTT 必须先于 EasyLogger 和 printf 兜底路径可用。 */
     SEGGER_RTT_Init();
 
     if ( elog_init() != ELOG_NO_ERR ) {
@@ -36,7 +36,7 @@ static void log_init(void)
 
     elog_assert_set_hook(elog_assert_handler);
 
-    /* Every level needs ELOG_FMT_LVL; elog_find_lvl() asserts otherwise. */
+    /* 每个级别都需要 ELOG_FMT_LVL；否则 elog_find_lvl() 会断言。 */
     for ( level = ELOG_LVL_ASSERT; level < ELOG_LVL_TOTAL_NUM; ++level ) {
         elog_set_fmt(level, ELOG_FMT_LVL | ELOG_FMT_TAG);
     }
@@ -44,7 +44,7 @@ static void log_init(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Composition root                                                           */
+/* 组合根                                                                     */
 /*----------------------------------------------------------------------------*/
 
 static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
@@ -72,8 +72,7 @@ int main(void)
     QF_poolInit(pool_a, sizeof(pool_a), sizeof(pool_a[0]));
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
-    /* The platform half-config; the AO builds the slave core and opens the
-     * parameter database in its constructor. */
+    /* 平台半配置；AO 在构造函数中构建从站核心并打开参数数据库。 */
     modbus_ao_ctor(&modbus, modbus_slave_board_get(),
                    modbus_slave_board_config());
 
@@ -84,11 +83,10 @@ int main(void)
     cold_junction_ao_ctor(&cold_junction, tmp75_board_get_device());
 
     /*
-     * Start order: channels first, then AoModbus (its boot load publishes
-     * CONFIG_SET_SIG to the channels), then AoColdJunction so its first CJC_SIG
-     * reaches every subscriber. Every active object subscribes inside its own
-     * state-machine initial transition (QP/C example style; QActive_start()
-     * registers the AO before QASM_INIT).
+     * 启动顺序：先通道，再 AoModbus（其启动加载向各通道发布
+     * CONFIG_SET_SIG），最后 AoColdJunction，使其首条 CJC_SIG 能到达
+     * 每个订阅者。每个活动对象都在自己的状态机初始转换中订阅（QP/C 示例
+     * 风格；QActive_start() 在 QASM_INIT 之前注册该 AO）。
      */
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),

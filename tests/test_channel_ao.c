@@ -1,23 +1,18 @@
 /**
  * @file test_channel_ao.c
- * @brief Host event-injection tests for the channel acquisition AO.
+ * @brief 通道采集 AO 的宿主事件注入测试。
  *
- * Drives the real QHsm dispatch loop (QActive_get_ -> QASM_DISPATCH ->
- * QF_gc, the same triple the QV kernel runs) with tick injection through
- * QTIMEEVT_TICK_X. The interleaving sweep runs against the real state
- * machine, and the fake analog input's call log is the trajectory
- * evidence.
+ * 驱动真实的 QHsm 派发循环（QActive_get_ -> QASM_DISPATCH -> QF_gc，与 QV 内核
+ * 执行的同一三元组），并通过 QTIMEEVT_TICK_X 注入节拍。交错扫掠针对真实状态机
+ * 运行，假模拟量输入的调用日志就是轨迹证据。
  *
- * The recorder AO observes MEASURE_SIG and CFG_APPLIED_SIG: CFG_APPLIED_SIG
- * is the acceptance path.
+ * 记录器 AO 观察 MEASURE_SIG 与 CFG_APPLIED_SIG：CFG_APPLIED_SIG 是接受路径。
  *
- * Host-scope note: the sweep proves the queue-order discipline of
- * docs/ao/channel_ao.md section 6 (a timer event already queued when the
- * reconfiguration is dispatched must be consumed by the old state or
- * ignored in Unconfigured). Expiry landing between two actions of one
- * RTC step cannot happen on the single-threaded host; on target it is
- * excluded structurally by disarming before posting APPLY_SIG, and the
- * deadline assertions below would catch any dispatch-visible regression.
+ * 宿主范围说明：扫掠证明 docs/ao/channel_ao.md 第 6 节的队列顺序纪律（重配置被
+ * 派发时已经入队的定时器事件，必须由旧状态消费，或在 Unconfigured 中被忽略）。
+ * 在单线程宿主上，到期不可能落在同一 RTC 步进的两个动作之间；在目标板上，通过
+ * 在投递 APPLY_SIG 之前解除定时从结构上排除，且下面的截止时间断言会捕获任何
+ * 派发可见的回归。
  */
 
 #include <stdint.h>
@@ -45,7 +40,7 @@ static int failures;
     } while ( 0 )
 
 /*----------------------------------------------------------------------------*/
-/* Harness                                                                    */
+/* 测试夹具                                                                   */
 /*----------------------------------------------------------------------------*/
 
 static channel_ao_t ao;
@@ -55,17 +50,17 @@ static QSubscrList subscr[MAX_SIG];
 static QF_MPOOL_EL(measure_evt_t) pool_a[APP_POOL_A_BLOCK_NUM];
 static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 
-/* Publish observer: a plain QActive whose queue the test drains directly. */
+/* 发布观察者：一个普通 QActive，测试直接排空它的队列。 */
 static QActive recorder;
 static QEvtPtr rec_queue[32];
 static uint8_t ao_started;
 static uint8_t rec_started;
 
-/** @brief Acceptance events observed since scenario start (CFG_APPLIED_SIG). */
+/** @brief 自场景开始以来观察到的接受事件（CFG_APPLIED_SIG）。 */
 static uint16_t applied_count;
 static uint8_t applied_ch;
 
-/** @brief Bookkeeping for one non-MEASURE observer event. */
+/** @brief 为一条非 MEASURE 观察者事件记账。 */
 static void rec_absorb(QEvt const* e)
 {
     if ( e->sig == CFG_APPLIED_SIG ) {
@@ -74,7 +69,7 @@ static void rec_absorb(QEvt const* e)
     }
 }
 
-/** @brief Drain the recorder queue and count the MEASURE_SIG events it held. */
+/** @brief 排空记录器队列，并统计其中持有的 MEASURE_SIG 事件。 */
 static uint16_t rec_drain(void)
 {
     uint16_t n = 0U;
@@ -92,7 +87,7 @@ static uint16_t rec_drain(void)
     return n;
 }
 
-/** @brief Pop one MEASURE_SIG event; NULL when the queue holds none. */
+/** @brief 取出一条 MEASURE_SIG 事件；队列中没有时返回 NULL。 */
 static QEvt const* rec_take(void)
 {
     while ( !QEQueue_isEmpty(&recorder.eQueue) ) {
@@ -131,7 +126,7 @@ static void drain(void)
     }
 }
 
-/** @brief Drain the AO and recycle every observer event, pool-safe. */
+/** @brief 排空 AO 并回收每条观察者事件，事件池安全。 */
 static void drain_all(void)
 {
     drain();
@@ -139,10 +134,10 @@ static void drain_all(void)
 }
 
 /**
- * @brief Advance virtual time with continuous draining, like the QV loop.
+ * @brief 像 QV 循环那样，在持续排空的同时推进虚拟时间。
  *
- * Settle deadlines are armed during dispatches, so ticks must interleave
- * with draining or the next deadline never lands inside the budget.
+ * 稳定截止时间是在派发过程中设置的，因此节拍必须与排空交错，否则下一个截止
+ * 时间永远不会落在预算之内。
  */
 static void run_ticks(uint32_t n)
 {
@@ -168,8 +163,8 @@ static QState rec_handler(QHsm* const me, QEvt const* const e)
 }
 
 /**
- * @brief Bring the AO up (its initial transition runs inside QActive_start)
- *        and subscribe the recorder to MEASURE_SIG and CFG_APPLIED_SIG.
+ * @brief 启动 AO（其初始迁移在 QActive_start 内运行），
+ *        并让记录器订阅 MEASURE_SIG 与 CFG_APPLIED_SIG。
  */
 static void scenario_begin(void)
 {
@@ -183,7 +178,7 @@ static void scenario_begin(void)
         QActive_unregister_(&recorder);
     }
 
-    /* Wipe every subscription so re-subscription cannot double-deliver. */
+    /* 清除所有订阅，使重复订阅不会造成重复投递。 */
     memset(subscr, 0, sizeof(subscr));
     QActive_psInit(subscr, MAX_SIG);
 
@@ -205,7 +200,7 @@ static void scenario_begin(void)
     QActive_subscribe(&recorder, CFG_APPLIED_SIG);
 }
 
-/** @brief Expected sample rate of a rate code in mHz (APP_RATE_LIST). */
+/** @brief 某个速率码的期望采样率（mHz，APP_RATE_LIST）。 */
 static uint32_t rate_mhz_of(uint16_t code)
 {
     static const uint32_t table[] = {
@@ -217,7 +212,7 @@ static uint32_t rate_mhz_of(uint16_t code)
     return (code < (sizeof(table) / sizeof(table[0]))) ? table[code] : 0U;
 }
 
-/** @brief Publish one configuration for channel 1. */
+/** @brief 为通道 1 发布一份配置。 */
 static void publish_config(uint8_t type,
                            uint8_t tc_type,
                            uint16_t rate_code)
@@ -235,7 +230,7 @@ static void publish_config(uint8_t type,
     QACTIVE_PUBLISH(&e->super, (void*)0);
 }
 
-/** @brief Publish one cold junction heartbeat. */
+/** @brief 发布一次冷端心跳。 */
 static void publish_cjc(float temp_c,
                         uint8_t valid)
 {
@@ -247,26 +242,26 @@ static void publish_cjc(float temp_c,
 }
 
 /**
- * @brief Feed one configuration and run the AO into Measuring.
+ * @brief 送入一份配置，并让 AO 运行到 Measuring。
  */
 static void drive_to_measuring(uint8_t type,
                                uint8_t tc_type,
                                uint16_t rate_code)
 {
     publish_config(type, tc_type, rate_code);
-    drain(); /* Unconfigured: pending + APPLY_SIG */
-    drain(); /* APPLY: configure, Working init, Detecting entry arms te_settle */
+    drain(); /* Unconfigured：pending + APPLY_SIG */
+    drain(); /* APPLY：configure、Working 初始化，Detecting 入口设置 te_settle */
     tick(fake.enable_delay_ms + 1U);
-    drain(); /* SETTLE: wire check, disable, Settling entry arms te_settle */
+    drain(); /* SETTLE：断线检查、关闭，Settling 入口设置 te_settle */
     tick(fake.disable_delay_ms + 1U);
-    drain(); /* SETTLE: first sample, Measuring entry arms te_sample */
+    drain(); /* SETTLE：首次采样，Measuring 入口设置 te_sample */
 }
 
 /*----------------------------------------------------------------------------*/
-/* Batch 1: the reconfiguration race, swept against the real state machine    */
+/* 批次 1：重配置竞态，针对真实状态机扫掠                                     */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Start states of the reconfiguration sweep. */
+/** @brief 重配置扫掠的起始状态。 */
 enum {
     SW_UNCONFIG = 0,
     SW_DETECTING,
@@ -275,15 +270,15 @@ enum {
 };
 
 /**
- * @brief One interleaving: reconfigure while timers run, then prove the
- *        re-entered era obeys its deadlines and the merge rule.
+ * @brief 一种交错：在定时器运行时重配置，然后证明重新进入的代次遵守
+ *        自己的截止时间与合并规则。
  *
- * @param start One of the SW_* start states.
- * @param settle_before Expire the armed timer before the reconfig is posted.
- * @param late_after_post Expire an armed timer after the post, before the
- *        reconfig dispatch (the event must be ignored in Unconfigured).
- * @param second_cfg Post a second reconfig before APPLY (pending merge).
- * @param post_ticks Ticks stirred after the APPLY dispatch.
+ * @param start SW_* 起始状态之一。
+ * @param settle_before 在投递重配置之前让已设置的定时器到期。
+ * @param late_after_post 在投递之后、重配置派发之前让已设置的定时器到期
+ *        （该事件必须在 Unconfigured 中被忽略）。
+ * @param second_cfg 在 APPLY 之前再投递一次重配置（pending 合并）。
+ * @param post_ticks APPLY 派发之后搅动的节拍数。
  */
 static void sweep_run(int start,
                       int settle_before,
@@ -298,7 +293,7 @@ static void sweep_run(int start,
     scenario_begin();
     baseline = fake.log_len;
 
-    /* Reach the requested start state. */
+    /* 到达请求的起始状态。 */
     if ( start == SW_DETECTING ) {
         publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
         drain();
@@ -311,23 +306,23 @@ static void sweep_run(int start,
         drain();
     } else if ( start == SW_MEASURING ) {
         drive_to_measuring((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
-    } else { /* SW_UNCONFIG: nothing to set up */
+    } else { /* SW_UNCONFIG：无需准备 */
     }
 
     if ( settle_before ) {
-        /* The deadline event queues ahead of the reconfig: the old state
-         * must consume it as genuine before the reconfig dispatch. */
+        /* 截止时间事件排在重配置之前入队：旧状态必须在重配置派发之前把它当作
+         * 真实事件消费。 */
         if ( start == SW_MEASURING ) {
-            tick(100U + 1U); /* te_sample period at 10 Hz */
+            tick(100U + 1U); /* 10 Hz 下的 te_sample 周期 */
         } else {
-            tick(201U); /* either settle deadline is at most 200 ms */
+            tick(201U); /* 任一稳定截止时间最长 200 ms */
         }
     }
 
     publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 5U); /* 20 Hz */
     if ( late_after_post ) {
-        /* A timer expiry between post and dispatch lands behind the
-         * reconfig in the FIFO; Unconfigured must ignore it. */
+        /* 投递与派发之间发生的定时器到期在 FIFO 中排在重配置之后；
+         * Unconfigured 必须忽略它。 */
         if ( start == SW_MEASURING ) {
             tick(100U + 1U);
         } else if ( !settle_before ) {
@@ -338,19 +333,19 @@ static void sweep_run(int start,
         publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 9U); /* 50 Hz */
     }
 
-    drain(); /* reconfig dispatch, ignored late events, APPLY re-entry */
+    drain(); /* 重配置派发、被忽略的迟到事件、APPLY 重入 */
     tick(post_ticks);
     drain();
 
-    /* Convergence: the new era must reach periodic sampling. */
+    /* 收敛：新代次必须达到周期采样。 */
     run_ticks(fake.enable_delay_ms + fake.disable_delay_ms + 2U * 40U);
     run_ticks(3U * 40U);
 
-    /* No assertion fired (Q_onError aborts) and both queues are empty. */
+    /* 没有触发断言（Q_onError 会中止），且两个队列都为空。 */
     CHECK(QEQueue_isEmpty(&ao.super.eQueue));
     CHECK(QEQueue_isEmpty(&recorder.eQueue));
 
-    /* Exactly one configure for the final generation, whatever merged. */
+    /* 不论如何合并，最终代次恰好一次 configure。 */
     new_cfg_count = 0U;
     for ( i = baseline; i < fake.log_len; ++i ) {
         if ( fake.log[i].op == (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE ) {
@@ -362,7 +357,7 @@ static void sweep_run(int start,
     }
     CHECK(new_cfg_count == 1U);
 
-    /* Old-era wire checks may only precede the new-era configure. */
+    /* 旧代次的断线检查只能出现在新代次的 configure 之前。 */
     {
         uint16_t cfg_idx          = 0U;
         uint8_t have_cfg          = 0U;
@@ -387,24 +382,24 @@ static void sweep_run(int start,
                 const analog_input_fake_call_t* c = &fake.log[i];
 
                 if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_ENABLE_BREAK ) {
-                    CHECK(enable == NULL); /* one era, one enable */
+                    CHECK(enable == NULL); /* 一代次一次 enable */
                     enable = c;
                 } else if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_CHECK_WIRE ) {
                     CHECK(c->rate == final_rate);
                     if ( check == NULL ) {
                         check = c;
-                        /* The deadline of the new era was respected. */
+                        /* 新代次的截止时间得到了遵守。 */
                         CHECK(enable != NULL);
                         CHECK(c->tick >= (enable->tick + fake.enable_delay_ms - 1U));
                     }
                 } else if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE ) {
-                    /* No sample under a foreign configuration. */
+                    /* 外来配置下不采样。 */
                     CHECK(c->rate == final_rate);
                     ++reads;
                 }
             }
             CHECK(check != NULL);
-            CHECK(reads >= 2U); /* convergence reached */
+            CHECK(reads >= 2U); /* 已收敛 */
         }
     }
 }
@@ -432,26 +427,26 @@ static void test_reconfig_sweep(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Batch 2: fixed trajectories                                                */
+/* 批次 2：固定轨迹                                                           */
 /*----------------------------------------------------------------------------*/
 
-/** @brief Check-before-measure: nothing is published before the first check. */
+/** @brief 先检查后测量：首次检查之前不发布任何内容。 */
 static void test_first_value_after_check(void)
 {
     scenario_begin();
-    publish_cjc(25.0f, 1U); /* steady state: samples are measurements */
+    publish_cjc(25.0f, 1U); /* 稳态：采样即为测量值 */
     drain();
     publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
     drain();
-    drain(); /* APPLY dispatched: Detecting entry, nothing published yet */
+    drain(); /* APPLY 已派发：进入 Detecting，尚未发布任何内容 */
     CHECK(rec_drain() == 0U);
 
     tick(fake.enable_delay_ms + 1U);
-    drain(); /* wire check completed, still nothing published from Detecting */
+    drain(); /* 断线检查完成，Detecting 仍未发布任何内容 */
     CHECK(rec_drain() == 0U);
 
     tick(fake.disable_delay_ms + 1U);
-    drain(); /* first sample: the reveal travels with the first value */
+    drain(); /* 首次采样：揭示随首个值一起发出 */
     {
         QEvt const* e = rec_take();
 
@@ -466,7 +461,7 @@ static void test_first_value_after_check(void)
     CHECK(rec_drain() == 0U);
 }
 
-/** @brief A wire break is revealed when the check completes, then frozen. */
+/** @brief 断线在检查完成时揭示，随后冻结。 */
 static void test_wire_break_reveal_and_freeze(void)
 {
     QEvt const* e;
@@ -476,7 +471,7 @@ static void test_wire_break_reveal_and_freeze(void)
     fake.check_wire = ANALOG_INPUT_WIRE_BROKEN;
     drive_to_measuring((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
 
-    /* Check-before-measure: the first value already carries the break. */
+    /* 先检查后测量：首个值就已经带有断线状态。 */
     e = rec_take();
     CHECK(e != NULL);
     status = (uint16_t)CH_STATUS_OK;
@@ -484,13 +479,13 @@ static void test_wire_break_reveal_and_freeze(void)
         measure_evt_t const* m = Q_EVT_CAST(measure_evt_t);
 
         status = m->status;
-        CHECK(m->value == 0.0f); /* frozen: no good sample was ever taken */
+        CHECK(m->value == 0.0f); /* 冻结：从未取到有效采样 */
         QF_gc(e);
     }
     CHECK(status == (uint16_t)CH_STATUS_TC_BREAK);
     rec_drain();
 
-    /* Every later sample stays frozen on the same status. */
+    /* 之后每次采样都冻结在同一状态。 */
     tick(200U);
     drain();
     tick(200U);
@@ -519,10 +514,9 @@ static void test_wire_break_reveal_and_freeze(void)
 }
 
 /**
- * @brief The wire verdict matrix through the detection loop.
+ * @brief 经由检测循环验证断线判定矩阵。
  *
- * The wire_status_code() status mapping is observable exactly here: a
- * completed check publishes the verdict immediately.
+ * wire_status_code() 的状态映射恰好在这里可观察：检查完成即立刻发布判定。
  */
 static void test_wire_code_matrix(void)
 {
@@ -532,19 +526,19 @@ static void test_wire_code_matrix(void)
         uint8_t wire;
         uint16_t expected;
     } cases[] = {
-        /* An intact circuit publishes nothing before the first sample. */
+        /* 完好回路在首次采样之前不发布任何内容。 */
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 0U, (uint16_t)CH_STATUS_OK},
         {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 0U, (uint16_t)CH_STATUS_OK},
-        /* Thermocouple: any open loop is status 2 (leads not resolvable). */
+        /* 热电偶：任何开路都是状态 2（引线不可分辨）。 */
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 1U, (uint16_t)CH_STATUS_TC_BREAK},
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U, (uint16_t)CH_STATUS_TC_BREAK},
         {(uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 3U, (uint16_t)CH_STATUS_TC_BREAK},
-        /* PT100: resolvable leads report 3 / 4. */
+        /* PT100：可分辨的引线报告 3 / 4。 */
         {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U, (uint16_t)CH_STATUS_RTD_LEAD_BREAK},
         {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 3U, (uint16_t)CH_STATUS_RTD_RETURN_BREAK},
-        /* Unresolvable PT100 break: front-end contract violation, status 6. */
+        /* 不可分辨的 PT100 断线：前端契约违规，状态 6。 */
         {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 1U, (uint16_t)CH_STATUS_HW_ERROR},
-        /* Unknown wire codes: status 6. */
+        /* 未知断线码：状态 6。 */
         {(uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 7U, (uint16_t)CH_STATUS_HW_ERROR}};
     size_t k;
 
@@ -553,13 +547,13 @@ static void test_wire_code_matrix(void)
         uint16_t status;
 
         scenario_begin();
-        publish_cjc(25.0f, 1U); /* steady state: status 0 is observable */
+        publish_cjc(25.0f, 1U); /* 稳态：状态 0 可观察 */
         drain();
         fake.check_wire = (analog_input_wire_status_t)cases[k].wire;
         drive_to_measuring(cases[k].type, cases[k].tc_type, 2U);
 
-        /* The first published value carries the mapped status: the break
-         * itself at check completion, status 0 with the first sample. */
+        /* 首个发布的值带有映射后的状态：检查完成时是断线本身，
+         * 首次采样时是状态 0。 */
         e = rec_take();
         CHECK(e != NULL);
         status = (uint16_t)CH_STATUS_OK;
@@ -575,12 +569,11 @@ static void test_wire_code_matrix(void)
 }
 
 /**
- * @brief A frozen verdict on a non-detectable type reports status 6.
+ * @brief 不可检测类型上的冻结判定报告状态 6。
  *
- * The wire verdict survives reconfiguration and is mapped through the new
- * type on every frozen sample; a non-detectable type can never run a new
- * check, so the front-end violation code holds (the 4-20 mA / 0-10 V rows
- * of the wire code matrix).
+ * 断线判定在重配置后仍然保留，并在每次冻结采样时通过新类型映射；不可检测的
+ * 类型永远无法执行新的检查，因此前端违规码成立（断线码矩阵中的 4-20 mA /
+ * 0-10 V 行）。
  */
 static void test_wire_code_frozen_non_detectable(void)
 {
@@ -599,8 +592,8 @@ static void test_wire_code_frozen_non_detectable(void)
 
         scenario_begin();
 
-        /* A PT100 check establishes the verdict; the frozen-wire rule
-         * keeps it across reconfiguration (channel_ao.md). */
+        /* 一次 PT100 检查建立判定；冻结断线规则让它在重配置后保留
+         *（channel_ao.md）。 */
         fake.check_wire = (analog_input_wire_status_t)cases[k].wire;
         publish_config((uint8_t)CH_TYPE_PT100, CH_TC_TYPE_NONE, 2U);
         drain();
@@ -631,7 +624,7 @@ static void test_wire_code_frozen_non_detectable(void)
     }
 }
 
-/** @brief TC sampling follows the cold junction validity heartbeat. */
+/** @brief TC 采样跟随冷端有效性心跳。 */
 static void test_cjc_validity_gates_tc_samples(void)
 {
     QEvt const* e;
@@ -680,7 +673,7 @@ static void test_cjc_validity_gates_tc_samples(void)
     rec_drain();
 }
 
-/** @brief A rejected configuration leaves the AO parked and reporting. */
+/** @brief 被拒绝的配置让 AO 停驻并持续上报。 */
 static void test_configure_failure_parks(void)
 {
     scenario_begin();
@@ -688,9 +681,9 @@ static void test_configure_failure_parks(void)
 
     publish_config((uint8_t)CH_TYPE_TC, (uint8_t)CH_TC_TYPE_K, 2U);
     drain();
-    drain(); /* APPLY fails: status 6 published, still Unconfigured */
+    drain(); /* APPLY 失败：发布状态 6，仍处于 Unconfigured */
 
-    /* A failed apply publishes no acceptance event. */
+    /* 失败的 apply 不发布接受事件。 */
     {
         QEvt const* e = rec_take();
 
@@ -705,7 +698,7 @@ static void test_configure_failure_parks(void)
     CHECK(applied_count == 0U);
     rec_drain();
 
-    /* No sampling while parked, but a rewritten configuration recovers. */
+    /* 停驻时不采样，但重写配置可以恢复。 */
     tick(1000U);
     drain();
     CHECK(rec_drain() == 0U);
@@ -714,19 +707,19 @@ static void test_configure_failure_parks(void)
     publish_config((uint8_t)CH_TYPE_4_20MA, CH_TC_TYPE_NONE, 2U);
     drain();
     drain();
-    tick(fake.enable_delay_ms + 1U); /* linear type: Settling only */
+    tick(fake.enable_delay_ms + 1U); /* 线性类型：只经 Settling */
     drain();
     tick(fake.disable_delay_ms + 1U);
     drain();
     CHECK(rec_drain() >= 1U);
 
-    /* The rewrite produced exactly one acceptance for channel 1. */
+    /* 重写为通道 1 恰好产生一次接受。 */
     CHECK(applied_count == 1U);
     CHECK(applied_ch == 0U);
 }
 
 /**
- * @brief Every rate code drives the board tier rate and the sample period.
+ * @brief 每个速率码都能驱动板级档位速率和采样周期。
  */
 static void test_rate_table(void)
 {
@@ -747,7 +740,7 @@ static void test_rate_table(void)
         scenario_begin();
         drive_to_measuring((uint8_t)CH_TYPE_4_20MA, CH_TC_TYPE_NONE, code);
 
-        /* The configure call carries the board tier rate in mHz. */
+        /* configure 调用携带板级档位速率（mHz）。 */
         for ( i = 0U; i < fake.log_len; ++i ) {
             c = analog_input_fake_at(&fake, i);
             if ( c->op == (uint8_t)ANALOG_INPUT_FAKE_CONFIGURE ) {
@@ -757,14 +750,14 @@ static void test_rate_table(void)
         }
         CHECK(have_cfg != 0U);
 
-        /* The sampling timer arms the rounded-up period in 1 ms ticks:
-         * realized rate stays at or below nominal and within 4 %. */
+        /* 采样定时器按 1 ms 节拍设置向上取整后的周期：
+         * 实际速率保持在标称值或以下，且偏差在 4 % 以内。 */
         ticks = ao.te_sample.interval;
         CHECK(ticks == ((1000000U + mhz - 1U) / mhz));
         CHECK((mhz * ticks) >= 1000000U);
         CHECK((mhz * ticks) <= 1041666U);
 
-        /* Recycle every observer event before the next scenario. */
+        /* 在下一个场景之前回收每条观察者事件。 */
         drain_all();
     }
 }

@@ -3,11 +3,10 @@
 
 /**
  * @file channel_ao.h
- * @brief Channel acquisition active object (one instance per channel).
+ * @brief 通道采集活动对象（每通道一个实例）。
  *
- * Owns the whole acquisition life cycle of one channel: configuration
- * application, sampling, calibration, the wire break detection loop and the
- * channel status. See docs/ao/channel_ao.md.
+ * 拥有单个通道的整个采集生命周期：配置应用、采样、校准、断线检测循环
+ * 以及通道状态。参见 docs/ao/channel_ao.md。
  */
 
 #include "analog_input.h"
@@ -19,37 +18,39 @@
 extern "C" {
 #endif
 
-/** @brief Queue depth (boot burst + CJC + tick + APPLY events = 13; no explicit margin, safety comes from the QV drain property). */
+/**
+ * @brief 队列深度（启动突发 + CJC + 节拍 + APPLY 事件 = 13；不设显式裕量，
+ *        安全性来自 QV 排空特性）。
+ */
 #define CHANNEL_AO_QUEUE_LEN 13U
 
-/** @brief Wire break check period in ticks (3 s). */
+/** @brief 断线检查周期，单位 tick（3 s）。 */
 #define CHANNEL_AO_BREAK_WINDOW_MS 3000U
 
-/** @brief AoChannel active object. */
+/** @brief AoChannel 活动对象。 */
 typedef struct {
-    QActive super;         /**< Active object base. */
-    QTimeEvt te_sample;    /**< Sampling period timer. */
-    QTimeEvt te_settle;    /**< Settle / check deadline timer. */
-    QTimeEvt te_break;     /**< Wire break window timer. */
-    analog_input_t* input; /**< Board channel object (borrowed). */
-    ch_config_t cfg;       /**< Effective configuration. */
-    ch_config_t pending;   /**< Configuration awaiting APPLY_SIG. */
-    float cjc_temp;        /**< Cached cold junction temperature. */
-    float last_value;      /**< Latest published value (frozen on faults). */
-    uint32_t settle_ms;    /**< Delay for the next Settling entry. */
-    uint8_t cjc_valid;     /**< Cached cold junction validity. */
-    uint8_t wire;          /**< analog_input_wire_status_t of the last check. */
-    uint8_t ch;            /**< Zero-based channel index (0..COUNT-1); the
-                                same base as the event payloads and the
-                                mirror/KV storage. */
+    QActive super;         /**< 活动对象基类。 */
+    QTimeEvt te_sample;    /**< 采样周期定时器。 */
+    QTimeEvt te_settle;    /**< 稳定/检查期限定时器。 */
+    QTimeEvt te_break;     /**< 断线窗口定时器。 */
+    analog_input_t* input; /**< 板级通道对象（借用）。 */
+    ch_config_t cfg;       /**< 生效配置。 */
+    ch_config_t pending;   /**< 等待 APPLY_SIG 的配置。 */
+    float cjc_temp;        /**< 缓存的冷端温度。 */
+    float last_value;      /**< 最近发布的值（故障时冻结）。 */
+    uint32_t settle_ms;    /**< 下一次进入 Settling 的延迟。 */
+    uint8_t cjc_valid;     /**< 缓存的冷端有效性。 */
+    uint8_t wire;          /**< 最近一次检查的 analog_input_wire_status_t。 */
+    uint8_t ch;            /**< 通道索引，0 基（0..COUNT-1）；与事件载荷和
+                                镜像/KV 存储同基。 */
 } channel_ao_t;
 
 /**
- * @brief Construct one channel active object.
+ * @brief 构造一个通道活动对象。
  *
- * @param me Storage owned by the caller.
- * @param ch Zero-based channel index (0..CH_CONFIG_CHANNEL_COUNT-1).
- * @param input Board channel object to own; borrowed, must outlive this AO.
+ * @param me 调用者拥有的存储。
+ * @param ch 通道索引，0 基（0..CH_CONFIG_CHANNEL_COUNT-1）。
+ * @param input 要接管的板级通道对象；借用，其生命周期必须长于本 AO。
  */
 void channel_ao_ctor(channel_ao_t* me,
                      uint8_t ch,

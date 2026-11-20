@@ -20,7 +20,7 @@ static analog_input_status_t map_status(sig24131_status_t status)
     return ANALOG_INPUT_ERR_IO;
 }
 
-/** @brief CV/COM switch pins of one analog channel. */
+/** @brief 一个模拟通道的 CV/COM 开关引脚。 */
 typedef struct {
     gpio_type* cv_port;
     uint16_t cv_pin;
@@ -28,7 +28,7 @@ typedef struct {
     uint16_t com_pin;
 } front_end_switch_t;
 
-/* Optional channels compile out with SIG24131_BOARD_INSTANCE_COUNT. */
+/* 可选通道随 SIG24131_BOARD_INSTANCE_COUNT 一同编译剔除。 */
 static const front_end_switch_t switches[SIG24131_BOARD_INSTANCE_COUNT] = {
     {CTRL_CV_1_GPIO_PORT, CTRL_CV_1_PIN, CTRL_COM_1_GPIO_PORT, CTRL_COM_1_PIN},
     {CTRL_CV_2_GPIO_PORT, CTRL_CV_2_PIN, CTRL_COM_2_GPIO_PORT, CTRL_COM_2_PIN},
@@ -133,7 +133,7 @@ static void fill_break_config(sig24131_config_t* adc,
 
         case ANALOG_INPUT_TYPE_PT100:
             adc->reference = SIG24131_REF_INTERNAL_2V5;
-            /* REF_EN must stay off: it would drive REFP instead of measuring it. */
+            /* REF_EN 必须保持关闭：否则它会驱动 REFP 而不是测量 REFP。 */
             adc->internal_reference_enable = 0U;
             adc->gain                      = SIG24131_GAIN_1;
             adc->input_buffer_enable       = 1U;
@@ -150,7 +150,7 @@ static void fill_break_config(sig24131_config_t* adc,
 
 static uint8_t is_configured(const analog_input_board_t* instance)
 {
-    /* THERMOCOUPLE + NONE is the invalid sentinel left by the constructor. */
+    /* THERMOCOUPLE + NONE 是构造函数留下的无效哨兵值。 */
     if ( instance->base.config.type != ANALOG_INPUT_TYPE_THERMOCOUPLE ) {
         return 1U;
     }
@@ -191,7 +191,7 @@ static analog_input_status_t configure(analog_input_t* self,
                        ? ANALOG_INPUT_BOARD_DEFAULT_SAMPLE_RATE_MILLIHZ
                        : config->sample_rate_millihz;
 
-    /* The board is specified up to 100 Hz even though SIG24131 can go higher. */
+    /* 本板规格上限为 100 Hz，尽管 SIG24131 可以更高。 */
     if ( rate_millihz > ANALOG_INPUT_BOARD_MAX_SAMPLE_RATE_MILLIHZ ) {
         return ANALOG_INPUT_ERR_UNSUPPORTED;
     }
@@ -204,12 +204,12 @@ static analog_input_status_t configure(analog_input_t* self,
     fill_config(&adc, config->type);
     adc.data_rate = data_rate;
 
-    /* Switches first: writing CONF1 restarts the conversion. */
+    /* 先切换开关：写 CONF1 会重新启动转换。 */
     set_front_end(instance, config->type);
 
     status = map_status(sig24131_write_config(instance->device, &adc));
     if ( status != ANALOG_INPUT_OK ) {
-        /* The device may hold a partial configuration; drop the cached one. */
+        /* 器件可能只持有部分配置；丢弃已缓存的配置。 */
         mark_unconfigured(self);
         return status;
     }
@@ -342,7 +342,7 @@ static analog_input_status_t check_wire_break(analog_input_t* self,
         return status;
     }
 
-    /* Same data register; thresholds depend on the active detection mode. */
+    /* 同一数据寄存器；阈值取决于当前生效的检测模式。 */
     if ( self->config.type == ANALOG_INPUT_TYPE_PT100 ) {
         *wire_status = analog_input_convert_rtd_wire(sample_code);
     } else {

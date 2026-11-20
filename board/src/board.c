@@ -18,7 +18,7 @@
 #include "tmp75_board.h"
 
 /*----------------------------------------------------------------------------*/
-/* Error handling                                                             */
+/* 错误处理                                                                   */
 /*----------------------------------------------------------------------------*/
 
 Q_NORETURN Q_onError(char const* const module,
@@ -33,7 +33,7 @@ Q_NORETURN Q_onError(char const* const module,
     size_t i;
     static char const prefix[] = "Q_onError: ";
 
-    /* Build the line without stdio so this also works from interrupt context. */
+    /* 不借助 stdio 构造该行，因而在中断上下文中同样可用。 */
     for ( i = 0U; prefix[i] != '\0' && len < sizeof(line) - 16U; ++i ) {
         line[len++] = prefix[i];
     }
@@ -74,18 +74,18 @@ Q_NORETURN board_crit_error_(int id)
 
 void HardFault_Handler(void)
 {
-    /* Never return into the faulting code. */
+    /* 绝不返回到出错的代码中。 */
     Q_onError("HardFault", 0);
 }
 
 /*----------------------------------------------------------------------------*/
-/* Board critical section                                                     */
+/* 板级临界区                                                                 */
 /*----------------------------------------------------------------------------*/
 
-/* Shared by QP and board modules; only the board.h macros may touch it. */
+/* 由 QP 与板级模块共享；只有 board.h 的宏可以访问它。 */
 uint32_t volatile board_crit_nest;
 
-/* Strong override of qv_port.c's weak, non-nesting versions. */
+/* 对 qv_port.c 中弱定义、不可嵌套版本的强覆盖。 */
 void QF_crit_entry_(void)
 {
     board_critical_enter();
@@ -97,7 +97,7 @@ void QF_crit_exit_(void)
 }
 
 /*----------------------------------------------------------------------------*/
-/* Board time                                                                 */
+/* 板级时间                                                                   */
 /*----------------------------------------------------------------------------*/
 
 static volatile uint32_t systick_ctr;
@@ -111,20 +111,20 @@ void SysTick_Handler(void)
 {
     ++systick_ctr;
 
-    /* 1 ms clock tick for the QP time events (rate 0). */
+    /* 供 QP 时间事件使用的 1 ms 时钟节拍（rate 0）。 */
     QTIMEEVT_TICK_X(0U, (void*)0);
 
-    /* Cortex-M4 erratum 838869 workaround: DSB before ISR exit. */
+    /* Cortex-M4 勘误 838869 的规避措施：ISR 退出前执行 DSB。 */
     QV_ARM_ERRATUM_838869();
 }
 
 /*----------------------------------------------------------------------------*/
-/* QP port lifecycle                                                          */
+/* QP 端口生命周期                                                            */
 /*----------------------------------------------------------------------------*/
 
 void QF_onStartup(void)
 {
-    /* 1 ms tick feeds board_tick_get(); priorities must match the board port. */
+    /* 1 ms 节拍为 board_tick_get() 提供时基；优先级必须与板级端口一致。 */
     systick_interrupt_config(1000);
     wk_nvic_config();
 }
@@ -135,16 +135,16 @@ void QF_onCleanup(void)
 
 void QV_onIdle(void)
 {
-    /* Entered with interrupts disabled; the QV kernel re-disables them
-     * right after this callback returns, so it must leave them enabled. */
+    /* 进入时中断已关闭；QV 内核在本回调返回后会立即再次关闭中断，
+     * 因此这里必须让中断保持开启。 */
     QF_INT_ENABLE();
 }
 
 /*----------------------------------------------------------------------------*/
-/* Board bring-up                                                             */
+/* 板级初始化                                                                 */
 /*----------------------------------------------------------------------------*/
 
-/** @brief TMP75 power-on settle wait at the end of board_init (ms). */
+/** @brief board_init 末尾等待 TMP75 上电稳定的时间（ms）。 */
 #define TMP75_SETTLE_WAIT_MS 300U
 
 void board_init(void)
@@ -154,20 +154,20 @@ void board_init(void)
     i2c_soft_status_t i2c_status;
     tmp75_status_t tmp75_status;
 
-    /* Clock and flash wait states must be configured first. */
+    /* 必须先配置时钟与 Flash 等待周期。 */
     wk_system_clock_config();
     wk_periph_clock_config();
 
-    /* wk_delay_us/ms and the SIG24131 reset wait depend on this timebase. */
+    /* wk_delay_us/ms 与 SIG24131 复位等待都依赖该时基。 */
     wk_timebase_init();
 
-    /* GPIO first: DE must be low and chip selects released before the buses start. */
+    /* 先配置 GPIO：总线启动前 DE 必须为低且片选已释放。 */
     wk_gpio_config();
     wk_usart1_init();
     wk_spi1_init();
     wk_tmr14_init();
 
-    /* All devices are reset first, then share one 43 ms settling wait. */
+    /* 先复位所有器件，然后共用一次 43 ms 稳定等待。 */
     sig_status = sig24131_board_ctor_all();
     if ( sig_status != SIG24131_OK ) {
         elog_error("board", "sig24131_board_ctor_all failed (%d)",
@@ -179,7 +179,7 @@ void board_init(void)
                    (int)sig_status);
     }
 
-    /* The SIG24131 reset already waited 43 ms, which also settles the TMP75. */
+    /* SIG24131 复位已等待 43 ms，这同时让 TMP75 稳定。 */
     i2c_status = i2c_soft_board_init();
     if ( i2c_status != I2C_SOFT_OK ) {
         elog_error("board", "i2c_soft_board_init failed (%d)",
@@ -191,7 +191,7 @@ void board_init(void)
                    (int)tmp75_status);
     }
 
-    /* Probe proves wiring and address only; it carries no temperature. */
+    /* 探测仅验证接线与地址；不携带温度。 */
     if ( i2c_status == I2C_SOFT_OK ) {
         i2c_status = i2c_soft_probe(i2c_soft_board_get(),
                                     TMP75_BOARD_ADDRESS);
@@ -205,7 +205,7 @@ void board_init(void)
         }
     }
 
-    /* Construction only; the application configures each channel. */
+    /* 仅完成构造；各通道由应用层配置。 */
     analog_status = analog_input_board_ctor_all();
     if ( analog_status != ANALOG_INPUT_OK ) {
         elog_error("board", "analog_input_board_ctor_all failed (%d)",

@@ -3,10 +3,10 @@
 
 /**
  * @file cold_junction_ao.h
- * @brief Cold junction temperature active object (TMP75).
+ * @brief 冷端温度活动对象（TMP75）。
  *
- * Sole owner of the TMP75 and the shared soft I2C bus; publishes the CJC_SIG
- * heartbeat once per second. See docs/ao/cold_junction_ao.md.
+ * TMP75 与共享软 I2C 总线的唯一所有者；每秒发布一次 CJC_SIG 心跳。参见
+ * docs/ao/cold_junction_ao.md。
  */
 
 #include "qpc.h"
@@ -17,36 +17,36 @@
 extern "C" {
 #endif
 
-/** @brief Queue depth (1 Hz tick plus margin). */
+/** @brief 队列深度（1 Hz 节拍加裕量）。 */
 #define COLD_JUNCTION_AO_QUEUE_LEN 4U
 
-/** @brief Lowest plausible cold junction temperature. */
+/** @brief 冷端温度合理下限。 */
 #define COLD_JUNCTION_AO_MIN_TEMP_C (-30.0f)
 
-/** @brief Highest plausible cold junction temperature. */
+/** @brief 冷端温度合理上限。 */
 #define COLD_JUNCTION_AO_MAX_TEMP_C 85.0f
 
-/** @brief Consecutive failures that invalidate the reading. */
+/** @brief 使读数失效的连续失败次数。 */
 #define COLD_JUNCTION_AO_ERR_LIMIT 3U
 
-/** @brief Cold junction heartbeat period in ticks. */
+/** @brief 冷端心跳周期，单位 tick。 */
 #define COLD_JUNCTION_AO_TICK_MS 1000U
 
-/** @brief AoColdJunction active object. */
+/** @brief AoColdJunction 活动对象。 */
 typedef struct {
-    QActive  super;     /**< Active object base. */
-    QTimeEvt te_tick;   /**< 1 Hz heartbeat timer. */
-    tmp75_t* dev;       /**< TMP75 driver object; borrowed, must outlive this AO. */
-    float    temp_c;    /**< Latest valid temperature. */
-    uint8_t  err_cnt;   /**< Consecutive read failures, saturating. */
-    uint8_t  have_reading; /**< Non-zero once a reading succeeded. */
+    QActive super;        /**< 活动对象基类。 */
+    QTimeEvt te_tick;     /**< 1 Hz 心跳定时器。 */
+    tmp75_t* dev;         /**< TMP75 驱动对象；借用，其生命周期必须长于本 AO。 */
+    float temp_c;         /**< 最近一次有效温度。 */
+    uint8_t err_cnt;      /**< 连续读取失败次数，饱和计数。 */
+    uint8_t have_reading; /**< 一旦有读取成功即非零。 */
 } cold_junction_ao_t;
 
 /**
- * @brief Construct the cold junction active object.
+ * @brief 构造冷端活动对象。
  *
- * @param me Storage owned by the caller.
- * @param dev TMP75 driver object; borrowed, must outlive this AO.
+ * @param me 调用者拥有的存储。
+ * @param dev TMP75 驱动对象；借用，其生命周期必须长于本 AO。
  */
 void cold_junction_ao_ctor(cold_junction_ao_t* me,
                            tmp75_t* dev);

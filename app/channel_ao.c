@@ -1,12 +1,11 @@
 /**
  * @file channel_ao.c
- * @brief Channel acquisition active object state machine (QHsm, hand coded).
+ * @brief 通道采集活动对象状态机（QHsm，手写）。
  *
- * Reconfiguration is structurally isolated (docs/ao/channel_ao.md section 6):
- * CONFIG_SET_SIG disarms the timers first, caches the pending configuration,
- * posts APPLY_SIG and leaves for Unconfigured; the real configure() runs on
- * the next dispatch, so every late timer event lands in Unconfigured and is
- * ignored there.
+ * 改配在结构上被隔离（docs/ao/channel_ao.md 第 6 节）：CONFIG_SET_SIG 先
+ * 撤防定时器、缓存待应用配置、投递 APPLY_SIG 并转入 Unconfigured；真正的
+ * configure() 在下一个派发中执行，因此任何迟到的定时器事件都会落入
+ * Unconfigured 并在那里被忽略。
  */
 
 #include "channel_ao.h"
@@ -16,24 +15,24 @@
 
 Q_DEFINE_THIS_MODULE("channel_ao")
 
-/** @brief Reconfiguration re-entry event; shared by all eight instances. */
+/** @brief 改配重入事件；由全部八个实例共享。 */
 static QEvt const applyEvt = QEVT_INITIALIZER(APPLY_SIG);
 
-/* wire_status_code() relies on this wire result encoding. */
+/* wire_status_code() 依赖这一断线结果编码。 */
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_NORMAL == 0);
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN == 1);
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN_LEAD == 2);
 Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN_RETURN == 3);
 
-/* The channel type codes must match the analog_input_type_t encoding. */
+/* 通道类型码必须与 analog_input_type_t 的编码一致。 */
 Q_ASSERT_STATIC((int)CH_TYPE_TC == (int)ANALOG_INPUT_TYPE_THERMOCOUPLE);
 Q_ASSERT_STATIC((int)CH_TYPE_PT100 == (int)ANALOG_INPUT_TYPE_PT100);
 Q_ASSERT_STATIC((int)CH_TYPE_4_20MA == (int)ANALOG_INPUT_TYPE_4_20MA);
 Q_ASSERT_STATIC((int)CH_TYPE_0_10V == (int)ANALOG_INPUT_TYPE_0_10V);
 
-/* The thermocouple type codes must match the driver encoding as well.
- * The "none" sentinels differ on purpose (CH_TC_TYPE_NONE is the register
- * encoding's 0xFF, the driver uses -1) and apply_pending() converts. */
+/* 热电偶分度类型码同样必须与驱动编码一致。“无”哨兵值有意不同
+ * （CH_TC_TYPE_NONE 是寄存器编码的 0xFF，驱动用 -1），由 apply_pending()
+ * 转换。 */
 Q_ASSERT_STATIC((int)CH_TC_TYPE_B == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_B);
 Q_ASSERT_STATIC((int)CH_TC_TYPE_E == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_E);
 Q_ASSERT_STATIC((int)CH_TC_TYPE_J == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_J);
@@ -43,7 +42,7 @@ Q_ASSERT_STATIC((int)CH_TC_TYPE_R == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_R);
 Q_ASSERT_STATIC((int)CH_TC_TYPE_S == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_S);
 Q_ASSERT_STATIC((int)CH_TC_TYPE_T == (int)ANALOG_INPUT_THERMOCOUPLE_TYPE_T);
 
-/** @brief Sample rates of the rate codes, in mHz (the board's tier list). */
+/** @brief 各速率码对应的采样速率，单位 mHz（板级档位表）。 */
 static const uint32_t rate_millihz_table[CH_CONFIG_RATE_CODE_COUNT] = {
 #define X(rate_name, millihertz) millihertz,
     APP_RATE_LIST(X)
@@ -59,7 +58,7 @@ static QState channel_ao_settling(channel_ao_t* const me, QEvt const* const e);
 static QState channel_ao_measuring(channel_ao_t* const me, QEvt const* const e);
 
 /**
- * @brief Report whether the input type runs the wire break detection loop.
+ * @brief 判断该输入类型是否走断线检测循环。
  */
 static bool detectable(const channel_ao_t* me)
 {
@@ -68,15 +67,14 @@ static bool detectable(const channel_ao_t* me)
 }
 
 /**
- * @brief Map a wire break check result to the channel status code.
+ * @brief 把断线检查结果映射为通道状态码。
  *
- * The wire status argument uses the analog_input_wire_status_t encoding
- * (0 normal, 1 broken unresolvable, 2 broken lead, 3 broken return).
+ * 断线状态参数使用 analog_input_wire_status_t 编码（0 正常，1 断线不可
+ * 分辨，2 激励线断，3 回流线断）。
  *
- * @return 0 for normal, 2 for any thermocouple break, 3/4 for a resolvable
- *         PT100 break, 6 for an unresolvable PT100 break (front-end
- *         contract violation), a non-detectable type or an unknown wire
- *         code.
+ * @return 正常返回 0；热电偶断线一律返回 2；PT100 可分辨断线返回 3/4；
+ *         PT100 不可分辨断线（前端契约违约）、不可检测的类型或未知断线码
+ *         返回 6。
  */
 static uint16_t wire_status_code(uint8_t cfg_type,
                                  uint8_t wire_status)
@@ -86,7 +84,7 @@ static uint16_t wire_status_code(uint8_t cfg_type,
     }
 
     if ( cfg_type == (uint8_t)CH_TYPE_TC ) {
-        /* A thermocouple loop cannot report which lead is open. */
+        /* 热电偶回路无法报告是哪根线开路。 */
         return (uint16_t)CH_STATUS_TC_BREAK;
     }
 
@@ -99,11 +97,11 @@ static uint16_t wire_status_code(uint8_t cfg_type,
         }
     }
 
-    /* Unresolvable PT100 break or non-detectable type: front-end violation. */
+    /* PT100 不可分辨断线或不可检测类型：前端契约违约。 */
     return (uint16_t)CH_STATUS_HW_ERROR;
 }
 
-/** @brief Sample rate of a rate code in millihertz (0 for an invalid code). */
+/** @brief 速率码对应的采样速率，单位毫赫兹（无效码返回 0）。 */
 static uint32_t rate_millihz(uint16_t code)
 {
     if ( code > CH_CONFIG_RATE_CODE_MAX ) {
@@ -113,9 +111,9 @@ static uint32_t rate_millihz(uint16_t code)
 }
 
 /**
- * @brief Sample period of a rate code in 1 ms ticks: ceil(1e6 / rate_mhz).
+ * @brief 速率码对应的采样周期，单位 1 ms tick：ceil(1e6 / rate_mhz)。
  *
- * Rounding up keeps the realized rate at or below the nominal rate.
+ * 向上取整使实际速率不高于标称速率。
  */
 static uint32_t rate_ticks(uint16_t code)
 {
@@ -128,7 +126,7 @@ static uint32_t rate_ticks(uint16_t code)
 }
 
 /**
- * @brief Publish one MEASURE_SIG event (frozen value on fault codes).
+ * @brief 发布一条 MEASURE_SIG 事件（故障码时值为冻结值）。
  */
 static void publish(channel_ao_t* me, float value, uint16_t status)
 {
@@ -141,7 +139,7 @@ static void publish(channel_ao_t* me, float value, uint16_t status)
 }
 
 /**
- * @brief Publish one CFG_APPLIED_SIG acceptance event for this channel.
+ * @brief 为本通道发布一条 CFG_APPLIED_SIG 接受事件。
  */
 static void publish_applied(channel_ao_t* me)
 {
@@ -152,7 +150,7 @@ static void publish_applied(channel_ao_t* me)
 }
 
 /**
- * @brief One sampling step: read, convert, calibrate, publish.
+ * @brief 一次采样步骤：读取、转换、校准、发布。
  */
 static void do_sample(channel_ao_t* me)
 {
@@ -161,7 +159,7 @@ static void do_sample(channel_ao_t* me)
     float value;
 
     if ( me->wire != (uint8_t)ANALOG_INPUT_WIRE_NORMAL ) {
-        /* Frozen value, frozen wire verdict until the next check. */
+        /* 值冻结，断线判定维持到下一次检查。 */
         publish(me, me->last_value,
                 wire_status_code(me->cfg.type, me->wire));
         return;
@@ -193,9 +191,9 @@ static void do_sample(channel_ao_t* me)
 }
 
 /**
- * @brief Apply the pending configuration: the APPLY_SIG re-entry step.
+ * @brief 应用待生效配置：APPLY_SIG 重入步骤。
  *
- * @return true when the driver accepted the configuration.
+ * @return 驱动接受该配置时返回 true。
  */
 static bool apply_pending(channel_ao_t* me)
 {
@@ -209,7 +207,7 @@ static bool apply_pending(channel_ao_t* me)
     acfg.sample_rate_millihz = rate_millihz(me->pending.rate_code);
 
     if ( analog_input_configure(me->input, &acfg, &delay) != ANALOG_INPUT_OK ) {
-        /* Legal exception: report and stay unconfigured until rewritten. */
+        /* 合法异常：上报并保持未配置，直到被重新写入。 */
         publish(me, me->last_value, (uint16_t)CH_STATUS_HW_ERROR);
         return false;
     }
@@ -243,7 +241,7 @@ void channel_ao_ctor(channel_ao_t* me,
     me->cjc_valid  = 0U;
     me->wire       = (uint8_t)ANALOG_INPUT_WIRE_NORMAL;
 
-    /* Filled by CONFIG_SET_SIG before the measurement path is ever used. */
+    /* 在测量路径被使用之前由 CONFIG_SET_SIG 填充。 */
     me->cfg.type       = (uint8_t)CH_TYPE_TC;
     me->cfg.tc_type    = CH_TC_TYPE_NONE;
     me->cfg.rate_code  = 0U;
@@ -255,17 +253,16 @@ void channel_ao_ctor(channel_ao_t* me,
 }
 
 /**
- * @brief Top-most initial transition: subscribe and park.
+ * @brief 顶层初始转换：订阅并驻留。
  *
- * No status-1 report here: the boot publish would precede the AoModbus
- * subscription and be dropped. The mirror initial value (status = 1) is the
- * mechanism (docs/ao/channel_ao.md).
+ * 这里不发布状态 1：启动加载的发布将早于 AoModbus 的订阅而被丢弃。镜像
+ * 初值（status = 1）才是该机制（docs/ao/channel_ao.md）。
  */
 static QState channel_ao_initial(channel_ao_t* const me, void const* const par)
 {
     Q_UNUSED_PAR(par);
 
-    /* Subscriptions live in the initial transition (QP/C example style). */
+    /* 订阅在初始转换中完成（QP/C 示例风格）。 */
     QActive_subscribe(Q_ACTIVE_UPCAST(me), CONFIG_SET_SIG);
     QActive_subscribe(Q_ACTIVE_UPCAST(me), CJC_SIG);
 
@@ -273,7 +270,7 @@ static QState channel_ao_initial(channel_ao_t* const me, void const* const par)
 }
 
 /**
- * @brief Root state: common handling present in every state.
+ * @brief 根状态：所有状态共有的处理。
  */
 static QState channel_ao_root(channel_ao_t* const me, QEvt const* const e)
 {
@@ -297,10 +294,10 @@ static QState channel_ao_root(channel_ao_t* const me, QEvt const* const e)
 }
 
 /**
- * @brief Unconfigured: no effective configuration, the reconfiguration gate.
+ * @brief Unconfigured：无生效配置，改配闸门。
  *
- * The only exit is APPLY_SIG. No timer is ever armed here, so a late timer
- * event always lands in this state and is ignored (channel_ao.md section 6).
+ * 唯一出边是 APPLY_SIG。此处从不 arm 定时器，因此迟到的定时器事件必然
+ * 落入本状态并被忽略（channel_ao.md 第 6 节）。
  */
 static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const e)
 {
@@ -308,7 +305,7 @@ static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const 
 
     switch ( e->sig ) {
         case Q_ENTRY_SIG: {
-            /* Unconditional disarm; disarming a stopped timer is harmless. */
+            /* 无条件撤防；撤防已停止的定时器无副作用。 */
             (void)QTimeEvt_disarm(&me->te_sample);
             (void)QTimeEvt_disarm(&me->te_settle);
             (void)QTimeEvt_disarm(&me->te_break);
@@ -320,16 +317,16 @@ static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const 
                 me->pending = Q_EVT_CAST(config_set_evt_t)->cfg;
                 QACTIVE_POST(Q_ACTIVE_UPCAST(me), &applyEvt, Q_ACTIVE_UPCAST(me));
             }
-            /* Consecutive reconfigurations merge into the latest pending. */
+            /* 连续改配合并到最新的待应用配置。 */
             status = Q_HANDLED();
             break;
         }
         case APPLY_SIG: {
             if ( apply_pending(me) ) {
-                /* Success re-enters the measurement path via Working. */
+                /* 成功后经 Working 重入测量路径。 */
                 status = Q_TRAN(&channel_ao_working);
             } else {
-                /* Failure: report status 6 (done inside) and wait. */
+                /* 失败：上报状态 6（在内部完成）并等待。 */
                 status = Q_HANDLED();
             }
             break;
@@ -343,7 +340,7 @@ static QState channel_ao_unconfigured(channel_ao_t* const me, QEvt const* const 
 }
 
 /**
- * @brief Working: configured and running; common reconfiguration entry.
+ * @brief Working：配置已生效并运行中；改配的公共入口。
  */
 static QState channel_ao_working(channel_ao_t* const me, QEvt const* const e)
 {
@@ -351,7 +348,7 @@ static QState channel_ao_working(channel_ao_t* const me, QEvt const* const e)
 
     switch ( e->sig ) {
         case Q_INIT_SIG: {
-            /* Initial target is decided by the configured input type. */
+            /* 初始目标由已配置的输入类型决定。 */
             status = detectable(me)
                          ? Q_TRAN(&channel_ao_detecting)
                          : Q_TRAN(&channel_ao_settling);
@@ -360,10 +357,9 @@ static QState channel_ao_working(channel_ao_t* const me, QEvt const* const e)
         case CONFIG_SET_SIG: {
             if ( Q_EVT_CAST(config_set_evt_t)->ch == me->ch ) {
                 /*
-                 * Reconfiguration isolation. Disarm before posting APPLY_SIG:
-                 * a tick landing between post and disarm could queue a late
-                 * SETTLE behind APPLY_SIG and reach the re-entered leaf
-                 * (channel_ao.md section 6).
+                 * 改配隔离。先撤防再投递 APPLY_SIG：若某个节拍落在投递与
+                 * 撤防之间，迟到的 SETTLE 会排在 APPLY_SIG 之后入队并到达
+                 * 重入后的叶子状态（channel_ao.md 第 6 节）。
                  */
                 (void)QTimeEvt_disarm(&me->te_sample);
                 (void)QTimeEvt_disarm(&me->te_settle);
@@ -385,7 +381,7 @@ static QState channel_ao_working(channel_ao_t* const me, QEvt const* const e)
 }
 
 /**
- * @brief Detecting: hardware in wire break detection mode, value frozen.
+ * @brief Detecting：硬件处于断线检测模式，值冻结。
  */
 static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
 {
@@ -395,7 +391,7 @@ static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
         case Q_ENTRY_SIG: {
             uint32_t delay = 0U;
 
-            /* No publish here: the reveal happens when the check completes. */
+            /* 此处不发布：断线在检查完成时才揭示。 */
             (void)analog_input_enable_break_detection(me->input, &delay);
             QTimeEvt_armX(&me->te_settle, (delay != 0U) ? delay : 1U, 0U);
             status = Q_HANDLED();
@@ -416,14 +412,14 @@ static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
                 me->wire = (uint8_t)ws;
                 code     = wire_status_code(me->cfg.type, me->wire);
                 if ( code != (uint16_t)CH_STATUS_OK ) {
-                    /* A break is revealed the moment the check completes. */
+                    /* 断线在检查完成的瞬间揭示。 */
                     publish(me, me->last_value, code);
                     elog_debug("channel_ao", "ch%u wire break: %u",
                                (unsigned)me->ch, (unsigned)code);
                 }
-                /* Intact: status 0 travels with the first measurement. */
+                /* 完好：状态 0 随首个测量值一起上报。 */
             } else {
-                /* IO failure: report and retry on the following beats. */
+                /* IO 失败：上报并在后续节拍重试。 */
                 publish(me, me->last_value, (uint16_t)CH_STATUS_HW_ERROR);
             }
 
@@ -441,7 +437,7 @@ static QState channel_ao_detecting(channel_ao_t* const me, QEvt const* const e)
 }
 
 /**
- * @brief Settling: measurement mode, waiting for the first valid conversion.
+ * @brief Settling：测量模式，等待首个有效转换。
  */
 static QState channel_ao_settling(channel_ao_t* const me, QEvt const* const e)
 {
@@ -460,7 +456,7 @@ static QState channel_ao_settling(channel_ao_t* const me, QEvt const* const e)
             break;
         }
         case SETTLE_SIG: {
-            /* The first sample lands exactly on the settle point. */
+            /* 首次采样恰好落在稳定点。 */
             do_sample(me);
             status = Q_TRAN(&channel_ao_measuring);
             break;
@@ -474,7 +470,7 @@ static QState channel_ao_settling(channel_ao_t* const me, QEvt const* const e)
 }
 
 /**
- * @brief Measuring: periodic sampling, plus the 3 s wire break window.
+ * @brief Measuring：周期采样，外加 3 s 断线窗口。
  */
 static QState channel_ao_measuring(channel_ao_t* const me, QEvt const* const e)
 {
@@ -499,13 +495,13 @@ static QState channel_ao_measuring(channel_ao_t* const me, QEvt const* const e)
             break;
         }
         case SAMPLE_SIG: {
-            /* Periodic timer: nothing to re-arm. */
+            /* 周期定时器：无需重新 arm。 */
             do_sample(me);
             status = Q_HANDLED();
             break;
         }
         case BREAK_WINDOW_SIG: {
-            /* Mode switch happens in Detecting's entry action. */
+            /* 模式切换在 Detecting 的 entry 动作中完成。 */
             status = Q_TRAN(&channel_ao_detecting);
             break;
         }

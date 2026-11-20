@@ -3,11 +3,10 @@
 
 /**
  * @file elog.h
- * @brief Host no-op stub for EasyLogger, found before the middleware copy.
+ * @brief EasyLogger 的宿主空操作测试桩，排在中间件副本之前被找到。
  *
- * The host tests link the real active objects, not the logging chain; the
- * stub keeps their elog_debug() diagnostics compiling without any output
- * backend.
+ * 宿主测试链接真实的活动对象，而不是日志链路；测试桩让它们的 elog_debug()
+ * 诊断仍能编译，却没有任何输出后端。
  */
 
 #define elog_raw(...)   ((void)0)

@@ -1,16 +1,16 @@
-# dot files
+# 点文件
 /.vscode/launch.json
 /.settings
 /.eide/log
 /.eide.usr.ctx.json
 /.openchamber
 
-# project out
+# 工程输出
 /build
 /bin
 /obj
 /out
 
-# eide template
+# eide 模板
 *.ept
 *.eide-template

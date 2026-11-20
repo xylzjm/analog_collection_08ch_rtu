@@ -7,26 +7,26 @@ extern "C" {
 
 #include "stdint.h"
 
-/* Interrupt mask must match the QP port (PRIMASK or QF_USE_BASEPRI). */
+/* 中断屏蔽方式必须与 QP 端口一致（PRIMASK 或 QF_USE_BASEPRI）。 */
 #include "qp_config.h"
 
-/* Board topology facts (channel count, SKU knob), re-exported for consumers. */
+/* 板级拓扑事实（通道数量、SKU 开关），重新导出供使用方引用。 */
 #include "board_config.h"
 
-/** @brief Bring up the board hardware and board-level device objects. */
+/** @brief 初始化板级硬件与板级设备对象。 */
 void board_init(void);
 
-/** @brief Milliseconds since boot, from the SysTick counter. */
+/** @brief 自启动以来的毫秒数，取自 SysTick 计数器。 */
 uint32_t board_tick_get(void);
 
-/** @brief Report a critical-section contract violation; never returns. */
+/** @brief 上报临界区契约违规；不会返回。 */
 #ifdef __cplusplus
 [[noreturn]] void board_crit_error_(int id);
 #else
 _Noreturn void board_crit_error_(int id);
 #endif
 
-/** @brief Read the current interrupt-mask state. */
+/** @brief 读取当前中断屏蔽状态。 */
 static __inline __attribute__((always_inline)) uint32_t board_crit_state_(void)
 {
     uint32_t state;
@@ -39,7 +39,7 @@ static __inline __attribute__((always_inline)) uint32_t board_crit_state_(void)
     return state;
 }
 
-/** @brief Mask interrupts for the board critical section. */
+/** @brief 为板级临界区屏蔽中断。 */
 static __inline __attribute__((always_inline)) void board_crit_mask_(void)
 {
 #ifdef QF_USE_BASEPRI
@@ -49,7 +49,7 @@ static __inline __attribute__((always_inline)) void board_crit_mask_(void)
 #endif
 }
 
-/** @brief Restore interrupts after the board critical section. */
+/** @brief 板级临界区结束后恢复中断。 */
 static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
 {
 #ifdef QF_USE_BASEPRI
@@ -59,7 +59,7 @@ static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
 #endif
 }
 
-/** @brief Enter the nestable board critical section; the outermost entry expects interrupts enabled. */
+/** @brief 进入可嵌套的板级临界区；最外层进入时要求中断已开启。 */
 #define board_critical_enter()                                             \
     do {                                                                   \
         extern uint32_t volatile board_crit_nest;                          \
@@ -71,7 +71,7 @@ static __inline __attribute__((always_inline)) void board_crit_unmask_(void)
         ++board_crit_nest;                                                 \
     } while ( 0 )
 
-/** @brief Leave the nestable board critical section; only the outermost exit restores interrupts. */
+/** @brief 离开可嵌套的板级临界区；仅最外层退出时恢复中断。 */
 #define board_critical_exit()                                           \
     do {                                                                \
         extern uint32_t volatile board_crit_nest;                       \
