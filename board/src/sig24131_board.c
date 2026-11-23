@@ -110,16 +110,16 @@ sig24131_status_t sig24131_board_ctor(uint8_t channel)
     sig24131_port_t port;
     sig24131_status_t status;
 
-    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
         return SIG24131_ERR_ARG;
     }
 
-    port.ctx          = (void*)&cs_bindings[channel - 1U];
+    port.ctx          = (void*)&cs_bindings[channel];
     port.spi_transfer = spi_transfer;
     port.cs_assert    = cs_assert;
     port.cs_release   = cs_release;
 
-    status = sig24131_ctor(&devices[channel - 1U], &port);
+    status = sig24131_ctor(&devices[channel], &port);
     if ( status != SIG24131_OK ) {
         return status;
     }
@@ -132,7 +132,7 @@ sig24131_status_t sig24131_board_ctor_all(void)
     sig24131_status_t status;
     uint8_t channel;
 
-    for ( channel = 1U; channel <= SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+    for ( channel = 0U; channel < SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
         status = sig24131_board_ctor(channel);
         if ( status != SIG24131_OK ) {
             return status;
@@ -144,11 +144,11 @@ sig24131_status_t sig24131_board_ctor_all(void)
 
 sig24131_status_t sig24131_board_reset(uint8_t channel)
 {
-    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
         return SIG24131_ERR_ARG;
     }
 
-    return sig24131_reset(&devices[channel - 1U]);
+    return sig24131_reset(&devices[channel]);
 }
 
 sig24131_status_t sig24131_board_reset_all(void)
@@ -157,7 +157,7 @@ sig24131_status_t sig24131_board_reset_all(void)
     sig24131_status_t result = SIG24131_OK;
     uint8_t channel;
 
-    for ( channel = 1U; channel <= SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+    for ( channel = 0U; channel < SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
         status = sig24131_board_reset(channel);
         if ( status != SIG24131_OK && result == SIG24131_OK ) {
             result = status;
@@ -171,8 +171,8 @@ sig24131_status_t sig24131_board_reset_all(void)
 
 sig24131_t* sig24131_board_get_device(uint8_t channel)
 {
-    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
         return NULL;
     }
-    return &devices[channel - 1U];
+    return &devices[channel];
 }

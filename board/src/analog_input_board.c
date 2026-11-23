@@ -65,7 +65,7 @@ static void set_front_end(const analog_input_board_t* instance,
     uint8_t com;
     uint8_t cv;
 
-    entry = &switches[instance->channel - 1U];
+    entry = &switches[instance->channel];
     com   = (uint8_t)((type == ANALOG_INPUT_TYPE_PT100) ? 0U : 1U);
     cv    = (uint8_t)((type == ANALOG_INPUT_TYPE_4_20MA) ? 1U : 0U);
 
@@ -366,10 +366,10 @@ analog_input_status_t analog_input_board_ctor(uint8_t channel)
     analog_input_board_t* instance;
     analog_input_status_t status;
 
-    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
         return ANALOG_INPUT_ERR_ARG;
     }
-    instance = &instances[channel - 1U];
+    instance = &instances[channel];
 
     status = analog_input_ctor(&instance->base, &ops);
     if ( status != ANALOG_INPUT_OK ) {
@@ -385,7 +385,7 @@ analog_input_status_t analog_input_board_ctor_all(void)
     analog_input_status_t status;
     uint8_t channel;
 
-    for ( channel = 1U; channel <= SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+    for ( channel = 0U; channel < SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
         status = analog_input_board_ctor(channel);
         if ( status != ANALOG_INPUT_OK ) {
             return status;
@@ -396,8 +396,8 @@ analog_input_status_t analog_input_board_ctor_all(void)
 
 analog_input_t* analog_input_board_get(uint8_t channel)
 {
-    if ( channel == 0U || channel > SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
         return NULL;
     }
-    return &instances[channel - 1U].base;
+    return &instances[channel].base;
 }

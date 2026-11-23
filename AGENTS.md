@@ -99,8 +99,8 @@ EasyLogger、flashDB/FAL）。多根工作区文件把这两个目录都加了�
 - 启动顺序：通道、AoModbus、AoColdJunction。每个需要订阅的 AO 都在自己的初始迁移
   中完成订阅（QP/C 示例风格；`QActive_start()` 在运行 AO 之前完成注册），而启动
   加载（load_all + 发布）在 `QF_run()` 之前、于 AoModbus 的初始迁移内运行。
-- 通道索引在应用层从 0 开始（事件、`cfg/ch0`..`cfg/ch7` KV 键），但在板级 API 中
-  从 1 开始：`analog_input_board_get()` 接受 `i + 1`，与 `main.c` 的做法一致。
+- 通道索引在应用层和板级 API 中都从 0 开始（事件、`cfg/ch0`..`cfg/ch7` KV 键）：
+  `analog_input_board_get()` 接受 `i`，与 `main.c` 的做法一致。
 - `on_frame_received` 通过 `FRAME_SIG` 路由到 `modbus_slave_advance()`。目标板上
   的行为（时序、Flash 提交、断线码）尚未在硬件上验证。
 

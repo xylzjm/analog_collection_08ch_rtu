@@ -73,12 +73,12 @@ int main(void)
     QF_poolInit(pool_b, sizeof(pool_b), sizeof(pool_b[0]));
 
     /* 平台半配置；AO 在构造函数中构建从站核心并打开参数数据库。 */
-    modbus_ao_ctor(&modbus, modbus_slave_board_get(),
-                   modbus_slave_board_config());
+    modbus_ao_ctor(&modbus, modbus_slave_board_get(), modbus_slave_board_config());
 
     for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
-        channel_ao_ctor(&channels[i], (uint8_t)i,
-                        analog_input_board_get((uint8_t)(i + 1U)));
+        channel_ao_ctor(&channels[i],
+                        (uint8_t)i,
+                        analog_input_board_get((uint8_t)i));
     }
     cold_junction_ao_ctor(&cold_junction, tmp75_board_get_device());
 

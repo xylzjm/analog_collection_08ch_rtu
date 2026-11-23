@@ -17,7 +17,7 @@ extern "C" {
 /**
  * @brief 构造某个通道的驱动实例。
  *
- * @param channel 从 1 开始的通道号。
+ * @param channel 从 0 开始的通道号。
  * @return SIG24131_OK；通道无效时返回 SIG24131_ERR_ARG。
  * @note SPI1 与片选 GPIO 必须已初始化。
  */
@@ -29,7 +29,7 @@ sig24131_status_t sig24131_board_ctor_all(void);
 /**
  * @brief 复位单个器件，不等待其稳定。
  *
- * @param channel 从 1 开始的通道号。
+ * @param channel 从 0 开始的通道号。
  * @return SIG24131_OK；通道无效时返回 SIG24131_ERR_ARG。
  * @note 下一次寄存器访问前需等待 SIG24131_RESET_DELAY_MS。
  */

@@ -10,7 +10,7 @@
 | --- | --- |
 | 需求 | 按配置（TC/PT100/4-20 mA/0-10 V）周期采样输出校准工程量；TC/PT100 断线检测与测量互斥、3 s 切换；**先检后测**（上电/改配后先断线检查再出首值）；上报通道状态 |
 | 状态机 | QHsm 手写（`Q_TRAN`/`Q_SUPER`），一状态一处理函数 |
-| 独占资源 | `analog_input_t`（构造注入：`channel_ao_ctor(me, ch, input)`，组合根经 `analog_input_board_get(ch + 1)` 接线——板级 API 1 基，AO/事件层 0 基）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
+| 独占资源 | `analog_input_t`（构造注入：`channel_ao_ctor(me, ch, input)`，组合根经 `analog_input_board_get(ch)` 接线——板级 API 与 AO/事件层均 0 基）：SIG24131 配置/读数、CV/COM 前端开关、IDAC |
 | 依赖接口 | `analog_input.h` 六操作：`configure / read_sample / convert / enable_break_detection / disable_break_detection / check_wire_break`（全部非阻塞，延迟经出参返回） |
 | 扩展变量 | `cfg`（生效配置）、`pending`（待应用）、`cjc_temp`/`cjc_valid` 缓存、`wire`（断线结果）、`last_value`、`settle_ms` |
 

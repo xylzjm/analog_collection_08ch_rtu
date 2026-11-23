@@ -108,13 +108,13 @@ extern "C" {
 typedef struct {
     analog_input_t base; /**< 接口基对象；必须位于首位。 */
     sig24131_t* device;  /**< 借用的 SIG24131 驱动实例。 */
-    uint8_t channel;     /**< 从 1 开始的板级通道号。 */
+    uint8_t channel;     /**< 从 0 开始的板级通道号。 */
 } analog_input_board_t;
 
 /**
  * @brief 构造一个板级通道的模拟输入对象。
  *
- * @param channel 从 1 开始的板级通道号。
+ * @param channel 从 0 开始的板级通道号。
  * @return ANALOG_INPUT_OK；通道无效时返回 ANALOG_INPUT_ERR_ARG。
  * @note 仅完成构造；使用前 analog_input_configure() 必须成功。
  */
@@ -130,7 +130,7 @@ analog_input_status_t analog_input_board_ctor_all(void);
 /**
  * @brief 返回某个通道的接口对象。
  *
- * @param channel 从 1 开始的板级通道号。
+ * @param channel 从 0 开始的板级通道号。
  * @return 通道对象；通道无效时返回 NULL。
  */
 analog_input_t* analog_input_board_get(uint8_t channel);
