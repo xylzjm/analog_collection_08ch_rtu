@@ -24,9 +24,6 @@ extern "C" {
 /* 通道模型                                                                   */
 /*----------------------------------------------------------------------------*/
 
-/** @brief 测量通道数量（板级硬件事实，不是应用层选择）。 */
-#define CH_CONFIG_CHANNEL_COUNT BOARD_CHANNEL_COUNT
-
 /** @brief 存放于 ch_config_t::type 的输入类型码。 */
 typedef enum {
     CH_TYPE_TC     = 0, /**< 热电偶。 */

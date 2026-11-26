@@ -11,9 +11,6 @@
 extern "C" {
 #endif
 
-/** @brief 已装配的 SIG24131 器件数量（每个通道位置一个）。 */
-#define SIG24131_BOARD_INSTANCE_COUNT BOARD_CHANNEL_COUNT
-
 /**
  * @brief 构造某个通道的驱动实例。
  *

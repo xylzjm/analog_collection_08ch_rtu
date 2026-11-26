@@ -49,7 +49,7 @@ typedef struct {
  * @brief 构造一个通道活动对象。
  *
  * @param me 调用者拥有的存储。
- * @param ch 通道索引，0 基（0..CH_CONFIG_CHANNEL_COUNT-1）。
+ * @param ch 通道索引，0 基（0..BOARD_CHANNEL_COUNT-1）。
  * @param input 要接管的板级通道对象；借用，其生命周期必须长于本 AO。
  */
 void channel_ao_ctor(channel_ao_t* me,

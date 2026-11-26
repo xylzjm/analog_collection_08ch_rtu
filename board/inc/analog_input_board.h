@@ -12,9 +12,6 @@
 extern "C" {
 #endif
 
-/** @brief 本板的模拟输入通道数量（每个 SIG24131 对应一个通道）。 */
-#define ANALOG_INPUT_BOARD_CHANNEL_COUNT SIG24131_BOARD_INSTANCE_COUNT
-
 /** @brief 4-20 mA 输入的取样电阻。 */
 #define ANALOG_INPUT_BOARD_SHUNT_OHMS 200.0f
 

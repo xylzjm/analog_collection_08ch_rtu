@@ -13,27 +13,27 @@ typedef struct {
     uint16_t cs_pin;
 } cs_binding_t;
 
-/* 可选通道随 SIG24131_BOARD_INSTANCE_COUNT 一同编译剔除。 */
-static const cs_binding_t cs_bindings[SIG24131_BOARD_INSTANCE_COUNT] = {
+/* 可选通道随 BOARD_CHANNEL_COUNT 一同编译剔除。 */
+static const cs_binding_t cs_bindings[BOARD_CHANNEL_COUNT] = {
     {CTRL_nCS_1_GPIO_PORT, CTRL_nCS_1_PIN},
     {CTRL_nCS_2_GPIO_PORT, CTRL_nCS_2_PIN},
     {CTRL_nCS_3_GPIO_PORT, CTRL_nCS_3_PIN},
     {CTRL_nCS_4_GPIO_PORT, CTRL_nCS_4_PIN},
-#if SIG24131_BOARD_INSTANCE_COUNT >= 5U
+#if BOARD_CHANNEL_COUNT >= 5U
     {CTRL_nCS_5_GPIO_PORT, CTRL_nCS_5_PIN},
 #endif
-#if SIG24131_BOARD_INSTANCE_COUNT >= 6U
+#if BOARD_CHANNEL_COUNT >= 6U
     {CTRL_nCS_6_GPIO_PORT, CTRL_nCS_6_PIN},
 #endif
-#if SIG24131_BOARD_INSTANCE_COUNT >= 7U
+#if BOARD_CHANNEL_COUNT >= 7U
     {CTRL_nCS_7_GPIO_PORT, CTRL_nCS_7_PIN},
 #endif
-#if SIG24131_BOARD_INSTANCE_COUNT >= 8U
+#if BOARD_CHANNEL_COUNT >= 8U
     {CTRL_nCS_8_GPIO_PORT, CTRL_nCS_8_PIN},
 #endif
 };
 
-static sig24131_t devices[SIG24131_BOARD_INSTANCE_COUNT];
+static sig24131_t devices[BOARD_CHANNEL_COUNT];
 
 static sig24131_status_t wait_flag(uint32_t flag)
 {
@@ -110,7 +110,7 @@ sig24131_status_t sig24131_board_ctor(uint8_t channel)
     sig24131_port_t port;
     sig24131_status_t status;
 
-    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= BOARD_CHANNEL_COUNT ) {
         return SIG24131_ERR_ARG;
     }
 
@@ -132,7 +132,7 @@ sig24131_status_t sig24131_board_ctor_all(void)
     sig24131_status_t status;
     uint8_t channel;
 
-    for ( channel = 0U; channel < SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+    for ( channel = 0U; channel < BOARD_CHANNEL_COUNT; ++channel ) {
         status = sig24131_board_ctor(channel);
         if ( status != SIG24131_OK ) {
             return status;
@@ -144,7 +144,7 @@ sig24131_status_t sig24131_board_ctor_all(void)
 
 sig24131_status_t sig24131_board_reset(uint8_t channel)
 {
-    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= BOARD_CHANNEL_COUNT ) {
         return SIG24131_ERR_ARG;
     }
 
@@ -157,7 +157,7 @@ sig24131_status_t sig24131_board_reset_all(void)
     sig24131_status_t result = SIG24131_OK;
     uint8_t channel;
 
-    for ( channel = 0U; channel < SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+    for ( channel = 0U; channel < BOARD_CHANNEL_COUNT; ++channel ) {
         status = sig24131_board_reset(channel);
         if ( status != SIG24131_OK && result == SIG24131_OK ) {
             result = status;
@@ -171,7 +171,7 @@ sig24131_status_t sig24131_board_reset_all(void)
 
 sig24131_t* sig24131_board_get_device(uint8_t channel)
 {
-    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= BOARD_CHANNEL_COUNT ) {
         return NULL;
     }
     return &devices[channel];

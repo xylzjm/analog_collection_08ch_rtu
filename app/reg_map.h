@@ -134,7 +134,7 @@ uint16_t reg_map_dev_decode(const uint8_t* buf);
  * REG_SPAN_CH_IN 使用 span->channel 及相对 span->base 的偏移，
  * REG_SPAN_SYS 组装 CJC 与故障字；其他种类一律回读为 0。
  *
- * @param value 每通道最近测量值（CH_CONFIG_CHANNEL_COUNT 项）。
+ * @param value 每通道最近测量值（BOARD_CHANNEL_COUNT 项）。
  * @param status 每通道状态码。
  * @param cjc_temp 冷端温度。
  * @param fault_word 设备故障字（寄存器 68）。

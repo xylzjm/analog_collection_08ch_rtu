@@ -459,15 +459,15 @@ static uint16_t expect_input_word(const float* value,
 
 static void test_input_layout(void)
 {
-    float value[CH_CONFIG_CHANNEL_COUNT];
-    uint16_t status[CH_CONFIG_CHANNEL_COUNT];
+    float value[BOARD_CHANNEL_COUNT];
+    uint16_t status[BOARD_CHANNEL_COUNT];
     float cjc_temp;
     uint16_t fault_word;
     uint8_t buf[72U * 2U];
     const reg_span_t* span;
     uint16_t i;
 
-    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+    for ( i = 0U; i < BOARD_CHANNEL_COUNT; ++i ) {
         value[i]  = (float)(i + 1U) * 1.5f;
         status[i] = (uint16_t)(100U + i);
     }

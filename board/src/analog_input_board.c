@@ -28,22 +28,22 @@ typedef struct {
     uint16_t com_pin;
 } front_end_switch_t;
 
-/* 可选通道随 SIG24131_BOARD_INSTANCE_COUNT 一同编译剔除。 */
-static const front_end_switch_t switches[SIG24131_BOARD_INSTANCE_COUNT] = {
+/* 可选通道随 BOARD_CHANNEL_COUNT 一同编译剔除。 */
+static const front_end_switch_t switches[BOARD_CHANNEL_COUNT] = {
     {CTRL_CV_1_GPIO_PORT, CTRL_CV_1_PIN, CTRL_COM_1_GPIO_PORT, CTRL_COM_1_PIN},
     {CTRL_CV_2_GPIO_PORT, CTRL_CV_2_PIN, CTRL_COM_2_GPIO_PORT, CTRL_COM_2_PIN},
     {CTRL_CV_3_GPIO_PORT, CTRL_CV_3_PIN, CTRL_COM_3_GPIO_PORT, CTRL_COM_3_PIN},
     {CTRL_CV_4_GPIO_PORT, CTRL_CV_4_PIN, CTRL_COM_4_GPIO_PORT, CTRL_COM_4_PIN},
-#if SIG24131_BOARD_INSTANCE_COUNT >= 5U
+#if BOARD_CHANNEL_COUNT >= 5U
     {CTRL_CV_5_GPIO_PORT, CTRL_CV_5_PIN, CTRL_COM_5_GPIO_PORT, CTRL_COM_5_PIN},
 #endif
-#if SIG24131_BOARD_INSTANCE_COUNT >= 6U
+#if BOARD_CHANNEL_COUNT >= 6U
     {CTRL_CV_6_GPIO_PORT, CTRL_CV_6_PIN, CTRL_COM_6_GPIO_PORT, CTRL_COM_6_PIN},
 #endif
-#if SIG24131_BOARD_INSTANCE_COUNT >= 7U
+#if BOARD_CHANNEL_COUNT >= 7U
     {CTRL_CV_7_GPIO_PORT, CTRL_CV_7_PIN, CTRL_COM_7_GPIO_PORT, CTRL_COM_7_PIN},
 #endif
-#if SIG24131_BOARD_INSTANCE_COUNT >= 8U
+#if BOARD_CHANNEL_COUNT >= 8U
     {CTRL_CV_8_GPIO_PORT, CTRL_CV_8_PIN, CTRL_COM_8_GPIO_PORT, CTRL_COM_8_PIN},
 #endif
 };
@@ -360,13 +360,13 @@ static const analog_input_ops_t ops = {
     .check_wire_break        = check_wire_break,
 };
 
-static analog_input_board_t instances[SIG24131_BOARD_INSTANCE_COUNT];
+static analog_input_board_t instances[BOARD_CHANNEL_COUNT];
 analog_input_status_t analog_input_board_ctor(uint8_t channel)
 {
     analog_input_board_t* instance;
     analog_input_status_t status;
 
-    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= BOARD_CHANNEL_COUNT ) {
         return ANALOG_INPUT_ERR_ARG;
     }
     instance = &instances[channel];
@@ -385,7 +385,7 @@ analog_input_status_t analog_input_board_ctor_all(void)
     analog_input_status_t status;
     uint8_t channel;
 
-    for ( channel = 0U; channel < SIG24131_BOARD_INSTANCE_COUNT; ++channel ) {
+    for ( channel = 0U; channel < BOARD_CHANNEL_COUNT; ++channel ) {
         status = analog_input_board_ctor(channel);
         if ( status != ANALOG_INPUT_OK ) {
             return status;
@@ -396,7 +396,7 @@ analog_input_status_t analog_input_board_ctor_all(void)
 
 analog_input_t* analog_input_board_get(uint8_t channel)
 {
-    if ( channel >= SIG24131_BOARD_INSTANCE_COUNT ) {
+    if ( channel >= BOARD_CHANNEL_COUNT ) {
         return NULL;
     }
     return &instances[channel].base;

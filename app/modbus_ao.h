@@ -24,19 +24,19 @@ extern "C" {
 /** @brief 配置区镜像：已固化配置与地址（变化检查基准；只在 AoModbus 的
  *  RTC 内写入）。 */
 typedef struct {
-    ch_config_t cfg[CH_CONFIG_CHANNEL_COUNT]; /**< 每通道最近一次已固化配置。 */
-    uint8_t cfg_ok[CH_CONFIG_CHANNEL_COUNT];  /**< cfg[ch] 已固化且可用。 */
-    uint8_t applied[CH_CONFIG_CHANNEL_COUNT]; /**< 通道已接受 cfg[ch]（CFG_APPLIED_SIG）。 */
-    uint16_t addr;                            /**< 生效从站地址。 */
-    uint8_t addr_ok;                          /**< addr 已固化且可用。 */
+    ch_config_t cfg[BOARD_CHANNEL_COUNT]; /**< 每通道最近一次已固化配置。 */
+    uint8_t cfg_ok[BOARD_CHANNEL_COUNT];  /**< cfg[ch] 已固化且可用。 */
+    uint8_t applied[BOARD_CHANNEL_COUNT]; /**< 通道已接受 cfg[ch]（CFG_APPLIED_SIG）。 */
+    uint16_t addr;                        /**< 生效从站地址。 */
+    uint8_t addr_ok;                      /**< addr 已固化且可用。 */
 } modbus_ao_config_image_t;
 
 /** @brief 遥测区镜像：馈送输入寄存器的最近遥测。 */
 typedef struct {
-    float value[CH_CONFIG_CHANNEL_COUNT];     /**< 最近测量值。 */
-    uint16_t status[CH_CONFIG_CHANNEL_COUNT]; /**< 通道状态码（ch_status_t）。 */
-    float cjc_temp;                           /**< 最近冷端温度。 */
-    uint8_t cjc_valid;                        /**< 故障字 b0 来源。 */
+    float value[BOARD_CHANNEL_COUNT];     /**< 最近测量值。 */
+    uint16_t status[BOARD_CHANNEL_COUNT]; /**< 通道状态码（ch_status_t）。 */
+    float cjc_temp;                       /**< 最近冷端温度。 */
+    uint8_t cjc_valid;                    /**< 故障字 b0 来源。 */
 } modbus_ao_telemetry_image_t;
 
 /** @brief 参数持久化结果状态。 */

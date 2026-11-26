@@ -113,7 +113,7 @@ latched = (store.commit_failed        ? REG_MAP_FAULT_PARAM_WRITE)
 ```
 
 两道守卫：b2 仅在 `store.db_ok` 时存在——存储没打开时只报 b3，不把"没加载"误报成
-"加载失败"；`load_failed` 扫描只看 `ch < CH_CONFIG_CHANNEL_COUNT`（SKU 掩码，
+"加载失败"；`load_failed` 扫描只看 `ch < BOARD_CHANNEL_COUNT`（SKU 掩码，
 未装配位置不报故障）。b0 实时、b1..b3 锁存，合成经 `reg_map_fault_word()`（纯函数）。
 
 三类 flash 故障语义：

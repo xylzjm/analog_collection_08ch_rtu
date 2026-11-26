@@ -57,7 +57,7 @@ static uint8_t rec_started;
 static struct {
     uint8_t ch;
     ch_config_t cfg;
-} published[CH_CONFIG_CHANNEL_COUNT + 2U];
+} published[BOARD_CHANNEL_COUNT + 2U];
 static uint16_t published_count;
 
 /** @brief 场景自身的启动加载所发布的配置。 */
@@ -252,7 +252,7 @@ static void world_preload_defaults(uint8_t skip_ch)
     uint16_t addr = REG_MAP_DEFAULT_DEV_ADDR;
     uint8_t ch;
 
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         char key[FDB_FAKE_MAX_KEY];
 
         if ( ch == skip_ch ) {
@@ -350,13 +350,13 @@ static void test_boot_load_publishes(void)
     uint16_t crc;
 
     scenario_begin();
-    CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
+    CHECK(boot_publish_count == BOARD_CHANNEL_COUNT);
     CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.config.addr_ok == 1U);
     {
         uint8_t ch;
 
-        for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
             CHECK(published[ch].ch == ch);
             CHECK(published[ch].cfg.type == (uint8_t)CH_TYPE_TC);
             CHECK(published[ch].cfg.rate_code == 2U);
@@ -700,10 +700,10 @@ static void test_boot_load_failure(void)
     world_start();
 
     /* 只有健康的通道被发布和采纳。 */
-    CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
+    CHECK(boot_publish_count == (uint16_t)(BOARD_CHANNEL_COUNT - 1U));
     CHECK(ao.config.cfg_ok[2] == 0U);
     CHECK(ao.config.cfg_ok[0] == 1U);
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
             CHECK(ao.config.cfg[ch].type == (uint8_t)CH_TYPE_TC);
             CHECK(ao.config.cfg[ch].rate_code == 2U);
@@ -732,7 +732,7 @@ static void test_bad_address(void)
     world_preload_addr(0U);
     world_start();
 
-    CHECK(boot_publish_count == CH_CONFIG_CHANNEL_COUNT);
+    CHECK(boot_publish_count == BOARD_CHANNEL_COUNT);
     CHECK(ao.config.addr == REG_MAP_DEFAULT_DEV_ADDR);
     CHECK(ao.config.addr_ok == 0U);
     {
@@ -764,9 +764,9 @@ static void test_boot_missing_key(void)
     world_start();
 
     /* 只有 ch5 的 b2：有内容的存储不会回填任何东西。 */
-    CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
+    CHECK(boot_publish_count == (uint16_t)(BOARD_CHANNEL_COUNT - 1U));
     CHECK(ao.config.cfg_ok[5] == 0U);
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         if ( ch != 5U ) {
             CHECK(ao.config.cfg_ok[ch] == 1U);
         }
@@ -804,9 +804,9 @@ static void test_boot_oversize_body(void)
     fdb_fake_put("cfg/ch3", big, sizeof(big));
     world_start();
 
-    CHECK(boot_publish_count == (uint16_t)(CH_CONFIG_CHANNEL_COUNT - 1U));
+    CHECK(boot_publish_count == (uint16_t)(BOARD_CHANNEL_COUNT - 1U));
     CHECK(ao.config.cfg_ok[3] == 0U);
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         if ( ch != 3U ) {
             CHECK(ao.config.cfg_ok[ch] == 1U);
         }

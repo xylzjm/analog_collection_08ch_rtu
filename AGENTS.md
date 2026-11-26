@@ -29,18 +29,18 @@ EasyLogger、flashDB/FAL）。多根工作区文件把这两个目录都加了�
 - 只能通过 EIDE 构建：VS Code 任务 `build`、`rebuild`、`clean`、`flash`、
   `build and flash`，或使用项目 uid `2b2c107904df4cdb1e97e57d6947db29` 的 EIDE MCP
   工具（`rebuild` 是可靠的全量检查）。
-- 一次干净构建是 64 个 C 文件 + 1 个汇编文件，ROM 51.39/60 KB（85.7 %），RAM
+- 一次干净构建是 64 个 C 文件 + 1 个汇编文件，ROM 51.38/60 KB（85.6 %），RAM
   9.09/16 KB。`-O1` 是有意为之：在 `-O0` 下完整 QP 运行时加上 FlashDB KV 层大约
   需要 70 KB，装不下。把 ROM 余量当作稀缺资源。
 - 烧录时绝不要整片擦除：最后 4 KB（`0x0800F000..0x0800FFFF`）存放 `fdb_kvdb`
   参数分区，而 ROM 只链接到 60 KB（`0xF000`）。
 - SKU 变体在编译期固定通道数：在 EIDE 预处理器宏（`.eide/eide.yml` 的
   `defineList`）中定义 `SIG24131_BOARD_COUNT=N`（1..8）。该开关在
-  `board/inc/board_config.h`（`BOARD_CHANNEL_COUNT`）中解析；每一层的名字都由它
-  派生。当前的 define 列表只设置了 `AT32F421C8T7`，所以默认是全部 8 个位置。未
-  焊接的位置返回 EX 02（ILLEGAL_DATA_ADDRESS）；KV 键保持 8 位置布局。主机测试
-  始终按完整的 8 位置板建模；验证变体要编译固件并在目标板上检查未焊接地址，而不
-  是重跑主机测试。
+  `board/inc/board_config.h` 解析为 `BOARD_CHANNEL_COUNT`，它是“已装配通道数”的
+  唯一名字，板级与应用代码共用。当前的 define 列表只设置了 `AT32F421C8T7`，所以
+  默认是全部 8 个位置。未焊接的位置返回 EX 02（ILLEGAL_DATA_ADDRESS）；KV 键保持
+  8 位置布局。主机测试始终按完整的 8 位置板建模；验证变体要编译固件并在目标板上检
+  查未焊接地址，而不是重跑主机测试。
 - `build/` 已被 gitignore 且经常是过期的。绝不要把 `build/Debug/*.lnp`、`*.map`
   或 `.obj` 当作当前文件列表——先重新构建。
   `build/Debug/compile_commands.json` 每次构建都会重新生成，供 clangd 使用。

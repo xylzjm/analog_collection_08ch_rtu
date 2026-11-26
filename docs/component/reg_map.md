@@ -21,7 +21,7 @@ CH_IN/SYS）、`reg_span_t`（space/base/n/kind/channel）。一张按 `space` �
 - **8 位置单源**：通道行由 `board_config.h` 的 `BOARD_POSITIONS` X 宏展开（与 KV
   默认表同源），行数编译期守卫——不存在第二份手维护的位置清单。
 - **SKU 装配数过滤**：表描述底板 8 位置全布局，`reg_map_find`（文件内 static）
-  把未装配位置（`channel >= CH_CONFIG_CHANNEL_COUNT`）过滤为 EX 02——既有通道地址
+  把未装配位置（`channel >= BOARD_CHANNEL_COUNT`）过滤为 EX 02——既有通道地址
   不随装配数变化。
 - 字段一律枚举类型直用（类型安全、自文档），表在 ROM。几何常量
   （`REG_MAP_CH_CFG_LEN`、`REG_MAP_DEV_BASE`、`REG_MAP_CH_IN_LEN/_STRIDE`、

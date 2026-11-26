@@ -725,7 +725,6 @@ static void test_rate_table(void)
 {
     uint16_t code;
 
-    CHECK(CH_CONFIG_CHANNEL_COUNT == ANALOG_INPUT_BOARD_CHANNEL_COUNT);
     CHECK(CH_CONFIG_RATE_CODE_COUNT == 13U);
 
     for ( code = 0U; code < CH_CONFIG_RATE_CODE_COUNT; ++code ) {

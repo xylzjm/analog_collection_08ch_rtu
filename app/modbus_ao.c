@@ -47,7 +47,7 @@ static uint16_t fault_word(const modbus_ao_t* me)
     if ( me->store.db_ok != 0U ) {
         uint8_t load_failed = (me->config.addr_ok == 0U) ? 1U : 0U;
 
-        for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
             if ( me->config.cfg_ok[ch] == 0U ) {
                 load_failed = 1U;
                 break;
@@ -328,7 +328,7 @@ static void load_all(modbus_ao_t* me)
         return;
     }
 
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         me->config.cfg_ok[ch] = 0U;
         (void)load_cfg(me, ch);
     }
@@ -352,7 +352,7 @@ static commit_status_t save_cfg(modbus_ao_t* me,
                                 uint8_t ch,
                                 const ch_config_t* cfg)
 {
-    if ( (ch >= CH_CONFIG_CHANNEL_COUNT) || (me->store.db_ok == 0U) ) {
+    if ( (ch >= BOARD_CHANNEL_COUNT) || (me->store.db_ok == 0U) ) {
         return COMMIT_ERR;
     }
 
@@ -666,7 +666,7 @@ void modbus_ao_ctor(modbus_ao_t* me,
     me->diag.tx_timeout_cnt = 0U;
     me->diag.hb_ctr         = 0U;
 
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         /* 在首条 MEASURE_SIG 之前，通道上报“未配置”。 */
         memset(&me->config.cfg[ch], 0, sizeof(me->config.cfg[ch]));
         me->config.cfg_ok[ch]    = 0U;
@@ -733,7 +733,7 @@ static QState modbus_ao_initial(modbus_ao_t* const me, void const* const par)
     QActive_subscribe(Q_ACTIVE_UPCAST(me), CFG_APPLIED_SIG);
 
     load_all(me);
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         if ( me->config.cfg_ok[ch] != 0U ) {
             publish_cfg(me, ch, &me->config.cfg[ch]);
         }
@@ -784,7 +784,7 @@ static QState modbus_ao_serving(modbus_ao_t* const me, QEvt const* const e)
         case CFG_APPLIED_SIG: {
             uint8_t ch = Q_EVT_CAST(cfg_applied_evt_t)->ch;
 
-            if ( ch < CH_CONFIG_CHANNEL_COUNT ) {
+            if ( ch < BOARD_CHANNEL_COUNT ) {
                 me->config.applied[ch] = 1U;
             }
             status = Q_HANDLED();

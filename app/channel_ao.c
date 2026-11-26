@@ -227,7 +227,7 @@ void channel_ao_ctor(channel_ao_t* me,
     Q_ASSERT(me->input != NULL);
 
     me->ch = ch;
-    Q_ASSERT(ch < CH_CONFIG_CHANNEL_COUNT);
+    Q_ASSERT(ch < BOARD_CHANNEL_COUNT);
     me->cjc_temp   = 0.0f;
     me->last_value = 0.0f;
     me->settle_ms  = 0U;

@@ -95,7 +95,7 @@ static const reg_span_t* reg_map_find(reg_space_t space,
         /* 未装配的通道位置不属于映射：表描述的是 8 位置板级布局，由 SKU
          * 装配情况过滤。 */
         if ( ((span->kind == REG_SPAN_CH_CFG) || (span->kind == REG_SPAN_CH_IN))
-             && (span->channel >= CH_CONFIG_CHANNEL_COUNT) ) {
+             && (span->channel >= BOARD_CHANNEL_COUNT) ) {
             continue;
         }
         if ( ((uint32_t)span->base <= (uint32_t)start)

@@ -44,8 +44,8 @@ static int failures;
         }                                                          \
     } while ( 0 )
 
-static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
-static analog_input_fake_t inputs[CH_CONFIG_CHANNEL_COUNT];
+static channel_ao_t channels[BOARD_CHANNEL_COUNT];
+static analog_input_fake_t inputs[BOARD_CHANNEL_COUNT];
 static cold_junction_ao_t cold_junction;
 static modbus_ao_t modbus;
 static tmp75_t cjc_dev;
@@ -56,7 +56,7 @@ static uint8_t tx_buffer[256];
 static modbus_slave_t slave;
 static modbus_port_fake_t port;
 
-static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
+static QEvtPtr ch_queue[BOARD_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
 static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
 static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
 static QSubscrList subscr[MAX_SIG];
@@ -68,7 +68,7 @@ static QF_MPOOL_EL(config_set_evt_t) pool_b[APP_POOL_B_BLOCK_NUM];
 /*----------------------------------------------------------------------------*/
 
 /** @brief 所有已启动 AO 的队列，用于轮询排空。 */
-static QActive* all_aos[CH_CONFIG_CHANNEL_COUNT + 2U];
+static QActive* all_aos[BOARD_CHANNEL_COUNT + 2U];
 static uint8_t all_count;
 
 static void tick(uint32_t n)
@@ -143,7 +143,7 @@ static void boot_scenario(uint8_t fail_ch)
     QActive_psInit(subscr, MAX_SIG);
 
     fdb_fake_reset();
-    if ( fail_ch < CH_CONFIG_CHANNEL_COUNT ) {
+    if ( fail_ch < BOARD_CHANNEL_COUNT ) {
         /* 部分存储绝不会被回填：用出厂正文预置每一行默认记录，再把其中一条正文
          * 破坏——真实加载器必须恰好拒绝那个键。 */
         static const ch_config_t cfg = {
@@ -160,7 +160,7 @@ static void boot_scenario(uint8_t fail_ch)
         uint8_t ch;
         char key[FDB_FAKE_MAX_KEY];
 
-        for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+        for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
             (void)snprintf(key, sizeof(key), "cfg/ch%u", (unsigned)ch);
             fdb_fake_put(key, &cfg, sizeof(cfg));
         }
@@ -180,7 +180,7 @@ static void boot_scenario(uint8_t fail_ch)
     modbus_ao_ctor(&modbus, &slave, &cfg);
 
     /* 通道优先：每个 AO 都在初始迁移中订阅。 */
-    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+    for ( i = 0U; i < BOARD_CHANNEL_COUNT; ++i ) {
         analog_input_fake_init(&inputs[i]);
         channel_ao_ctor(&channels[i], (uint8_t)i, &inputs[i].base);
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
@@ -188,7 +188,7 @@ static void boot_scenario(uint8_t fail_ch)
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN, (void*)0, 0U, (void*)0);
         all_aos[i] = Q_ACTIVE_UPCAST(&channels[i]);
     }
-    all_count = CH_CONFIG_CHANNEL_COUNT;
+    all_count = BOARD_CHANNEL_COUNT;
 
     /* AoModbus：其启动加载向通道发布 CONFIG_SET_SIG。 */
     QActive_start(Q_ACTIVE_UPCAST(&modbus), Q_PRIO(APP_PRIO_MODBUS, 0U),
@@ -218,14 +218,14 @@ static void test_full_boot(void)
 
     /* 每个通道都能看到每一次启动发布（接收方按 ch 过滤）以及首次 CJC 心跳：
      * 突发峰值时占用 13 个队列槽中的 9 个。 */
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         CHECK(QEQueue_getUse(&channels[ch].super.eQueue)
-              == (uint16_t)(CH_CONFIG_CHANNEL_COUNT + 1U));
+              == (uint16_t)(BOARD_CHANNEL_COUNT + 1U));
     }
 
     /* 突发量符合 docs/qp-application-design.md 第 7 节的容量预算：
      * 深度 13 覆盖 8 次发布 + 1 次心跳 + 余量。 */
-    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+    for ( i = 0U; i < BOARD_CHANNEL_COUNT; ++i ) {
         CHECK(QActive_getQueueMin((uint_fast8_t)(APP_PRIO_CH_FIRST + i)) >= 3U);
     }
     CHECK(QActive_getQueueMin(APP_PRIO_MODBUS) >= 8U);
@@ -234,7 +234,7 @@ static void test_full_boot(void)
     /* 先让每个通道稳定，再采样：10 Hz 每个值需要 100 ms。 */
     run_ticks(1200U);
 
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         CHECK(channels[ch].cjc_valid != 0U);
         CHECK(analog_input_fake_count(&inputs[ch],
                                       (uint8_t)ANALOG_INPUT_FAKE_READ_SAMPLE)
@@ -242,7 +242,7 @@ static void test_full_boot(void)
     }
 
     /* 镜像保存了每个通道的遥测；每份配置的接受结果以 CFG_APPLIED_SIG 到达。 */
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         CHECK(modbus.telemetry.value[ch] == 25.0f);
         CHECK(modbus.telemetry.status[ch] == (uint16_t)CH_STATUS_OK);
         CHECK(modbus.config.applied[ch] == 1U);
@@ -280,7 +280,7 @@ static void test_failed_channel_stays_down(void)
     CHECK(read_fault_word() == (uint16_t)REG_MAP_FAULT_PARAM_LOAD);
 
     /* 其余每个通道仍在运行。 */
-    for ( ch = 0U; ch < CH_CONFIG_CHANNEL_COUNT; ++ch ) {
+    for ( ch = 0U; ch < BOARD_CHANNEL_COUNT; ++ch ) {
         if ( ch != 2U ) {
             CHECK(modbus.telemetry.value[ch] == 25.0f);
             CHECK(modbus.config.applied[ch] == 1U);

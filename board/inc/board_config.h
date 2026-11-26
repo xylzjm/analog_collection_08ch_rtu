@@ -6,8 +6,7 @@
  * @brief 板级拓扑与总线事实；编译期开关的唯一归属地。
  *
  * 自包含：不包含其他头文件、不含代码，任何上下文都可安全使用。
- * board.h 重新导出本文件；板级设备头文件与应用层通道模型各自从
- * BOARD_CHANNEL_COUNT 派生语义名称。
+ * board.h 重新导出本文件。
  */
 
 /**
@@ -38,22 +37,20 @@
 #define BOARD_PARAM_PARTITION "fdb_kvdb"
 
 /**
- * @brief 已装配的通道位置（1..BOARD_POSITION_COUNT）。
+ * @brief 已装配通道数（取值 1..BOARD_POSITION_COUNT）。
  *
  * SKU 开关是预处理宏 SIG24131_BOARD_COUNT=N；未定义时每个位置都已
- * 装配。
+ * 装配。板级与应用代码都直接使用这一个名字。
  */
-#ifndef BOARD_CHANNEL_COUNT
 #ifdef SIG24131_BOARD_COUNT
 #define BOARD_CHANNEL_COUNT SIG24131_BOARD_COUNT
 #else
 #define BOARD_CHANNEL_COUNT BOARD_POSITION_COUNT
 #endif
-#endif
 
 #if ( BOARD_CHANNEL_COUNT < 1U ) \
     || (BOARD_CHANNEL_COUNT > BOARD_POSITION_COUNT)
-#error "BOARD_CHANNEL_COUNT must be between 1 and 8"
+#error BOARD_CHANNEL_COUNT out of range (1..BOARD_POSITION_COUNT)
 #endif
 
 /**

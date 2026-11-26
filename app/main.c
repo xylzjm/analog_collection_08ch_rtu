@@ -47,11 +47,11 @@ static void log_init(void)
 /* 组合根                                                                     */
 /*----------------------------------------------------------------------------*/
 
-static channel_ao_t channels[CH_CONFIG_CHANNEL_COUNT];
+static channel_ao_t channels[BOARD_CHANNEL_COUNT];
 static cold_junction_ao_t cold_junction;
 static modbus_ao_t modbus;
 
-static QEvtPtr ch_queue[CH_CONFIG_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
+static QEvtPtr ch_queue[BOARD_CHANNEL_COUNT][CHANNEL_AO_QUEUE_LEN];
 static QEvtPtr cjc_queue[COLD_JUNCTION_AO_QUEUE_LEN];
 static QEvtPtr modbus_queue[MODBUS_AO_QUEUE_LEN];
 
@@ -75,7 +75,7 @@ int main(void)
     /* 平台半配置；AO 在构造函数中构建从站核心并打开参数数据库。 */
     modbus_ao_ctor(&modbus, modbus_slave_board_get(), modbus_slave_board_config());
 
-    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+    for ( i = 0U; i < BOARD_CHANNEL_COUNT; ++i ) {
         channel_ao_ctor(&channels[i],
                         (uint8_t)i,
                         analog_input_board_get((uint8_t)i));
@@ -88,7 +88,7 @@ int main(void)
      * 每个订阅者。每个活动对象都在自己的状态机初始转换中订阅（QP/C 示例
      * 风格；QActive_start() 在 QASM_INIT 之前注册该 AO）。
      */
-    for ( i = 0U; i < CH_CONFIG_CHANNEL_COUNT; ++i ) {
+    for ( i = 0U; i < BOARD_CHANNEL_COUNT; ++i ) {
         QActive_start(Q_ACTIVE_UPCAST(&channels[i]),
                       Q_PRIO((uint8_t)(APP_PRIO_CH_FIRST + i), 0U),
                       ch_queue[i], CHANNEL_AO_QUEUE_LEN,
