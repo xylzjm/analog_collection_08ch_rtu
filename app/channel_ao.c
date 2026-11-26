@@ -18,12 +18,6 @@ Q_DEFINE_THIS_MODULE("channel_ao")
 /** @brief 改配重入事件；由全部八个实例共享。 */
 static QEvt const applyEvt = QEVT_INITIALIZER(APPLY_SIG);
 
-/* wire_status_code() 依赖这一断线结果编码。 */
-Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_NORMAL == 0);
-Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN == 1);
-Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN_LEAD == 2);
-Q_ASSERT_STATIC(ANALOG_INPUT_WIRE_BROKEN_RETURN == 3);
-
 /* 通道类型码必须与 analog_input_type_t 的编码一致。 */
 Q_ASSERT_STATIC((int)CH_TYPE_TC == (int)ANALOG_INPUT_TYPE_THERMOCOUPLE);
 Q_ASSERT_STATIC((int)CH_TYPE_PT100 == (int)ANALOG_INPUT_TYPE_PT100);
@@ -69,8 +63,7 @@ static bool detectable(const channel_ao_t* me)
 /**
  * @brief 把断线检查结果映射为通道状态码。
  *
- * 断线状态参数使用 analog_input_wire_status_t 编码（0 正常，1 断线不可
- * 分辨，2 激励线断，3 回流线断）。
+ * 断线状态参数使用 analog_input_wire_status_t 编码。
  *
  * @return 正常返回 0；热电偶断线一律返回 2；PT100 可分辨断线返回 3/4；
  *         PT100 不可分辨断线（前端契约违约）、不可检测的类型或未知断线码
@@ -79,7 +72,7 @@ static bool detectable(const channel_ao_t* me)
 static uint16_t wire_status_code(uint8_t cfg_type,
                                  uint8_t wire_status)
 {
-    if ( wire_status == 0U ) {
+    if ( wire_status == (uint8_t)ANALOG_INPUT_WIRE_NORMAL ) {
         return (uint16_t)CH_STATUS_OK;
     }
 
@@ -89,10 +82,10 @@ static uint16_t wire_status_code(uint8_t cfg_type,
     }
 
     if ( cfg_type == (uint8_t)CH_TYPE_PT100 ) {
-        if ( wire_status == 2U ) {
+        if ( wire_status == (uint8_t)ANALOG_INPUT_WIRE_BROKEN_LEAD ) {
             return (uint16_t)CH_STATUS_RTD_LEAD_BREAK;
         }
-        if ( wire_status == 3U ) {
+        if ( wire_status == (uint8_t)ANALOG_INPUT_WIRE_BROKEN_RETURN ) {
             return (uint16_t)CH_STATUS_RTD_RETURN_BREAK;
         }
     }

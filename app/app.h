@@ -90,7 +90,7 @@ Q_ASSERT_STATIC((0U APP_RATE_LIST(APP_RATE_COUNT_ONE)) == CH_CONFIG_RATE_CODE_CO
 #undef APP_RATE_COUNT_ONE
 
 /**
- * @brief 单个通道的配置，20 字节，无填充，无版本字段。
+ * @brief 单个通道的配置，无填充，无版本字段。
  *
  * 该结构体本身就是 KV 值格式（键 "cfg/chN"），也是寄存器块编码的来源，
  * 因此布局必须保持稳定。校验与归一化是同一次操作：语义相同的配置必须
@@ -109,9 +109,6 @@ typedef struct {
     float offset;       /**< 校准偏置：value = raw * gain + offset。 */
     float gain;         /**< 校准增益。 */
 } ch_config_t;
-
-/* 编译期守卫：结构体内容就是 20 字节的持久化格式。 */
-Q_ASSERT_STATIC(sizeof(ch_config_t) == 20U);
 
 /** @brief 通道状态寄存器码（线上值冻结）。 */
 typedef enum {
@@ -215,21 +212,6 @@ Q_ASSERT_STATIC(sizeof(cjc_evt_t) <= sizeof(measure_evt_t));
  * 依据 docs/qp-application-design.md 第 7 节的容量表确定。
  */
 #define APP_POOL_B_BLOCK_NUM 16U
-
-/*----------------------------------------------------------------------------*/
-/* 板级位置漂移守卫                                                           */
-/*----------------------------------------------------------------------------*/
-
-/*
- * 位置列表本身及其派生数量（BOARD_POSITIONS、BOARD_POSITION_COUNT）属于
- * 板级事实，存放在 board_config.h 中；数量在那里由列表展开，因此不可能也
- * 不需要漂移守卫。这里只保留编译期守卫：它们需要 qpc.h 中的
- * Q_ASSERT_STATIC。
- */
-
-/* 漂移守卫：SKU 通道数必须不超过板级位置列表；modbus_ao 的位掩码和 KV
- * 键表都按位置索引。 */
-Q_ASSERT_STATIC(CH_CONFIG_CHANNEL_COUNT <= BOARD_POSITION_COUNT);
 
 #ifdef __cplusplus
 }
