@@ -789,8 +789,8 @@ static void test_boot_missing_key(void)
 /**
  * @brief 超长正文以加载长度错误失败，而不是被接受。
  *
- * 即使复制的副本被截断到 20 字节的配置，加载器也必须看到完整的存储长度
- *（24 != 20）。
+ * 即使复制的副本被截断到 sizeof(ch_config_t)，加载器也必须看到完整的存储长度
+ *（24 != sizeof(ch_config_t)）。
  */
 static void test_boot_oversize_body(void)
 {

@@ -132,7 +132,8 @@ static（FlashDB 直连），
 | `linear_min`/`linear_max` | `float` | 线性输入上下限工程值（仅 2/3 型） | 有限浮点；非线性型归一 0.0 |
 | `offset`/`gain` | `float` | 校准：`value = raw × gain + offset` | 有限浮点 |
 
-结构本体 20 B（编译期守卫），**就是** KV 值格式与寄存器块的编解码源，布局不得变动。
+结构本体**就是** KV 值格式与寄存器块的编解码源，布局不得变动（尺寸以 `sizeof` 为准，
+加载路径按运行时长度校验）。
 校验+归一化是同一操作（`modbus_ao.c` 的 `config_validate`，写回调与启动加载共用）：
 语义等价的配置必须字节相等——变化检查（memcmp）依赖这一点。寄存器层的类型/分度
 **合成单码**（0..7=TC B..T，8=PT100，9=4-20 mA，10=0-10 V），与 struct 字段的映射
@@ -146,7 +147,7 @@ static（FlashDB 直连），
 
 ### 持久化格式（无版本管理）
 
-KV 键 `cfg/ch0`..`cfg/ch7`（值 = `ch_config_t` 20 B 本体）、`dev/addr`（值 = u16，
+KV 键 `cfg/ch0`..`cfg/ch7`（值 = `ch_config_t` 本体）、`dev/addr`（值 = u16，
 出厂默认 1，范围 1..247）。加载侧唯一防线是 `config_validate` 语义校验：缺失/损坏/
 非法一律加载失败——不下发、不顶替、报 b2（详见 `modbus_ao.md` §6）。空 flash 首启
 由默认表物化、不报故障；`FDB_KV_AUTO_UPDATE` 保持关闭（防静默补键掩盖损坏）。
