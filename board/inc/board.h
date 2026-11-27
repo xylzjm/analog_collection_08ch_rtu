@@ -10,7 +10,7 @@ extern "C" {
 /* 中断屏蔽方式必须与 QP 端口一致（PRIMASK 或 QF_USE_BASEPRI）。 */
 #include "qp_config.h"
 
-/* 板级拓扑事实（通道数量、SKU 开关），重新导出供使用方引用。 */
+/* 板级拓扑事实（板位与通道数），重新导出供使用方引用。 */
 #include "board_config.h"
 
 /** @brief 初始化板级硬件与板级设备对象。 */

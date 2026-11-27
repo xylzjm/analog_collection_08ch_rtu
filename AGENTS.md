@@ -35,8 +35,8 @@ EasyLogger、flashDB/FAL）。多根工作区文件把这两个目录都加了�
 - 烧录时绝不要整片擦除：最后 4 KB（`0x0800F000..0x0800FFFF`）存放 `fdb_kvdb`
   参数分区，而 ROM 只链接到 60 KB（`0xF000`）。
 - SKU 变体在编译期固定通道数：在 EIDE 预处理器宏（`.eide/eide.yml` 的
-  `defineList`）中定义 `SIG24131_BOARD_COUNT=N`（1..8）。该开关在
-  `board/inc/board_config.h` 解析为 `BOARD_CHANNEL_COUNT`，它是“已装配通道数”的
+  `defineList`）中定义 `BOARD_CHANNEL_COUNT=N`（1..8）；未定义时默认
+  全部板位，范围由 `board/inc/board_config.h` 校验。该宏是“已装配通道数”的
   唯一名字，板级与应用代码共用。当前的 define 列表只设置了 `AT32F421C8T7`，所以
   默认是全部 8 个位置。未焊接的位置返回 EX 02（ILLEGAL_DATA_ADDRESS）；KV 键保持
   8 位置布局。主机测试始终按完整的 8 位置板建模；验证变体要编译固件并在目标板上检

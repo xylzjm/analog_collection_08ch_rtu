@@ -39,12 +39,11 @@
 /**
  * @brief 已装配通道数（取值 1..BOARD_POSITION_COUNT）。
  *
- * SKU 开关是预处理宏 SIG24131_BOARD_COUNT=N；未定义时每个位置都已
- * 装配。板级与应用代码都直接使用这一个名字。
+ * SKU 变体由构建系统在 EIDE defineList 中预定义本宏；未定义时默认
+ * 全部板位，范围由下方 #error 校验。板级与应用代码都直接使用这一个
+ * 名字，仓库内不存在第二个名字。
  */
-#ifdef SIG24131_BOARD_COUNT
-#define BOARD_CHANNEL_COUNT SIG24131_BOARD_COUNT
-#else
+#ifndef BOARD_CHANNEL_COUNT
 #define BOARD_CHANNEL_COUNT BOARD_POSITION_COUNT
 #endif
 
